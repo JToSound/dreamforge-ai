@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from api.routes import simulation
+from api.routes import simulation, journal
 
 
-app = FastAPI(title="DreamForge AI API", version="0.1.0")
+app = FastAPI(title="DreamForge AI API", version="0.2.0")
 
 
 @app.get("/health")
@@ -14,3 +14,4 @@ async def health() -> dict:
 
 
 app.include_router(simulation.router, prefix="/api")
+app.include_router(journal.router, prefix="/api")

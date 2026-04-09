@@ -18,6 +18,10 @@ async def simulate_night(body: DreamSimulationRequest) -> DreamNightSchema:
         night_duration_hours=body.duration_hours,
         dt_minutes=body.dt_minutes,
         pharmacology=pharm,
+        llm_enabled=body.llm_enabled,
+        llm_provider=body.llm_provider,
+        llm_model=body.llm_model,
+        llm_important_only=body.llm_important_only,
     )
     engine = SimulationEngine(config=config)
     engine.simulate_night()
@@ -27,6 +31,10 @@ async def simulate_night(body: DreamSimulationRequest) -> DreamNightSchema:
         "dt_minutes": body.dt_minutes,
         "ssri_strength": body.ssri_strength,
         "stress_level": body.stress_level,
+        "llm_enabled": body.llm_enabled,
+        "llm_provider": body.llm_provider,
+        "llm_model": body.llm_model,
+        "llm_important_only": body.llm_important_only,
     }
 
     return serialize_dream_night(night)
