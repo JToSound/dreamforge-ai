@@ -3,6 +3,9 @@ version: '3.9'
 services:
   api:
     build: .
+    working_dir: /app
+    environment:
+      - PYTHONPATH=/app
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
@@ -11,6 +14,9 @@ services:
 
   dashboard:
     build: .
+    working_dir: /app
+    environment:
+      - PYTHONPATH=/app
     command: streamlit run visualization/dashboard/app.py --server.port=8501 --server.address=0.0.0.0
     ports:
       - "8501:8501"
