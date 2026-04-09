@@ -25,6 +25,7 @@ class LLMCallable(Protocol):
 class DreamConstructorConfig:
     min_stage_for_dreaming: SleepStage = SleepStage.N1
     use_llm: bool = True
+    important_only: bool = True
 
 
 _STAGE_ORDER = {
@@ -41,7 +42,7 @@ class DreamConstructorAgent:
 
     By default it uses lightweight template-based narratives, but it exposes a
     simple hook for plugging in any LLM backend (OpenAI, Anthropic, local
-    models via Ollama, etc.).
+    models via Ollama/LM Studio, etc.).
     """
 
     def __init__(
@@ -49,9 +50,12 @@ class DreamConstructorAgent:
         event_bus: Optional[EventBus] = None,
         config: Optional[DreamConstructorConfig] = None,
         llm: Optional[LLMCallable] = None,
+        important_only: Optional[bool] = None,
     ) -> None:
         self.event_bus = event_bus or EventBus()
         self.config = config or DreamConstructorConfig()
+        if important_only is not None:
+            self.config.important_only = important_only
         self._last_time_hours: float = 0.0
         self._llm: Optional[LLMCallable] = llm
 
@@ -59,6 +63,13 @@ class DreamConstructorAgent:
         """Inject or replace the LLM backend at runtime."""
 
         self._llm = llm
+
+    def _is_important_segment(self, sleep_state: SleepState, replay_seq: Optional[ReplaySequence]) -> bool:
+        if sleep_state.stage == SleepStage.REM:
+            return True
+        if replay_seq is None:
+            return False
+        return len(replay_seq.node_ids) >= 2
 
     def step(
         self,
@@ -85,7 +96,11 @@ class DreamConstructorAgent:
         if replay_seq is not None:
             segment.active_memory_ids = replay_seq.node_ids
 
-        if self.config.use_llm and self._llm is not None:
+        use_llm = self.config.use_llm and self._llm is not None
+        if self.config.important_only and not self._is_important_segment(sleep_state, replay_seq):
+            use_llm = False
+
+        if use_llm:
             segment.narrative = self._build_narrative_llm(sleep_state, neuro_state, segment)
             segment.scene_description = self._build_scene_description_llm(sleep_state, segment)
         else:
@@ -151,7 +166,12 @@ class DreamConstructorAgent:
 
     def _estimate_bizarreness(self, segment: DreamSegment) -> float:
         n = len(segment.active_memory_ids)
-        return min(1.0, 0.1 * n)
+        # Heuristic: more distinct memories, especially with conflicting emotions,
+        # produce more bizarre content. Cap at 1.0.
+        base = 0.1 * n
+        if n >= 2:
+            base += 0.1
+        return min(1.0, base)
 
     def _emit_event(self, segment: DreamSegment) -> None:
         event = Event(

@@ -14,6 +14,7 @@ from core.agents.phenomenology_reporter import PhenomenologyReporter
 from core.models.dream_segment import DreamSegment
 from core.utils.pharmacology import PharmacologyProfile, apply_pharmacology
 from core.models.neurochemistry import NeurochemistryModel, NeurochemistryParameters
+from core.utils.llm_adapters import create_llm_callable
 
 
 @dataclass
@@ -21,6 +22,12 @@ class OrchestratorConfig:
     night_duration_hours: float = 8.0
     dt_minutes: float = 0.5
     pharmacology: Optional[PharmacologyProfile] = None
+
+    # LLM configuration
+    llm_enabled: bool = False
+    llm_provider: Optional[str] = None
+    llm_model: Optional[str] = None
+    llm_important_only: bool = True
 
 
 class OrchestratorAgent:
@@ -42,7 +49,16 @@ class OrchestratorAgent:
             event_bus=self.event_bus,
         )
         self.memory_agent = MemoryConsolidationAgent(event_bus=self.event_bus)
-        self.dream_agent = DreamConstructorAgent(event_bus=self.event_bus)
+
+        llm_callable = None
+        if self.config.llm_enabled:
+            llm_callable = create_llm_callable(self.config.llm_provider, self.config.llm_model)
+
+        self.dream_agent = DreamConstructorAgent(
+            event_bus=self.event_bus,
+            llm=llm_callable,
+            important_only=self.config.llm_important_only,
+        )
         self.meta_agent = MetacognitiveAgent(event_bus=self.event_bus)
         self.phenom_agent = PhenomenologyReporter(event_bus=self.event_bus)
 
