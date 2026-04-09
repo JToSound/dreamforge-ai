@@ -17,13 +17,7 @@ AGENTS = [
 
 
 def render_agent_activity_heatmap(segments: List[DreamSegment]) -> None:
-    """Approximate agent activity heatmap based on dream segments.
-
-    For now we approximate:
-    - Sleep & neuro agents active whenever time advances.
-    - Memory agent active when a segment references memories.
-    - Dream/meta/phenom agents active whenever a segment exists.
-    """
+    """Approximate agent activity heatmap based on dream segments."""
 
     if not segments:
         st.info("No dream segments generated for this run.")
@@ -58,6 +52,9 @@ def render_agent_activity_heatmap(segments: List[DreamSegment]) -> None:
         title="Agent Activity Heatmap (approximate)",
         xaxis_title="Agent",
         yaxis_title="Time (hours)",
+        template="plotly_dark",
+        paper_bgcolor="rgba(5,10,24,1)",
+        plot_bgcolor="rgba(5,10,24,1)",
     )
 
     st.plotly_chart(fig, use_container_width=True)

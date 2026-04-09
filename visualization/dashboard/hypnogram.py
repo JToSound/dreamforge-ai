@@ -7,7 +7,7 @@ from core.models.sleep_cycle import SleepStage, SleepState
 
 
 def render_hypnogram(states: List[SleepState]) -> None:
-    """Render a simple hypnogram using Plotly."""
+    """Render a styled hypnogram using Plotly."""
 
     if not states:
         st.info("No sleep states to display yet.")
@@ -25,7 +25,15 @@ def render_hypnogram(states: List[SleepState]) -> None:
     levels = [stage_to_level[s.stage] for s in states]
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=time, y=levels, mode="lines", name="Stage"))
+    fig.add_trace(
+        go.Scatter(
+            x=time,
+            y=levels,
+            mode="lines",
+            name="Stage",
+            line=dict(color="#38bdf8", width=3),
+        )
+    )
     fig.update_yaxes(
         tickvals=list(stage_to_level.values()),
         ticktext=[s.name for s in SleepStage],
@@ -33,6 +41,11 @@ def render_hypnogram(states: List[SleepState]) -> None:
         title="Sleep Stage",
     )
     fig.update_xaxes(title="Time (hours)")
-    fig.update_layout(title="Hypnogram")
+    fig.update_layout(
+        title="Hypnogram",
+        template="plotly_dark",
+        paper_bgcolor="rgba(5,10,24,1)",
+        plot_bgcolor="rgba(5,10,24,1)",
+    )
 
     st.plotly_chart(fig, use_container_width=True)
