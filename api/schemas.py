@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field
 
@@ -12,6 +12,8 @@ class DreamSimulationRequest(BaseModel):
 
     duration_hours: float = Field(8.0, gt=0.0)
     dt_minutes: float = Field(0.5, gt=0.0)
+    ssri_strength: float = Field(1.0, gt=0.0)
+    stress_level: float = Field(0.0, ge=0.0)
 
 
 class DreamSegmentSchema(BaseModel):

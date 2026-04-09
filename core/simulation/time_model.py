@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List
+from typing import Optional
 
 
 @dataclass
@@ -24,8 +24,3 @@ class TimeModel:
     def step(self) -> float:
         self.current_time_hours += self.dt_hours
         return self.current_time_hours
-
-    def time_axis(self) -> List[float]:
-        """Return a list of time points covering the full duration."""
-        num_steps = int(self.duration_hours / self.dt_hours)
-        return [self.start_time_hours + i * self.dt_hours for i in range(num_steps + 1)]

@@ -32,7 +32,7 @@ class MetacognitiveAgent:
         segment.lucidity_probability = lucidity
 
         event = Event(
-            type=EventType.NEUROCHEMISTRY_UPDATED,
+            type=EventType.LUCIDITY_UPDATED,
             payload={"segment_id": segment.id, "lucidity_probability": lucidity},
             timestamp_hours=segment.end_time_hours,
         )
@@ -44,12 +44,10 @@ class MetacognitiveAgent:
         sleep_state: SleepState,
         neuro_state: NeurochemistryState,
     ) -> float:
-        # Simple heuristic: higher lucidity in REM, slightly modulated by stage and arbitrary neurochemistry.
         if sleep_state.stage == SleepStage.REM:
             base = self.config.base_lucidity_rem
         else:
             base = self.config.base_lucidity_nrem
 
-        # Placeholder modulation by ACh level.
         ach_factor = min(1.0, max(0.0, neuro_state.ach))
         return max(0.0, min(1.0, base + 0.1 * (ach_factor - 0.5)))

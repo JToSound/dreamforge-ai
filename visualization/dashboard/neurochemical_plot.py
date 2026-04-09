@@ -9,6 +9,10 @@ from core.models.neurochemistry import NeurochemistryState
 def render_neurochemical_flux(states: List[NeurochemistryState]) -> None:
     """Render multi-line time series of neuromodulator levels."""
 
+    if not states:
+        st.info("No neurochemistry data to display yet.")
+        return
+
     time = [s.time_hours for s in states]
     ach = [s.ach for s in states]
     serotonin = [s.serotonin for s in states]

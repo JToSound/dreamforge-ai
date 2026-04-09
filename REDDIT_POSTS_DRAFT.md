@@ -17,10 +17,10 @@ DreamForge is an open-source framework that combines computational neuroscience 
 - A two-process sleep model (homeostatic Process S + circadian Process C) that produces realistic overnight hypnograms.
 - Stage-dependent neurochemistry for ACh / 5-HT / NE / cortisol.
 - A memory graph where fragments are tagged with emotion, salience, and recency, plus hippocampal-style replay events.
-- A dream constructor that turns brain state + replayed memories into narrative segments.
+- A dream constructor that turns brain state + replayed memories into narrative segments (with optional LLM narratives).
 - Metacognitive and phenomenological layers that estimate lucidity and export a first-person dream log.
 
-There’s a real-time dashboard that shows hypnogram, neuromodulator flux, and the memory graph. I’m working on adding a dream timeline and agent activity heatmaps.
+There’s a real-time dashboard that shows hypnogram, neuromodulator flux, and the memory graph. I’m working on adding a dream timeline, agent activity heatmaps, and a comparative analysis view.
 
 You can run it locally with Docker:
 
@@ -55,7 +55,7 @@ I’ve built a small open-source project called DreamForge that tries to turn cl
 
 The goal is *not* to claim biological accuracy, but to create a transparent, hackable scaffold that:
 - Makes it easy to play with different sleep parameters and neuromodulator curves.
-- Visualizes hypnograms, neurochemical trajectories, and replay events in real time.
+- Visualizes hypnograms, neurochemical trajectories, replay events, and dream content in real time.
 - Can be used as a teaching tool for students who know LLMs but not sleep physiology.
 
 I’ve tried to cite the relevant literature and keep assumptions explicit in the repo’s RESEARCH.md.
@@ -82,7 +82,7 @@ If you like running quirky services on your homelab, this might be fun.
 DreamForge is a self-hostable AI experiment that simulates an agent that "sleeps" and "dreams" overnight:
 
 - FastAPI backend for running simulations.
-- Streamlit dashboard for visualizing hypnogram, neurochemistry, and memory graph.
+- Streamlit dashboard for visualizing hypnogram, neurochemistry, memory graph, and dream timeline.
 - Docker Compose setup with API + dashboard + Redis.
 
 Setup is straightforward:

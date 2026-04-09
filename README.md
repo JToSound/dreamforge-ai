@@ -2,7 +2,7 @@
 
 > "The first open-source AI system that thinks while it sleeps."
 
-DreamForge AI is a hierarchical multi-agent framework that simulates human-like dreaming from biophysical sleep dynamics up through narrative experience and phenomenological reporting.
+DreamForge AI is a hierarchical multi-agent framework that simulates an entire night of sleep – from biophysical dynamics and neuromodulators to narrative dream content and phenomenological reports.
 
 It combines:
 - A neuroscience-grounded sleep architecture (Borbély two-process model, REM/NREM structure).
@@ -28,11 +28,11 @@ If DreamForge sparks your curiosity, a star helps others find it. ⭐
 
 Modern LLMs are powerful sequence models, but they do not explicitly model sleep, dreaming, or memory consolidation. DreamForge explores what happens when we bring together computational neuroscience and agentic AI to:
 
-- Test hypotheses about sleep homeostasis, neuromodulators, and dream content.
-- Provide a concrete playground for dream bizarreness metrics and lucidity modeling.
+- Test concrete hypotheses about sleep homeostasis, neuromodulators, and dream content.
+- Provide a hands-on playground for dream bizarreness metrics and lucidity modeling.
 - Offer an open-source reference implementation for multi-agent scientific simulators.
 
-This project is **not** intended as a clinical tool or a replacement for empirical sleep research; instead, it is a conceptual and educational framework built with scientific humility and explicit limitations.
+This project is **not** a clinical tool or a replacement for empirical sleep research; it is a conceptual and educational framework built with scientific humility and explicit limitations.
 
 ---
 
@@ -49,7 +49,7 @@ DreamForge is organized into a 7-layer agent hierarchy, orchestrated over a type
 - **Layer 3 – MemoryConsolidationAgent**
   - Manages a weighted, emotionally tagged memory graph and hippocampal replay events.
 - **Layer 4 – DreamConstructorAgent**
-  - Composes narrative dream segments from sleep stage, neurochemistry, and active memories.
+  - Composes narrative dream segments from sleep stage, neurochemistry, and active memories (with optional LLM integration).
 - **Layer 5 – MetacognitiveAgent**
   - Tracks lucidity probability and dream-logic consistency.
 - **Layer 6 – PhenomenologyReporter**
@@ -83,7 +83,7 @@ Then open:
 
 - **Neurochemical dynamics**
   - Stage-dependent dynamics for ACh, serotonin, noradrenaline, cortisol.
-  - Support for pharmacological perturbations (SSRIs, melatonin, stress hormones).
+  - Pharmacological modulators for SSRIs, stress hormones, and related profiles.
 
 - **Memory graph and replay**
   - NetworkX-based graph of memory fragments with emotional tags and recency.
@@ -91,7 +91,7 @@ Then open:
 
 - **Dream construction**
   - Dream segments conditioned on stage, neuromodulators, and replayed memories.
-  - Hooks for LLM backends (GPT-4o, Claude, local models via Ollama, etc.).
+  - Hooks for LLM backends (GPT-4o, Claude, local models via Ollama, etc.) for narrative and scene generation.
 
 - **Metacognition and phenomenology**
   - Lucidity probability estimates and dream-logic enforcement.
@@ -99,7 +99,13 @@ Then open:
 
 - **Visualization dashboard**
   - Hypnogram, neurochemical flux, memory association graph.
-  - Designed for extension to dream timelines, agent activity heatmaps, and comparative runs.
+  - Dream content timeline and agent activity heatmap.
+  - Comparative dream analysis view for side-by-side runs.
+
+- **Novel features**
+  - Pharmacological modulators to explore medication and stress effects.
+  - Cross-night continuity tracking of recurring themes.
+  - Counterfactual dream engine for parameter sweeps and A/B comparisons.
 
 ---
 
@@ -119,13 +125,15 @@ For detailed equations, parameter choices, and literature references, see `RESEA
 ## API and dashboard
 
 - **FastAPI REST API**
-  - `POST /simulate-night` – run a single-night simulation with configurable parameters.
-  - `GET /dream/{id}` – retrieve a structured dream report.
+  - `POST /api/simulation/night` – run a single-night simulation with configurable parameters (duration, dt, pharmacology).
+  - `POST /api/simulation/multi-night` – run multiple nights with cross-night continuity tracking.
+  - `POST /api/simulation/counterfactual` – compare baseline vs perturbed dream runs.
   - `GET /health` – simple health check.
 
 - **Streamlit dashboard**
   - Run `streamlit run visualization/dashboard/app.py` in development, or use the `dashboard` service in Docker Compose.
-  - Visualizes hypnogram, neuromodulators, and the memory graph in real time.
+  - Visualizes hypnogram, neuromodulators, memory graph, dream timeline, and agent activity heatmap in real time.
+  - A separate comparative dashboard script provides multi-run visualizations.
 
 ---
 
@@ -135,18 +143,18 @@ For detailed equations, parameter choices, and literature references, see `RESEA
   - [x] SleepCycleModel and NeurochemistryModel.
   - [x] MemoryGraph with replay and forgetting.
   - [x] SleepCycleAgent, NeurochemistryAgent, MemoryConsolidationAgent.
-  - [ ] DreamConstructorAgent with LLM integration hooks.
-  - [ ] MetacognitiveAgent and PhenomenologyReporter fully wired into the API.
+  - [x] DreamConstructorAgent with LLM integration hooks.
+  - [x] MetacognitiveAgent and PhenomenologyReporter wired into the API.
 
 - Phase 2 – Visualization
   - [x] Hypnogram, neurochemical flux, memory association graph.
-  - [ ] Dream content timeline and agent activity heatmap.
-  - [ ] Comparative dream analysis dashboard.
+  - [x] Dream content timeline and agent activity heatmap.
+  - [x] Comparative dream analysis dashboard.
 
 - Phase 3 – Novel features
-  - [ ] Pharmacological modulator.
-  - [ ] Cross-night continuity tracker.
-  - [ ] Counterfactual dream engine.
+  - [x] Pharmacological modulator.
+  - [x] Cross-night continuity tracker.
+  - [x] Counterfactual dream engine.
 
 ---
 
@@ -158,7 +166,7 @@ DreamForge is at an early research-prototype stage and we welcome contributions 
 - ML researchers and LLM practitioners.
 - Data visualization and UI engineers.
 
-Planned contribution assets:
+Contribution assets (in progress):
 - `CONTRIBUTING.md` with setup instructions and good-first-issue templates.
 - GitHub issues tagged `good first issue` and `help wanted`.
 

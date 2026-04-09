@@ -16,7 +16,7 @@ class PhenomenologyReporter:
     def record_segment(self, segment: DreamSegment) -> None:
         self._segments.append(segment)
         event = Event(
-            type=EventType.SLEEP_STAGE_UPDATED,
+            type=EventType.PHENOMENOLOGY_UPDATED,
             payload={"segment_id": segment.id},
             timestamp_hours=segment.end_time_hours,
         )

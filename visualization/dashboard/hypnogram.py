@@ -9,6 +9,10 @@ from core.models.sleep_cycle import SleepStage, SleepState
 def render_hypnogram(states: List[SleepState]) -> None:
     """Render a simple hypnogram using Plotly."""
 
+    if not states:
+        st.info("No sleep states to display yet.")
+        return
+
     time = [s.time_hours for s in states]
 
     stage_to_level = {

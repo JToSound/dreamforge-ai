@@ -11,14 +11,14 @@ Under the hood, DreamForge includes:
 - A two-process sleep model (homeostatic Process S + circadian Process C) that produces realistic hypnograms over an 8-hour night.
 - Stage-dependent neurochemistry for acetylcholine, serotonin, noradrenaline, and cortisol.
 - A memory graph where fragments are tagged with emotion, salience, and recency, plus hippocampal-style replay events during NREM and REM.
-- A dream constructor that turns brain state + replayed memories into narrative segments.
+- A dream constructor that turns brain state + replayed memories into narrative segments (with optional LLM-generated narratives).
 - Metacognitive and phenomenological layers that estimate lucidity and export a first-person dream log.
 
 There is a real-time dashboard that shows:
 - Hypnogram (sleep stages over time).
 - Neurochemical flux (ACh / 5-HT / NE / cortisol).
 - Memory association graph with replay pulses.
-- (Coming soon) dream content timeline and agent activity heatmaps.
+- (Coming soon) richer dream content timelines and agent activity heatmaps.
 
 Why I built this:
 
@@ -36,7 +36,7 @@ docker-compose up --build
 
 Then open `http://localhost:8501` for the dashboard and `http://localhost:8000/docs` for the API.
 
-I'm particularly interested in feedback on:
+I’m particularly interested in feedback on:
 - How to better ground the model in real sleep/dream datasets.
 - How to design quantitative dream bizarreness and lucidity evaluations.
 - Whether this might be useful as a research or teaching platform.

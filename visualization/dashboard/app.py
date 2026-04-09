@@ -1,53 +1,49 @@
 import streamlit as st
 
-from core.agents.sleep_cycle_agent import SleepCycleAgent
-from core.agents.neurochemistry_agent import NeurochemistryAgent
-from core.agents.memory_consolidation_agent import MemoryConsolidationAgent
-from core.models.sleep_cycle import SleepStage
-from core.simulation.event_bus import EventBus
+from core.agents.orchestrator import OrchestratorConfig
+from core.simulation.engine import SimulationEngine
+from core.utils.pharmacology import PharmacologyProfile
 from visualization.dashboard.hypnogram import render_hypnogram
 from visualization.dashboard.neurochemical_plot import render_neurochemical_flux
 from visualization.dashboard.memory_graph_viz import render_memory_graph
+from visualization.dashboard.dream_timeline import render_dream_timeline
+from visualization.dashboard.agent_activity_heatmap import render_agent_activity_heatmap
 
 
 def main() -> None:
     st.set_page_config(page_title="DreamForge Dashboard", layout="wide")
     st.title("DreamForge AI — Dream Simulation Dashboard")
 
-    event_bus = EventBus()
-
-    sleep_agent = SleepCycleAgent(event_bus=event_bus)
-    neuro_agent = NeurochemistryAgent(event_bus=event_bus)
-    memory_agent = MemoryConsolidationAgent(event_bus=event_bus)
-
-    # Connect neurochemistry to current sleep stage
-    neuro_agent.set_stage_fn(lambda t: sleep_agent.state.stage)
-
-    states_sleep = []
-    states_neuro = []
-
     duration_hours = st.sidebar.slider("Simulated night length (hours)", 4.0, 10.0, 8.0, 0.5)
-    dt_minutes = sleep_agent.config.dt_minutes
-    num_steps = int(duration_hours / (dt_minutes / 60.0))
+    dt_minutes = st.sidebar.slider("Time step (minutes)", 0.25, 2.0, 0.5, 0.25)
+    ssri_strength = st.sidebar.slider("SSRI strength", 0.5, 2.0, 1.0, 0.1)
+    stress_level = st.sidebar.slider("Stress level", 0.0, 1.0, 0.0, 0.1)
 
-    for _ in range(num_steps):
-        state_sleep = sleep_agent.step()
-        states_sleep.append(state_sleep)
+    pharm = PharmacologyProfile(ssri_strength=ssri_strength, stress_level=stress_level)
+    config = OrchestratorConfig(night_duration_hours=duration_hours, dt_minutes=dt_minutes, pharmacology=pharm)
 
-        state_neuro = neuro_agent.step_to(state_sleep.time_hours)
-        states_neuro.append(state_neuro)
+    engine = SimulationEngine(config=config)
+    engine.simulate_night()
+    night = engine.build_night()
 
-        memory_agent.maybe_replay(current_time_hours=state_sleep.time_hours)
-        memory_agent.decay_and_prune(dt_hours=dt_minutes / 60.0)
+    sleep_states = engine.orchestrator.sleep_history
+    neuro_states = engine.orchestrator.neuro_history
+    segments = night.segments
 
     col1, col2 = st.columns(2)
     with col1:
-        render_hypnogram(states_sleep)
+        render_hypnogram(sleep_states)
     with col2:
-        render_neurochemical_flux(states_neuro)
+        render_neurochemical_flux(neuro_states)
 
     st.subheader("Memory Association Graph")
-    render_memory_graph(memory_agent.graph)
+    render_memory_graph(engine.orchestrator.memory_agent.graph)
+
+    st.subheader("Dream Content Timeline")
+    render_dream_timeline(segments)
+
+    st.subheader("Agent Activity Heatmap")
+    render_agent_activity_heatmap(segments)
 
 
 if __name__ == "__main__":
