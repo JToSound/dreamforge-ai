@@ -27,6 +27,15 @@ class DreamConstructorConfig:
     use_llm: bool = True
 
 
+_STAGE_ORDER = {
+    SleepStage.WAKE: 0,
+    SleepStage.N1: 1,
+    SleepStage.N2: 2,
+    SleepStage.N3: 3,
+    SleepStage.REM: 4,
+}
+
+
 class DreamConstructorAgent:
     """Agent that turns current brain state into a dream segment.
 
@@ -61,7 +70,7 @@ class DreamConstructorAgent:
             self._last_time_hours = sleep_state.time_hours
             return None
 
-        if sleep_state.stage.value < self.config.min_stage_for_dreaming.value:
+        if _STAGE_ORDER[sleep_state.stage] < _STAGE_ORDER[self.config.min_stage_for_dreaming]:
             self._last_time_hours = sleep_state.time_hours
             return None
 
