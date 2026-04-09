@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional
 
-from core.agents.sleep_cycle_agent import SleepCycleAgent
+from core.agents.sleep_cycle_agent import SleepCycleAgent, SleepCycleConfig
 from core.agents.neurochemistry_agent import NeurochemistryAgent
 from core.agents.memory_consolidation_agent import MemoryConsolidationAgent
 from core.simulation.event_bus import EventBus, AgentActivityLogger
@@ -31,12 +31,12 @@ class OrchestratorAgent:
         self.event_bus = EventBus()
         self.activity_logger = AgentActivityLogger(self.event_bus)
 
-        # Apply pharmacology to neurochemistry parameters if configured.
         neuro_params = NeurochemistryParameters()
         if self.config.pharmacology is not None:
             neuro_params = apply_pharmacology(neuro_params, self.config.pharmacology)
 
-        self.sleep_agent = SleepCycleAgent(event_bus=self.event_bus)
+        sleep_cfg = SleepCycleConfig(dt_minutes=self.config.dt_minutes)
+        self.sleep_agent = SleepCycleAgent(event_bus=self.event_bus, config=sleep_cfg)
         self.neuro_agent = NeurochemistryAgent(
             model=NeurochemistryModel(params=neuro_params),
             event_bus=self.event_bus,
