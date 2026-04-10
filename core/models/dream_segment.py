@@ -36,3 +36,4 @@ class DreamNight(BaseModel):
     segments: List[DreamSegment]
     config: dict = Field(default_factory=dict)
     notes: Optional[str] = None
+    metadata: dict = Field(default_factory=dict, description="Arbitrary metadata such as summary statistics.")
