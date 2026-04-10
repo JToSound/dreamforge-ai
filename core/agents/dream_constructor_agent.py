@@ -140,8 +140,14 @@ class DreamConstructorAgent:
     ) -> str:
         assert self._llm is not None
         prompt = (
-            "You are a dream narrator. Given the current sleep stage, neuromodulator levels, "
-            "and a list of activated memories, write a short first-person dream description.\n\n"
+            "You are an introspective, poetic dream narrator. Given the current sleep stage, "
+            "neuromodulator levels, and a list of activated memories, write a short, vivid "
+            "first-person dream description that feels surreal but emotionally coherent.\n\n"
+            "Guidelines:\n"
+            "- 3 to 5 sentences, at most 120 words.\n"
+            "- Blend memories into symbolic imagery instead of listing them.\n"
+            "- Maintain a consistent emotional tone, but allow brief flashes of contrast.\n"
+            "- Do NOT mention neuromodulators or technical terms.\n\n"
             f"Sleep stage: {sleep_state.stage.value}\n"
             f"ACh level (relative): {neuro_state.ach:.2f}\n"
             f"Serotonin level (relative): {neuro_state.serotonin:.2f}\n"
@@ -149,25 +155,28 @@ class DreamConstructorAgent:
             f"Cortisol level (relative): {neuro_state.cortisol:.2f}\n"
             f"Dominant emotion: {segment.dominant_emotion.value}\n"
             f"Active memory fragment IDs: {segment.active_memory_ids}\n\n"
-            "Write 2–4 sentences in the first person, vivid but concise."
+            "Return only the dream narrative without any explanation or bullet points."
         )
         return self._llm(prompt)
 
     def _build_scene_description_llm(self, sleep_state: SleepState, segment: DreamSegment) -> str:
         assert self._llm is not None
         prompt = (
-            "You are a visual scene summarizer. Given a dream segment, return a short, "
-            "third-person scene description in one sentence. Focus on setting and mood.\n\n"
+            "You are a visual scene summarizer. Given a dream segment, return one concise, "
+            "third-person scene description that a 3D artist could use as a reference.\n\n"
+            "Guidelines:\n"
+            "- Focus on setting, lighting, and mood.\n"
+            "- Use concrete imagery (colors, textures, motion).\n"
+            "- At most 30 words.\n\n"
             f"Sleep stage: {sleep_state.stage.value}\n"
             f"Dominant emotion: {segment.dominant_emotion.value}\n"
             f"Existing narrative (if any): {segment.narrative}\n"
+            "Return only the scene description without any explanation or bullet points."
         )
         return self._llm(prompt)
 
     def _estimate_bizarreness(self, segment: DreamSegment) -> float:
         n = len(segment.active_memory_ids)
-        # Heuristic: more distinct memories, especially with conflicting emotions,
-        # produce more bizarre content. Cap at 1.0.
         base = 0.1 * n
         if n >= 2:
             base += 0.1
