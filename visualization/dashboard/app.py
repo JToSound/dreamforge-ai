@@ -1,238 +1,356 @@
-"""Streamlit dashboard for DreamForge AI — with real progress bar and LLM config."""
-
-from __future__ import annotations
-
+"""
+DreamForge AI — Streamlit Dashboard
+Real-time dream simulation visualization with LLM configuration.
+"""
 import json
 import time
-from typing import Any
+from typing import Optional
 
-import requests
+import httpx
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
+from plotly.subplots import make_subplots
 
+# ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="DreamForge AI",
-    page_icon="🌙",
+    page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-API_BASE = "http://localhost:8000"
+API_BASE = "http://api:8000"
 
-# ── Sidebar: config ───────────────────────────────────────────────────────────
+# ── Custom CSS ────────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+  [data-testid="stAppViewContainer"] { background: #0d0d14; }
+  [data-testid="stSidebar"] { background: #12121e; border-right: 1px solid #2a2a3e; }
+  h1, h2, h3 { color: #c8b8ff; }
+  .stButton > button {
+    background: linear-gradient(135deg, #6c3fc5, #9b5de5);
+    color: white; border: none; border-radius: 8px;
+    padding: 0.6rem 1.4rem; font-weight: 600;
+    transition: opacity 0.2s;
+  }
+  .stButton > button:hover { opacity: 0.85; }
+  .metric-card {
+    background: #1a1a2e; border: 1px solid #2a2a3e;
+    border-radius: 12px; padding: 1rem 1.2rem;
+  }
+  .stSelectbox label, .stTextInput label, .stSlider label,
+  .stNumberInput label { color: #a0a0c0 !important; }
+</style>
+""", unsafe_allow_html=True)
 
+
+# ── Sidebar — LLM Settings ────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 🌙 DreamForge AI")
-    st.caption("Multi-agent dream simulation")
-    st.divider()
+    st.markdown("## 🧠 DreamForge AI")
+    st.markdown("---")
 
-    st.markdown("### 🤖 LLM Settings")
-    provider = st.selectbox("Provider", ["openai", "anthropic", "ollama"])
-    model_options = {
-        "openai": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
-        "anthropic": ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-3-5"],
-        "ollama": ["llama3", "mistral", "phi3", "gemma2"],
+    st.markdown("### ⚙️ LLM Configuration")
+
+    llm_provider = st.selectbox(
+        "Provider",
+        ["lmstudio", "openai", "anthropic", "ollama"],
+        help="Select your LLM backend",
+    )
+
+    provider_defaults = {
+        "lmstudio":  ("http://host.docker.internal:1234/v1", "local-model"),
+        "openai":    ("https://api.openai.com/v1",           "gpt-4o"),
+        "anthropic": ("https://api.anthropic.com",           "claude-3-5-sonnet-20241022"),
+        "ollama":    ("http://host.docker.internal:11434/v1","llama3.2"),
     }
-    model = st.selectbox("Model", model_options[provider])
-    api_key = st.text_input(
+    default_url, default_model = provider_defaults[llm_provider]
+
+    llm_base_url = st.text_input("Base URL", value=default_url)
+    llm_model    = st.text_input("Model", value=default_model)
+    llm_api_key  = st.text_input(
         "API Key",
+        value="lm-studio" if llm_provider == "lmstudio" else "",
         type="password",
-        placeholder="sk-… (leave blank for env var)",
-        disabled=(provider == "ollama"),
+        help="Leave blank for LM Studio / Ollama",
     )
-    base_url = st.text_input(
-        "Base URL (Ollama)",
-        value="http://localhost:11434/v1" if provider == "ollama" else "",
-        disabled=(provider != "ollama"),
+
+    st.markdown("---")
+    st.markdown("### 🌙 Simulation Parameters")
+
+    duration_hours = st.slider("Night Duration (hours)", 4.0, 10.0, 8.0, 0.5)
+    stress_level   = st.slider("Stress Level", 0.0, 1.0, 0.3, 0.05)
+    sleep_start    = st.slider("Sleep Start (clock hour)", 20.0, 2.0, 23.0, 0.5)
+
+    st.markdown("---")
+    st.markdown("### 💊 Pharmacology")
+    ssri_factor  = st.slider("SSRI Factor", 1.0, 3.0, 1.0, 0.1,
+                              help="1.0 = no medication; >1 = SSRI effect")
+    melatonin    = st.checkbox("Melatonin")
+    cannabis     = st.checkbox("Cannabis (THC)")
+
+    st.markdown("---")
+    st.markdown("### 📝 Prior Day Events")
+    events_text = st.text_area(
+        "Describe today's events",
+        placeholder="e.g. Had an argument with a colleague. Watched a sci-fi film. Felt anxious about the presentation.",
+        height=100,
     )
-    temperature = st.slider("Temperature", 0.0, 2.0, 0.9, 0.05)
-    max_tokens = st.slider("Max Tokens", 64, 1024, 512, 64)
-
-    st.divider()
-    st.markdown("### 🛏 Sleep Settings")
-    duration_hours = st.slider("Night Duration (h)", 4.0, 12.0, 8.0, 0.5)
-    stress_level = st.slider("Stress Level", 0.0, 1.0, 0.5, 0.05)
-    prior_events_raw = st.text_area(
-        "Prior Day Events (one per line)",
-        "Had a stressful meeting\nWent for an evening run\nWatched a sci-fi film",
-        height=120,
-    )
-    prior_events = [e.strip() for e in prior_events_raw.split("\n") if e.strip()]
-
-    st.divider()
-    run_btn = st.button("▶ Run Simulation", type="primary", use_container_width=True)
 
 
-# ── Main content ──────────────────────────────────────────────────────────────
+# ── Main area ─────────────────────────────────────────────────────────────────
+st.markdown("# 🌌 DreamForge AI — Live Simulation")
+st.markdown("*The first open-source AI system that thinks while it sleeps.*")
 
-st.title("🌙 DreamForge AI Dashboard")
-st.caption("Real-time multi-agent dream simulation with full neurobiological grounding")
+col_run, col_status = st.columns([2, 5])
 
-if run_btn:
-    payload = {
-        "llm": {
-            "provider": provider,
-            "model": model,
-            "api_key": api_key or None,
-            "base_url": base_url or None,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        },
-        "sleep": {
-            "duration_hours": duration_hours,
-            "sleep_start_clock_time": 23.0,
-            "dt_minutes": 0.5,
-        },
-        "prior_day_events": prior_events,
-        "stress_level": stress_level,
-    }
+with col_run:
+    run_btn = st.button("▶  Run Simulation", use_container_width=True)
 
-    progress_bar = st.progress(0, text="Starting simulation…")
-    status_placeholder = st.empty()
-    segment_container = st.container()
+status_placeholder = col_status.empty()
 
+# ── Helper: check API health ──────────────────────────────────────────────────
+def check_api() -> bool:
     try:
-        with requests.post(
-            f"{API_BASE}/simulate-night",
-            json=payload,
-            stream=True,
-            timeout=300,
-            headers={"Accept": "text/event-stream"},
-        ) as resp:
-            resp.raise_for_status()
-            content_type = resp.headers.get("content-type", "")
-
-            if "text/event-stream" in content_type:
-                # SSE streaming
-                buffer = ""
-                segments_shown = 0
-                for chunk in resp.iter_content(chunk_size=None, decode_unicode=True):
-                    buffer += chunk
-                    while "\n\n" in buffer:
-                        block, buffer = buffer.split("\n\n", 1)
-                        for line in block.split("\n"):
-                            if line.startswith("data: "):
-                                try:
-                                    evt = json.loads(line[6:])
-                                    pct = int(evt.get("progress", 0) * 100)
-                                    msg = evt.get("message", "")
-                                    stage = evt.get("stage", "")
-                                    progress_bar.progress(pct, text=f"[{stage}] {msg}")
-                                    status_placeholder.caption(msg)
-
-                                    if evt.get("segment"):
-                                        seg = evt["segment"]
-                                        with segment_container:
-                                            with st.expander(
-                                                f"Segment #{seg['segment_index']} · {seg['stage']} · {seg['time_hours']:.2f}h",
-                                                expanded=(segments_shown < 3),
-                                            ):
-                                                st.write(f"_{seg['narrative']}_")
-                                                col1, col2, col3 = st.columns(3)
-                                                col1.metric("Emotion", seg["dominant_emotion"])
-                                                col2.metric("Bizarreness", f"{seg['bizarreness_score']:.0%}")
-                                                col3.metric("Lucidity", f"{seg['lucidity_probability']:.0%}")
-                                        segments_shown += 1
-
-                                    if evt.get("result"):
-                                        result = evt["result"]
-                                        st.session_state["last_result"] = result
-                                except json.JSONDecodeError:
-                                    pass
-                progress_bar.progress(100, text="✅ Simulation complete!")
-
-            else:
-                # Plain JSON fallback
-                for i in range(0, 95, 5):
-                    progress_bar.progress(i, text="Running simulation…")
-                    time.sleep(0.2)
-                result = resp.json()
-                st.session_state["last_result"] = result
-                progress_bar.progress(100, text="✅ Simulation complete!")
-
-    except requests.RequestException as exc:
-        st.error(f"API error: {exc}")
-        st.stop()
+        r = httpx.get(f"{API_BASE}/health", timeout=3)
+        return r.status_code == 200
+    except Exception:
+        return False
 
 
-# ── Show last result ──────────────────────────────────────────────────────────
+# ── Helper: run simulation ────────────────────────────────────────────────────
+def run_simulation() -> Optional[dict]:
+    payload = {
+        "duration_hours":    duration_hours,
+        "sleep_start_clock": sleep_start,
+        "stress_level":      stress_level,
+        "llm_provider":      llm_provider,
+        "llm_base_url":      llm_base_url,
+        "llm_model":         llm_model,
+        "llm_api_key":       llm_api_key,
+        "pharmacology": {
+            "ssri_factor": ssri_factor,
+            "melatonin":   melatonin,
+            "cannabis":    cannabis,
+        },
+        "prior_day_events": events_text,
+    }
+    try:
+        with st.spinner("🧬 Simulating dream cycle…"):
+            r = httpx.post(
+                f"{API_BASE}/simulate-night",
+                json=payload,
+                timeout=300,        # LLM 可能需要時間
+            )
+        if r.status_code == 200:
+            return r.json()
+        else:
+            st.error(f"API Error {r.status_code}: {r.text[:400]}")
+            return None
+    except httpx.ConnectError:
+        st.error("❌ Cannot reach API at `http://api:8000`. Is the `api` container running?")
+        return None
+    except httpx.ReadTimeout:
+        st.error("⏱ Request timed out. The LLM may be slow — try a smaller model or increase timeout.")
+        return None
 
-if "last_result" in st.session_state:
-    result: dict[str, Any] = st.session_state["last_result"]
-    st.divider()
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Duration", f"{result.get('duration_hours', 0):.1f}h")
-    col2.metric("Segments", result.get("total_segments", 0))
-    col3.metric("Mean Bizarreness", f"{result.get('mean_bizarreness', 0):.0%}")
-    col4.metric("Dominant Emotion", result.get("dominant_emotion", "—"))
+# ── Run & display ─────────────────────────────────────────────────────────────
+if run_btn:
+    if not check_api():
+        st.error("❌ API service not reachable. Check `docker-compose logs api`.")
+    else:
+        result = run_simulation()
+        if result:
+            st.session_state["last_result"] = result
+            status_placeholder.success("✅ Simulation complete!")
 
-    st.markdown(f"> {result.get('summary_narrative', '')}")
+result = st.session_state.get("last_result")
 
-    if result.get("dream_segments"):
-        st.subheader("Dream Segments")
-        for seg in result["dream_segments"]:
-            with st.expander(
-                f"#{seg['segment_index']} · {seg['stage']} · {seg['time_hours']:.2f}h",
-                expanded=False,
-            ):
-                st.write(f"_{seg['narrative']}_")
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Emotion", seg["dominant_emotion"])
-                c2.metric("Bizarreness", f"{seg['bizarreness_score']:.0%}")
-                c3.metric("Lucidity", f"{seg['lucidity_probability']:.0%}")
+if result is None:
+    # ── Empty state ──────────────────────────────────────────────────────────
+    st.markdown("---")
+    empty_col1, empty_col2, empty_col3 = st.columns([1, 2, 1])
+    with empty_col2:
+        st.markdown("""
+        <div style="text-align:center; padding:3rem 0; color:#6060a0;">
+          <div style="font-size:4rem; margin-bottom:1rem;">🌙</div>
+          <h3 style="color:#8080c0;">No simulation yet</h3>
+          <p>Configure your settings in the sidebar, then press <strong>▶ Run Simulation</strong>.</p>
+          <p style="font-size:0.85rem; margin-top:1rem;">
+            Make sure your LLM backend (LM Studio / Ollama / OpenAI) is running.
+          </p>
+        </div>
+        """, unsafe_allow_html=True)
+else:
+    # ── Unpack result ─────────────────────────────────────────────────────────
+    segments   = result.get("segments", [])
+    neuro_data = result.get("neurochemistry", [])
+    mem_graph  = result.get("memory_graph", {"nodes": [], "edges": []})
+    metadata   = result.get("metadata", {})
 
-    if result.get("hypnogram"):
-        import pandas as pd
-        import plotly.express as px
+    n_seg = len(segments)
+    n_rem = sum(1 for s in segments if s.get("stage") == "REM")
+    avg_bizarre = np.mean([s.get("bizarreness", 0) for s in segments]) if segments else 0
 
-        hyp_df = pd.DataFrame(result["hypnogram"])
-        stage_order = ["N3", "N2", "N1", "REM", "WAKE"]
-        stage_colors = {
-            "WAKE": "#f59e0b",
-            "N1": "#60a5fa",
-            "N2": "#818cf8",
-            "N3": "#6366f1",
-            "REM": "#f472b6",
+    # ── KPI row ───────────────────────────────────────────────────────────────
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Total Segments",    n_seg)
+    k2.metric("REM Segments",      n_rem)
+    k3.metric("Avg Bizarreness",   f"{avg_bizarre:.2f}")
+    k4.metric("Night Span",        f"{metadata.get('duration_hours', duration_hours):.1f} h")
+
+    st.markdown("---")
+
+    # ── Tab layout ────────────────────────────────────────────────────────────
+    tab_hyp, tab_neuro, tab_mem, tab_dream = st.tabs([
+        "🌙 Hypnogram", "🧪 Neurochemistry", "🕸 Memory Graph", "📖 Dream Narrative"
+    ])
+
+    # ── Hypnogram ─────────────────────────────────────────────────────────────
+    with tab_hyp:
+        stage_map = {"WAKE": 4, "REM": 3, "N1": 2, "N2": 1, "N3": 0}
+        stage_color = {
+            "WAKE": "#f59e0b", "REM": "#a78bfa",
+            "N1": "#60a5fa",   "N2": "#34d399", "N3": "#1d4ed8",
         }
-        hyp_df["stage_num"] = hyp_df["stage"].map(
-            {"WAKE": 4, "N1": 3, "N2": 2, "REM": 1, "N3": 0}
-        )
-        fig = px.line(
-            hyp_df,
-            x="time_hours",
-            y="stage_num",
-            color="stage",
-            color_discrete_map=stage_colors,
-            labels={"time_hours": "Time (h)", "stage_num": "Stage"},
-            title="Sleep Hypnogram",
-        )
-        fig.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="#111827",
-            plot_bgcolor="#1f2937",
-        )
-        fig.update_yaxes(
-            tickvals=[0, 1, 2, 3, 4],
-            ticktext=["N3", "REM", "N2", "N1", "WAKE"],
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        if segments:
+            times  = [s.get("time_hours", i * duration_hours / n_seg) for i, s in enumerate(segments)]
+            stages = [s.get("stage", "N2") for s in segments]
+            y_vals = [stage_map.get(st, 1) for st in stages]
+            colors = [stage_color.get(st, "#888") for st in stages]
 
-    if result.get("neurochemistry_series"):
-        import pandas as pd
-        import plotly.graph_objects as go
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=times, y=y_vals,
+                mode="lines",
+                line=dict(color="#a78bfa", width=2),
+                fill="tozeroy",
+                fillcolor="rgba(167,139,250,0.15)",
+                name="Sleep Stage",
+            ))
+            fig.update_layout(
+                title="Sleep Architecture Hypnogram",
+                xaxis_title="Time (hours into sleep)",
+                yaxis=dict(
+                    tickvals=list(stage_map.values()),
+                    ticktext=list(stage_map.keys()),
+                ),
+                template="plotly_dark",
+                height=320,
+                paper_bgcolor="#0d0d14",
+                plot_bgcolor="#12121e",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No segment data to display.")
 
-        nc_df = pd.DataFrame(result["neurochemistry_series"])
-        fig2 = go.Figure()
-        nc_colors = {"ach": "#f472b6", "serotonin": "#60a5fa", "ne": "#fbbf24", "cortisol": "#34d399"}
-        for col, color in nc_colors.items():
-            if col in nc_df.columns:
-                fig2.add_trace(go.Scatter(x=nc_df["time_hours"], y=nc_df[col], name=col.upper(), line=dict(color=color)))
-        fig2.update_layout(
-            title="Neurochemical Flux",
-            template="plotly_dark",
-            paper_bgcolor="#111827",
-            plot_bgcolor="#1f2937",
-            xaxis_title="Time (h)",
-            yaxis_title="Level",
-        )
-        st.plotly_chart(fig2, use_container_width=True)
+    # ── Neurochemistry ────────────────────────────────────────────────────────
+    with tab_neuro:
+        if neuro_data:
+            df_n = pd.DataFrame(neuro_data)
+            fig2 = go.Figure()
+            for col, color, name in [
+                ("ach",      "#a78bfa", "ACh"),
+                ("serotonin","#34d399", "5-HT"),
+                ("ne",       "#f87171", "NE"),
+                ("cortisol", "#fbbf24", "Cortisol"),
+            ]:
+                if col in df_n.columns:
+                    fig2.add_trace(go.Scatter(
+                        x=df_n.get("time_hours", df_n.index),
+                        y=df_n[col],
+                        name=name,
+                        line=dict(color=color, width=2),
+                    ))
+            fig2.update_layout(
+                title="Neurochemical Flux Over Night",
+                xaxis_title="Time (hours)",
+                yaxis_title="Relative Level",
+                template="plotly_dark",
+                height=360,
+                paper_bgcolor="#0d0d14",
+                plot_bgcolor="#12121e",
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+        else:
+            st.info("No neurochemistry data returned.")
+
+    # ── Memory Graph ──────────────────────────────────────────────────────────
+    with tab_mem:
+        nodes = mem_graph.get("nodes", [])
+        edges = mem_graph.get("edges", [])
+        emotion_color = {
+            "joy": "#fbbf24", "fear": "#f87171", "sadness": "#60a5fa",
+            "anger": "#ef4444", "neutral": "#94a3b8", "surprise": "#a78bfa",
+        }
+        if nodes:
+            import math
+            n = len(nodes)
+            angle_step = 2 * math.pi / max(n, 1)
+            pos = {nd["id"]: (math.cos(i * angle_step), math.sin(i * angle_step))
+                   for i, nd in enumerate(nodes)}
+
+            edge_x, edge_y = [], []
+            for e in edges:
+                x0, y0 = pos.get(e.get("source", ""), (0, 0))
+                x1, y1 = pos.get(e.get("target", ""), (0, 0))
+                edge_x += [x0, x1, None]
+                edge_y += [y0, y1, None]
+
+            node_x = [pos[nd["id"]][0] for nd in nodes]
+            node_y = [pos[nd["id"]][1] for nd in nodes]
+            node_colors = [emotion_color.get(nd.get("emotion", "neutral"), "#94a3b8") for nd in nodes]
+            node_sizes  = [max(10, nd.get("activation", 0.5) * 40) for nd in nodes]
+            node_labels = [nd.get("label", nd["id"])[:30] for nd in nodes]
+
+            fig3 = go.Figure()
+            fig3.add_trace(go.Scatter(
+                x=edge_x, y=edge_y, mode="lines",
+                line=dict(width=1, color="#2a2a3e"), hoverinfo="none",
+            ))
+            fig3.add_trace(go.Scatter(
+                x=node_x, y=node_y, mode="markers+text",
+                marker=dict(size=node_sizes, color=node_colors, line=dict(width=1, color="#fff")),
+                text=node_labels, textposition="top center",
+                hovertext=[f"{nd.get('label','')} | {nd.get('emotion','')}" for nd in nodes],
+            ))
+            fig3.update_layout(
+                title="Memory Association Graph",
+                showlegend=False,
+                template="plotly_dark",
+                height=450,
+                paper_bgcolor="#0d0d14",
+                plot_bgcolor="#12121e",
+                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            )
+            st.plotly_chart(fig3, use_container_width=True)
+        else:
+            st.info("No memory graph data returned.")
+
+    # ── Dream Narrative ───────────────────────────────────────────────────────
+    with tab_dream:
+        if segments:
+            for i, seg in enumerate(segments):
+                stage   = seg.get("stage", "?")
+                biz     = seg.get("bizarreness", 0)
+                emotion = seg.get("dominant_emotion", "neutral")
+                text    = seg.get("narrative_text", "")
+                badge_color = stage_color.get(stage, "#888")
+
+                st.markdown(f"""
+                <div style="background:#1a1a2e; border-left:3px solid {badge_color};
+                     border-radius:8px; padding:0.8rem 1rem; margin-bottom:0.8rem;">
+                  <div style="font-size:0.75rem; color:#6060a0; margin-bottom:0.3rem;">
+                    Segment {i+1} · Stage: <b style="color:{badge_color}">{stage}</b>
+                    · Emotion: {emotion} · Bizarreness: {biz:.2f}
+                  </div>
+                  <div style="color:#c8c8e0; font-size:0.95rem; line-height:1.6;">
+                    {text if text else "<em style='color:#404060'>No narrative generated.</em>"}
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No dream segments returned.")
