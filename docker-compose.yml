@@ -27,6 +27,8 @@ services:
       API_BASE_URL: http://api:8000
     depends_on:
       - api
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   redis:
     image: redis:7-alpine

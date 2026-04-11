@@ -696,3 +696,7 @@ async def counterfactual(req: CounterfactualRequest):
     new_config = SimulationConfig(**base_config_dict)
 
     return await simulate_night(new_config)
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "service": "dreamforge-api"}
