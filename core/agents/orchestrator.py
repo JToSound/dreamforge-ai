@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from core.agents.sleep_cycle_agent import SleepCycleAgent, SleepCycleConfig
 from core.agents.neurochemistry_agent import NeurochemistryAgent
@@ -28,6 +28,7 @@ class OrchestratorConfig:
     llm_provider: Optional[str] = None
     llm_model: Optional[str] = None
     llm_important_only: bool = True
+    llm_api_key: Optional[str] = None
 
 
 class OrchestratorAgent:
@@ -52,7 +53,11 @@ class OrchestratorAgent:
 
         llm_callable = None
         if self.config.llm_enabled:
-            llm_callable = create_llm_callable(self.config.llm_provider, self.config.llm_model)
+            llm_callable = create_llm_callable(
+                self.config.llm_provider,
+                self.config.llm_model,
+                self.config.llm_api_key,
+            )
 
         self.dream_agent = DreamConstructorAgent(
             event_bus=self.event_bus,
@@ -73,8 +78,17 @@ class OrchestratorAgent:
         self.sleep_history: List = []
         self.neuro_history: List = []
 
-    def run_night(self) -> List[DreamSegment]:
+    def run_night(self, progress_callback: Optional[Callable[[float], None]] = None) -> List[DreamSegment]:
         segments: List[DreamSegment] = []
+
+        total_steps: Optional[int] = None
+        if (
+            progress_callback is not None
+            and self.config.night_duration_hours > 0
+            and self.time_model.dt_hours > 0
+        ):
+            total_steps = max(1, int(self.config.night_duration_hours / self.time_model.dt_hours))
+        step_index = 0
 
         while self.time_model.has_next_step:
             sleep_state = self.sleep_agent.step()
@@ -98,5 +112,13 @@ class OrchestratorAgent:
                 segments.append(segment)
 
             self.time_model.step()
+            step_index += 1
+
+            if progress_callback is not None and total_steps is not None:
+                fraction = min(1.0, step_index / total_steps)
+                progress_callback(fraction)
+
+        if progress_callback is not None and total_steps is not None:
+            progress_callback(1.0)
 
         return segments

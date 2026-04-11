@@ -24,6 +24,11 @@ def main() -> None:
     llm_enabled = st.sidebar.checkbox("Enable LLM-backed dreams", value=False)
     llm_provider = st.sidebar.selectbox("Provider", ["", "lmstudio", "openai", "ollama"], index=0)
     llm_model = st.sidebar.text_input("Model name", value="qwen-3.5-9b")
+    llm_api_key = st.sidebar.text_input(
+        "API key (optional)",
+        type="password",
+        help="Used only for this session to override environment variables.",
+    )
     important_only = st.sidebar.checkbox("Use LLM only for important segments", value=True)
 
     st.sidebar.subheader("Day Journal")
@@ -54,12 +59,20 @@ def main() -> None:
         llm_provider=llm_provider or None,
         llm_model=llm_model or None,
         llm_important_only=important_only,
+        llm_api_key=llm_api_key or None,
     )
 
     if st.button("Run simulation", type="primary"):
         engine = SimulationEngine(config=config)
+        progress_bar = st.progress(0, text="Simulating night of sleep and dreaming...")
+
+        def update_progress(fraction: float) -> None:
+            percentage = int(max(0.0, min(1.0, fraction)) * 100)
+            progress_bar.progress(percentage, text=f"Simulating... {percentage}%")
+
         with st.spinner("Simulating night of sleep and dreaming..."):
-            engine.simulate_night()
+            engine.simulate_night(progress_callback=update_progress)
+            progress_bar.progress(100, text="Simulation complete")
             night = engine.build_night()
 
         sleep_states = engine.orchestrator.sleep_history

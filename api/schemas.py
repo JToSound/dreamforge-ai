@@ -18,6 +18,13 @@ class DreamSimulationRequest(BaseModel):
     llm_enabled: bool = Field(False, description="Enable LLM-backed dream narratives.")
     llm_provider: Optional[str] = Field(None, description="LLM provider identifier (openai, lmstudio, ollama, ...).")
     llm_model: Optional[str] = Field(None, description="Model name for the selected provider.")
+    llm_api_key: Optional[str] = Field(
+        None,
+        description=(
+            "Optional API key used to override environment variables for local runs. "
+            "For security, this is not stored in the resulting dream config."
+        ),
+    )
     llm_important_only: bool = Field(
         True,
         description="If true, only use the LLM for REM or high-replay segments to save tokens.",

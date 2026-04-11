@@ -8,13 +8,17 @@ from core.models.memory_graph import EmotionLabel, MemoryGraph
 LLMCallable = Callable[[str], str]
 
 
-def _load_openai_client(base_url: Optional[str] = None, api_key_env: str = "OPENAI_API_KEY"):
+def _load_openai_client(
+    base_url: Optional[str] = None,
+    api_key_env: str = "OPENAI_API_KEY",
+    explicit_api_key: Optional[str] = None,
+):
     try:
         from openai import OpenAI  # type: ignore
     except Exception as exc:  # pragma: no cover - optional dependency
         raise RuntimeError("openai package is not installed; cannot use OpenAI/LM Studio backend") from exc
 
-    api_key = os.getenv(api_key_env, "not-set")
+    api_key = explicit_api_key or os.getenv(api_key_env, "not-set")
     client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
     return client
 
@@ -28,7 +32,11 @@ def _load_ollama_client():
     return ollama
 
 
-def create_llm_callable(provider: Optional[str], model: Optional[str]) -> Optional[LLMCallable]:
+def create_llm_callable(
+    provider: Optional[str],
+    model: Optional[str],
+    api_key: Optional[str] = None,
+) -> Optional[LLMCallable]:
     """Create an LLMCallable based on provider/model configuration.
 
     Supported providers:
@@ -43,7 +51,7 @@ def create_llm_callable(provider: Optional[str], model: Optional[str]) -> Option
     provider = provider.lower()
 
     if provider == "openai":
-        client = _load_openai_client()
+        client = _load_openai_client(explicit_api_key=api_key)
 
         def _call(prompt: str) -> str:
             resp = client.chat.completions.create(
@@ -56,7 +64,11 @@ def create_llm_callable(provider: Optional[str], model: Optional[str]) -> Option
 
     if provider == "lmstudio":
         base_url = os.getenv("LMSTUDIO_BASE_URL", "http://localhost:1234/v1")
-        client = _load_openai_client(base_url=base_url, api_key_env="LMSTUDIO_API_KEY")
+        client = _load_openai_client(
+            base_url=base_url,
+            api_key_env="LMSTUDIO_API_KEY",
+            explicit_api_key=api_key,
+        )
 
         def _call(prompt: str) -> str:
             resp = client.chat.completions.create(

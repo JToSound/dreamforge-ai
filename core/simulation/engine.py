@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from core.agents.orchestrator import OrchestratorAgent, OrchestratorConfig
 from core.models.dream_segment import DreamSegment, DreamNight
@@ -16,8 +16,8 @@ class SimulationEngine:
         # Seed memory graph from any stored journal entries
         populate_memory_from_journal(self.orchestrator.memory_agent.graph)
 
-    def simulate_night(self) -> List[DreamSegment]:
-        return self.orchestrator.run_night()
+    def simulate_night(self, progress_callback: Optional[Callable[[float], None]] = None) -> List[DreamSegment]:
+        return self.orchestrator.run_night(progress_callback=progress_callback)
 
     def build_night(self) -> DreamNight:
         night = self.orchestrator.phenom_agent.build_night()

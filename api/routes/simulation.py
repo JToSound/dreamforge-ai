@@ -22,6 +22,7 @@ async def simulate_night(body: DreamSimulationRequest) -> DreamNightSchema:
         llm_provider=body.llm_provider,
         llm_model=body.llm_model,
         llm_important_only=body.llm_important_only,
+        llm_api_key=body.llm_api_key,
     )
     engine = SimulationEngine(config=config)
     engine.simulate_night()

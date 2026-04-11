@@ -14,6 +14,10 @@ export default defineConfig({
         target: "http://localhost:8000",
         changeOrigin: true,
       },
+      "/simulate-night": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
     },
   },
 });
