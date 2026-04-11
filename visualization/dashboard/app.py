@@ -121,9 +121,10 @@ def check_api() -> bool:
 
 # ── Helper: run simulation ────────────────────────────────────────────────────
 def run_simulation() -> Optional[dict]:
+    events_list = [e.strip() for e in events_text.splitlines() if e.strip()]
     payload = {
         "duration_hours":    duration_hours,
-        "sleep_start_clock": sleep_start,
+        "sleep_start_hour":  sleep_start,
         "stress_level":      stress_level,
         "llm_provider":      llm_provider,
         "llm_base_url":      llm_base_url,
@@ -134,7 +135,7 @@ def run_simulation() -> Optional[dict]:
             "melatonin":   melatonin,
             "cannabis":    cannabis,
         },
-        "prior_day_events": events_text,
+        "prior_day_events": events_list,
     }
     try:
         with st.spinner("🧬 Simulating dream cycle…"):
@@ -143,7 +144,7 @@ def run_simulation() -> Optional[dict]:
                 json=payload,
                 timeout=300,        # LLM 可能需要時間
             )
-        if r.status_code == 200:
+        if r.status_code in (200, 201):
             return r.json()
         else:
             st.error(f"API Error {r.status_code}: {r.text[:400]}")
