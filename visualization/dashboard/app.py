@@ -7,6 +7,9 @@ import time
 from typing import Optional
 
 import httpx
+import io
+import zipfile
+import csv
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -206,7 +209,150 @@ else:
 
     st.markdown("---")
 
-    # ── Tab layout ────────────────────────────────────────────────────────────
+    # ── Download / export results ──────────────────────────────────────────
+    with st.expander("📥 Download Results", expanded=False):
+        # Normalize keys
+        sim_id = result.get("id") or result.get("simulation_id") or int(time.time())
+
+        # Full JSON download
+        try:
+            json_str = json.dumps(result, indent=2)
+        except Exception:
+            json_str = json.dumps(result, default=str, indent=2)
+
+        st.download_button(
+            "Download full JSON",
+            data=json_str,
+            file_name=f"dreamforge-sim-{sim_id}.json",
+            mime="application/json",
+        )
+
+        # Plaintext narrative summary
+        text_lines = []
+        text_lines.append(f"Simulation ID: {sim_id}")
+        text_lines.append(f"Duration: {metadata.get('duration_hours', duration_hours)} h")
+        if result.get("summary_narrative"):
+            text_lines.append("")
+            text_lines.append(result.get("summary_narrative"))
+        elif result.get("summary"):
+            text_lines.append("")
+            try:
+                text_lines.append(json.dumps(result.get("summary"), indent=2))
+            except Exception:
+                text_lines.append(str(result.get("summary")))
+
+        text_lines.append("")
+        text_lines.append("Segments:")
+        segs = result.get("segments") or result.get("dream_segments") or []
+        for i, s in enumerate(segs):
+            narrative = s.get("narrative") or s.get("scene_description") or s.get("scene") or s.get("narrative_text") or ""
+            time_h = s.get("time_hours") or s.get("start_time_hours") or ""
+            stage = s.get("stage") or ""
+            text_lines.append(f"--- Segment {i} ({time_h}h) [{stage}]")
+            text_lines.append(narrative)
+
+        text_blob = "\n".join(text_lines)
+        st.download_button(
+            "Download plaintext narrative",
+            data=text_blob,
+            file_name=f"dreamforge-sim-{sim_id}.txt",
+            mime="text/plain",
+        )
+
+        # ZIP with CSVs for analysis
+        # Prepare hypnogram
+        hyp = result.get("hypnogram") or [{"time_hours": s.get("time_hours") or s.get("start_time_hours"), "stage": s.get("stage")} for s in segs]
+
+        # Neurochemistry series
+        neuro = result.get("neurochemistry") or result.get("neurochemistry_series") or result.get("neurochemistry_series", [])
+
+        # Memory graph
+        mg = result.get("memory_graph") or result.get("memory_graph", {"nodes": [], "edges": []})
+        nodes = mg.get("nodes", [])
+        edges = mg.get("edges", [])
+
+        # Build ZIP in-memory
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("result.json", json_str)
+
+            # hypnogram.csv
+            sio = io.StringIO()
+            writer = csv.writer(sio)
+            writer.writerow(["time_hours", "stage"])
+            for h in hyp:
+                writer.writerow([h.get("time_hours"), h.get("stage")])
+            zf.writestr("hypnogram.csv", sio.getvalue())
+
+            # neurochemistry.csv
+            sio = io.StringIO()
+            if neuro and isinstance(neuro, list) and len(neuro) > 0:
+                cols = sorted({k for row in neuro for k in row.keys()})
+                writer = csv.writer(sio)
+                writer.writerow(cols)
+                for row in neuro:
+                    writer.writerow([row.get(c, "") for c in cols])
+            else:
+                writer = csv.writer(sio)
+                writer.writerow(["time_hours", "ach", "serotonin", "ne", "cortisol"])
+            zf.writestr("neurochemistry.csv", sio.getvalue())
+
+            # segments.csv
+            sio = io.StringIO()
+            seg_cols = [
+                "segment_index", "time_hours", "start_time_hours", "end_time_hours",
+                "stage", "dominant_emotion", "bizarreness_score", "lucidity_probability",
+                "narrative", "scene_description", "active_memory_ids"
+            ]
+            writer = csv.writer(sio)
+            writer.writerow(seg_cols)
+            for s in segs:
+                writer.writerow([
+                    s.get("segment_index") or s.get("id") or "",
+                    s.get("time_hours") or s.get("start_time_hours") or "",
+                    s.get("start_time_hours") or "",
+                    s.get("end_time_hours") or "",
+                    s.get("stage") or "",
+                    s.get("dominant_emotion") or s.get("emotion") or "",
+                    s.get("bizarreness_score") or s.get("bizarreness") or "",
+                    s.get("lucidity_probability") or s.get("lucidity_score") or "",
+                    (s.get("narrative") or s.get("narrative_text") or s.get("scene_description") or "").replace('\n', ' '),
+                    s.get("scene_description") or "",
+                    ";".join(s.get("active_memory_ids", [])) if isinstance(s.get("active_memory_ids"), list) else s.get("active_memory_ids") or "",
+                ])
+            zf.writestr("segments.csv", sio.getvalue())
+
+            # memory nodes/edges
+            sio = io.StringIO()
+            if nodes:
+                node_cols = sorted({k for n in nodes for k in n.keys()})
+                writer = csv.writer(sio)
+                writer.writerow(node_cols)
+                for n in nodes:
+                    writer.writerow([n.get(c, "") for c in node_cols])
+            zf.writestr("memory_nodes.csv", sio.getvalue())
+
+            sio = io.StringIO()
+            if edges:
+                edge_cols = sorted({k for e in edges for k in e.keys()})
+                writer = csv.writer(sio)
+                writer.writerow(edge_cols)
+                for e in edges:
+                    writer.writerow([e.get(c, "") for c in edge_cols])
+            zf.writestr("memory_edges.csv", sio.getvalue())
+
+            # narrative.txt
+            zf.writestr("narrative.txt", text_blob)
+
+        zip_buf.seek(0)
+        st.download_button(
+            "Download ZIP (CSV + JSON + text)",
+            data=zip_buf.getvalue(),
+            file_name=f"dreamforge-sim-{sim_id}.zip",
+            mime="application/zip",
+        )
+
+    # ── Tab layout ───────────────────────────────────────────────────────────
     tab_hyp, tab_neuro, tab_mem, tab_dream = st.tabs([
         "🌙 Hypnogram", "🧪 Neurochemistry", "🕸 Memory Graph", "📖 Dream Narrative"
     ])
