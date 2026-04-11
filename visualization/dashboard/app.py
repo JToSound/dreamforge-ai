@@ -51,6 +51,47 @@ with st.sidebar:
     st.markdown("## 🧠 DreamForge AI")
     st.markdown("---")
 
+    # ── Download helpers ──────────────────────────────────────────────────
+    with st.expander("📥 Download Results", expanded=False):
+        json_str = json.dumps(result, indent=2)
+        sim_id = result.get("id") or result.get("simulation_id") or int(time.time())
+        st.download_button(
+            "Download JSON",
+            data=json_str,
+            file_name=f"dreamforge-sim-{sim_id}.json",
+            mime="application/json",
+            help="Download the full simulation result as JSON",
+        )
+
+        # Build a readable text summary
+        text_lines = []
+        text_lines.append(f"Simulation ID: {sim_id}")
+        text_lines.append(f"Duration: {metadata.get('duration_hours', duration_hours)} h")
+        if result.get("summary_narrative"):
+            text_lines.append("")
+            text_lines.append(result.get("summary_narrative"))
+        elif result.get("summary"):
+            text_lines.append("")
+            text_lines.append(json.dumps(result.get("summary"), indent=2))
+
+        text_lines.append("")
+        text_lines.append("Segments:")
+        for i, s in enumerate(segments):
+            narrative = s.get("narrative") or s.get("scene_description") or s.get("scene") or ""
+            time_h = s.get("time_hours") or s.get("start_time_hours") or ""
+            stage = s.get("stage") or ""
+            text_lines.append(f"--- Segment {i} ({time_h}h) [{stage}]")
+            text_lines.append(narrative)
+
+        text_blob = "\n".join(text_lines)
+        st.download_button(
+            "Download Text",
+            data=text_blob,
+            file_name=f"dreamforge-sim-{sim_id}.txt",
+            mime="text/plain",
+            help="Download a plaintext narrative summary",
+        )
+
     st.markdown("### ⚙️ LLM Configuration")
 
     llm_provider = st.selectbox(

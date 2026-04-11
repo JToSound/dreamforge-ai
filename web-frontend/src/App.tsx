@@ -14,6 +14,40 @@ const PROVIDER_MODELS: Record<string, string[]> = {
 }
 
 const STAGE_COLOR: Record<string, string> = {
+
+        {/* Download buttons */}
+        {result && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <button
+              onClick={downloadJSON}
+              style={{
+                background: 'linear-gradient(90deg, #10b981, #34d399)',
+                border: 'none',
+                color: '#000',
+                borderRadius: 8,
+                padding: '8px 12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              Download JSON
+            </button>
+            <button
+              onClick={downloadText}
+              style={{
+                background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                border: 'none',
+                color: '#fff',
+                borderRadius: 8,
+                padding: '8px 12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              Download Text
+            </button>
+          </div>
+        )}
   WAKE: '#f59e0b',
   N1: '#60a5fa',
   N2: '#818cf8',
@@ -180,6 +214,59 @@ export default function App() {
 
   const running = status === 'running'
   const segments = running ? liveSegments : result?.dream_segments ?? []
+
+  // ── Download helpers ───────────────────────────────────────────────────
+  const downloadJSON = () => {
+    if (!result) return
+    const resAny: any = result as any
+    const simId = resAny.simulation_id ?? resAny.id ?? Date.now()
+    const filename = `dreamforge-sim-${simId}.json`
+    const content = JSON.stringify(resAny, null, 2)
+    const blob = new Blob([content], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  const downloadText = () => {
+    if (!result) return
+    const resAny: any = result as any
+    const simId = resAny.simulation_id ?? resAny.id ?? ''
+    let text = ''
+    if (simId) text += `Simulation ID: ${simId}\n`
+    const duration = resAny.duration_hours ?? resAny.config?.duration_hours ?? resAny.metadata?.duration_hours ?? ''
+    if (duration) text += `Duration: ${duration}h\n`
+    text += '\n'
+    if (resAny.summary_narrative) text += `${resAny.summary_narrative}\n\n`
+    else if (resAny.summary && typeof resAny.summary === 'string') text += `${resAny.summary}\n\n`
+    else if (resAny.summary && typeof resAny.summary === 'object') text += `${JSON.stringify(resAny.summary, null, 2)}\n\n`
+
+    const segs = resAny.dream_segments ?? resAny.segments ?? []
+    for (let i = 0; i < segs.length; i++) {
+      const s: any = segs[i]
+      const idx = s.segment_index ?? s.id ?? i
+      const time = s.time_hours ?? s.start_time_hours ?? ''
+      const stage = s.stage ?? ''
+      const narrative = s.narrative ?? s.scene_description ?? s.scene ?? ''
+      text += `--- Segment ${idx} (${time}h) [${stage}]\n${narrative}\n\n`
+    }
+
+    const filename = `dreamforge-sim-${simId || Date.now()}.txt`
+    const blob = new Blob([text], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <div
