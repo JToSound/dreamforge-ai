@@ -14,20 +14,52 @@ def main() -> None:
     st.set_page_config(page_title="DreamForge Dashboard", layout="wide")
     st.title("DreamForge AI — Dream Simulation Dashboard")
 
+    # ------------------------------------------------------------------
+    # Sidebar: Simulation Parameters
+    # ------------------------------------------------------------------
     st.sidebar.subheader("Simulation Parameters")
     duration_hours = st.sidebar.slider("Simulated night length (hours)", 4.0, 10.0, 8.0, 0.5)
     dt_minutes = st.sidebar.slider("Time step (minutes)", 0.25, 2.0, 0.5, 0.25)
     ssri_strength = st.sidebar.slider("SSRI strength", 0.5, 2.0, 1.0, 0.1)
     stress_level = st.sidebar.slider("Stress level", 0.0, 1.0, 0.0, 0.1)
 
+    # ------------------------------------------------------------------
+    # Sidebar: LLM Settings
+    # ------------------------------------------------------------------
     st.sidebar.subheader("LLM Settings")
     llm_enabled = st.sidebar.checkbox("Enable LLM-backed dreams", value=False)
-    llm_provider = st.sidebar.selectbox("Provider", ["", "lmstudio", "openai", "ollama"], index=0)
-    llm_model = st.sidebar.text_input("Model name", value="qwen-3.5-9b")
-    important_only = st.sidebar.checkbox("Use LLM only for important segments", value=True)
 
+    llm_provider = st.sidebar.selectbox(
+        "Provider",
+        ["", "openai", "lmstudio", "ollama"],
+        index=0,
+        disabled=not llm_enabled,
+    )
+    llm_model = st.sidebar.text_input(
+        "Model name",
+        value="gpt-4o-mini",
+        disabled=not llm_enabled,
+    )
+    llm_api_key = st.sidebar.text_input(
+        "API key (optional, overrides env var)",
+        type="password",
+        value="",
+        disabled=not llm_enabled,
+    )
+    important_only = st.sidebar.checkbox(
+        "Use LLM only for REM / high-replay segments",
+        value=True,
+        disabled=not llm_enabled,
+    )
+
+    if llm_enabled and not llm_provider:
+        st.sidebar.warning("Select a provider to use LLM.")
+
+    # ------------------------------------------------------------------
+    # Sidebar: Day Journal
+    # ------------------------------------------------------------------
     st.sidebar.subheader("Day Journal")
-    from core.utils.journal_store import append_journal_entry  # local import to avoid heavy deps at import time
+    from core.utils.journal_store import append_journal_entry  # noqa: PLC0415
 
     with st.sidebar.form("journal_form"):
         journal_text = st.text_area("What happened today?", height=120)
@@ -45,6 +77,9 @@ def main() -> None:
         append_journal_entry(journal_text, journal_emotion, journal_stress, tags)
         st.sidebar.success("Journal entry encoded. It will influence future dreams.")
 
+    # ------------------------------------------------------------------
+    # Build config
+    # ------------------------------------------------------------------
     pharm = PharmacologyProfile(ssri_strength=ssri_strength, stress_level=stress_level)
     config = OrchestratorConfig(
         night_duration_hours=duration_hours,
@@ -54,21 +89,38 @@ def main() -> None:
         llm_provider=llm_provider or None,
         llm_model=llm_model or None,
         llm_important_only=important_only,
+        llm_api_key=llm_api_key.strip() or None,
     )
 
+    # ------------------------------------------------------------------
+    # Run button + real progress bar
+    # ------------------------------------------------------------------
     if st.button("Run simulation", type="primary"):
         engine = SimulationEngine(config=config)
-        with st.spinner("Simulating night of sleep and dreaming..."):
-            engine.simulate_night()
+
+        progress_bar = st.progress(0, text="0% — preparing simulation...")
+
+        def on_progress(p: float) -> None:
+            pct = int(p * 100)
+            label = "Simulation complete ✅" if pct >= 100 else f"Simulating night... {pct}%"
+            progress_bar.progress(pct, text=label)
+
+        with st.spinner("Running DreamForge simulation..."):
+            engine.simulate_night(on_progress=on_progress)
             night = engine.build_night()
+
+        progress_bar.progress(100, text="Simulation complete ✅")
 
         sleep_states = engine.orchestrator.sleep_history
         neuro_states = engine.orchestrator.neuro_history
         segments = night.segments
         summary = night.metadata.get("summary", {})
 
+        # ------------------------------------------------------------------
+        # Summary metrics
+        # ------------------------------------------------------------------
         st.subheader("Summary Insights")
-        cols = st.columns(3)
+        cols = st.columns(4)
         sleep_stages = summary.get("sleep_stages", {})
         neuro = summary.get("neurochemistry", {})
         biz = summary.get("bizarreness", {})
@@ -84,7 +136,13 @@ def main() -> None:
         with cols[2]:
             if biz:
                 st.metric("Mean bizarreness", f"{biz.get('mean', 0.0):.2f}")
+        with cols[3]:
+            rem_pct = sleep_stages.get("REM", 0.0)
+            st.metric("REM fraction", f"{rem_pct:.0%}" if rem_pct else "—")
 
+        # ------------------------------------------------------------------
+        # Visualisations
+        # ------------------------------------------------------------------
         col1, col2 = st.columns(2)
         with col1:
             render_hypnogram(sleep_states)
