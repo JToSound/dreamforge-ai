@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from core.agents.sleep_cycle_agent import SleepCycleAgent, SleepCycleConfig
 from core.agents.neurochemistry_agent import NeurochemistryAgent
@@ -28,6 +28,7 @@ class OrchestratorConfig:
     llm_provider: Optional[str] = None
     llm_model: Optional[str] = None
     llm_important_only: bool = True
+    llm_api_key: Optional[str] = None
 
 
 class OrchestratorAgent:
@@ -52,7 +53,11 @@ class OrchestratorAgent:
 
         llm_callable = None
         if self.config.llm_enabled:
-            llm_callable = create_llm_callable(self.config.llm_provider, self.config.llm_model)
+            llm_callable = create_llm_callable(
+                self.config.llm_provider,
+                self.config.llm_model,
+                api_key=self.config.llm_api_key,
+            )
 
         self.dream_agent = DreamConstructorAgent(
             event_bus=self.event_bus,
@@ -73,7 +78,16 @@ class OrchestratorAgent:
         self.sleep_history: List = []
         self.neuro_history: List = []
 
-    def run_night(self) -> List[DreamSegment]:
+    def run_night(
+        self,
+        on_progress: Optional[Callable[[float], None]] = None,
+    ) -> List[DreamSegment]:
+        """Run a full-night simulation.
+
+        Args:
+            on_progress: Optional callback receiving simulation progress in [0.0, 1.0].
+                         Called after every simulation tick so callers can update progress bars.
+        """
         segments: List[DreamSegment] = []
 
         while self.time_model.has_next_step:
@@ -97,6 +111,17 @@ class OrchestratorAgent:
                 self.phenom_agent.record_segment(segment)
                 segments.append(segment)
 
+            # Report progress as fraction of simulated night completed
+            if on_progress is not None:
+                elapsed = self.time_model.current_time_hours - self.time_model.start_time_hours
+                duration = self.time_model.duration_hours
+                progress = elapsed / duration if duration > 0 else 1.0
+                on_progress(max(0.0, min(progress, 1.0)))
+
             self.time_model.step()
+
+        # Ensure final 100 % callback
+        if on_progress is not None:
+            on_progress(1.0)
 
         return segments
