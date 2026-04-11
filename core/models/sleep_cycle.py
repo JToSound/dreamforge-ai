@@ -1,136 +1,260 @@
+"""core/models/sleep_cycle.py
+
+Borbély two-process model of sleep regulation and stage dynamics.
+
+Process S (homeostatic sleep pressure) and Process C (circadian drive) interact
+to determine sleep propensity and discretise into polysomnographic stages:
+Wake, N1, N2, N3 (SWS), REM.
+
+Scientific references
+---------------------
+- Borbély, A.A. (1982). A two process model of sleep regulation.
+  Human Neurobiology, 1(3), 195–204.
+- Borbély, A.A. et al. (2016). The two-process model of sleep regulation:
+  a reappraisal. Journal of Sleep Research, 25(2), 131–143.
+- Achermann, P. & Borbély, A.A. (2003). Mathematical models of sleep regulation.
+  Frontiers in Bioscience, 8, s683–693.
+"""
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Tuple
 
 from pydantic import BaseModel, Field, ConfigDict
 
 
-class SleepStage(str, Enum):
-    """Discrete sleep stages used by the simulation.
+# ---------------------------------------------------------------------------
+# Enumerations
+# ---------------------------------------------------------------------------
 
-    Based on standard polysomnography staging: Wake, N1, N2, N3 (SWS), REM.
+class SleepStage(str, Enum):
+    """Standard polysomnography sleep stages.
+
+    Based on AASM 2007 scoring rules:
+    Wake, N1 (light sleep), N2 (sleep spindles), N3 (slow-wave/deep sleep), REM.
     """
 
     WAKE = "WAKE"
-    N1 = "N1"
-    N2 = "N2"
-    N3 = "N3"
-    REM = "REM"
+    N1   = "N1"
+    N2   = "N2"
+    N3   = "N3"
+    REM  = "REM"
 
+
+# ---------------------------------------------------------------------------
+# Parameter model
+# ---------------------------------------------------------------------------
 
 class TwoProcessParameters(BaseModel):
-    """Parameters for Borbély's two-process model (Process S and Process C).
+    """Parameters for Borbély’s two-process model (Process S and Process C).
 
-    Process S (homeostatic drive) increases during wake with time constant
-    ``tau_wake`` and decays during sleep with ``tau_sleep``. Process C
-    (circadian) is modeled as a sinusoidal oscillator with period ~24 h and
-    configurable phase and amplitude. [cite:20]
+    Process S (homeostatic):
+        Increases exponentially during wake with time constant *tau_wake*.
+        Decays exponentially during sleep with time constant *tau_sleep*.
+
+    Process C (circadian):
+        Near-24 h sinusoidal oscillator parameterised by period, amplitude, and
+        phase (hour of global-clock peak).  The circadian *alerting signal* peaks
+        in the early evening and falls during the sleep window, acting as an
+        opposing force to rising homeostatic pressure.
+
+    References
+    ----------
+    Borbély 1982; Achermann & Borbély 2003.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    # Process S parameters (hours)
-    tau_wake: float = Field(default=18.0, gt=0.0, description="Time constant for S increase during wake (hours).")
-    tau_sleep: float = Field(default=4.5, gt=0.0, description="Time constant for S decay during sleep (hours).")
+    # --- Process S (hours) ---------------------------------------------------
+    tau_wake: float = Field(
+        default=18.0, gt=0.0,
+        description="Time constant for S increase during wake (hours). "
+                    "Borbély 1982 estimate: ~18 h.",
+    )
+    tau_sleep: float = Field(
+        default=4.2, gt=0.0,
+        description="Time constant for S decay during sleep (hours). "
+                    "Borbély 1982 estimate: ~4–5 h.",
+    )
+    s_max: float = Field(
+        default=1.0, gt=0.0,
+        description="Upper asymptote for Process S (normalised).",
+    )
+    s_min: float = Field(
+        default=0.0,
+        description="Lower asymptote for Process S (normalised).",
+    )
 
-    s_max: float = Field(default=1.0, gt=0.0, description="Upper asymptote for Process S.")
-    s_min: float = Field(default=0.0, description="Lower asymptote for Process S.")
-
-    # Process C parameters
-    circadian_period: float = Field(default=24.2, gt=0.0, description="Circadian period (hours).")
-    circadian_amplitude: float = Field(default=0.5, gt=0.0, description="Amplitude of Process C.")
+    # --- Process C -----------------------------------------------------------
+    circadian_period: float = Field(
+        default=24.2, gt=0.0,
+        description="Intrinsic circadian period (hours). Human average ~24.2 h.",
+    )
+    circadian_amplitude: float = Field(
+        default=0.50, gt=0.0,
+        description="Amplitude of the circadian oscillation (normalised).",
+    )
     circadian_phase: float = Field(
         default=18.0,
-        description="Phase (hours) of the circadian maximum (e.g., ~18 h for early evening peak).",
+        description="Clock time (hours, 0–24) of the circadian *maximum* "
+                    "(approximately early evening alerting peak).",
     )
 
-    # Heuristic thresholds for stage discretization; these can be refined.
-    rem_bias: float = Field(
+    # --- Stage thresholds / heuristics --------------------------------------
+    n3_s_threshold: float = Field(
+        default=0.75,
+        description="Process-S value above which N3 (SWS) is preferentially "
+                    "generated in early-night cycles.",
+    )
+    rem_c_threshold: float = Field(
         default=0.15,
-        description="Bias added to REM probability when Process C is high and S is moderate.",
+        description="Circadian component below which REM transitions are "
+                    "suppressed (morning-bias heuristic).",
     )
-    n3_threshold: float = Field(
-        default=0.8,
-        description="Threshold of Process S above which deep N3 is favored in early night.",
+    rem_cycle_bias: float = Field(
+        default=0.18,
+        description="Per-cycle additive probability increment for REM onset, "
+                    "reflecting the empirical lengthening of REM toward morning.",
     )
 
+    # --- Simulation defaults ------------------------------------------------
+    initial_s_fraction: float = Field(
+        default=0.90,
+        description="Initial Process S as a fraction of s_max at sleep onset. "
+                    "Represents accumulated homeostatic pressure after ~16 h wake.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# State dataclass
+# ---------------------------------------------------------------------------
 
 @dataclass
 class SleepState:
-    """State variables for the sleep model at a given simulated time."""
+    """Complete state of the sleep model at a given simulated time."""
 
-    time_hours: float            # Simulation time since start of night, in hours
-    process_s: float             # Homeostatic sleep pressure
-    process_c: float             # Circadian drive
-    stage: SleepStage            # Current sleep stage
-    cycle_index: int             # Index of current sleep cycle (0-based)
+    time_hours: float
+    """Simulation time since sleep onset (hours)."""
 
+    process_s: float
+    """Current homeostatic sleep pressure (0–1 normalised)."""
+
+    process_c: float
+    """Current circadian drive (can be negative; range ~[-amp, +amp])."""
+
+    stage: SleepStage
+    """Discretised sleep stage label."""
+
+    cycle_index: int
+    """Index of the current 90-minute sleep cycle (0-based)."""
+
+    time_in_stage_hours: float = field(default=0.0)
+    """Elapsed time in the current stage (hours), used for transition guards."""
+
+
+# ---------------------------------------------------------------------------
+# Model
+# ---------------------------------------------------------------------------
 
 class SleepCycleModel:
-    """Implements the two-process model of sleep regulation and stage dynamics.
+    """Implements Borbély’s two-process model with empirical stage dynamics.
 
-    Process S (homeostatic) and Process C (circadian) interact to determine
-    sleep propensity. This model provides continuous S(t), C(t) trajectories
-    and discrete stage labels (Wake / N1 / N2 / N3 / REM). [cite:20]
+    Provides:
+    - Continuous S(t), C(t) trajectories.
+    - Discrete stage labels (Wake / N1 / N2 / N3 / REM) following empirical
+      sleep architecture:
+      * N3 dominant in first third of the night (high Process S).
+      * REM periods lengthen toward morning (rising circadian drive).
+      * Average cycle length ~90 minutes.
+
+    Example
+    -------
+    >>> model = SleepCycleModel()
+    >>> states, stages = model.simulate_night(duration_hours=8.0)
+    >>> print(stages[:10])
     """
 
     def __init__(self, params: Optional[TwoProcessParameters] = None) -> None:
-        self.params = params or TwoProcessParameters()
-        self._initial_s = 0.9 * self.params.s_max
+        self.params: TwoProcessParameters = params or TwoProcessParameters()
 
-    def initial_state(self, sleep_start_circadian_time: float = 23.0) -> SleepState:
-        """Return initial state at sleep onset.
+    # ------------------------------------------------------------------
+    # Process S dynamics
+    # ------------------------------------------------------------------
+
+    def _process_s_step(
+        self,
+        s_prev: float,
+        dt_hours: float,
+        is_sleep: bool,
+    ) -> float:
+        """Advance Process S over interval *dt_hours*.
+
+        During wake (exponential rise toward s_max)::
+
+            S(t+dt) = s_max − (s_max − S(t)) × exp(−dt / tau_wake)
+
+        During sleep (exponential decay toward s_min)::
+
+            S(t+dt) = S(t) × exp(−dt / tau_sleep)
 
         Args:
-            sleep_start_circadian_time: Clock time (hours, 0–24) at which sleep starts.
-        """
-        c0 = self._process_c_global_time(global_time_hours=sleep_start_circadian_time)
-        return SleepState(
-            time_hours=0.0,
-            process_s=self._initial_s,
-            process_c=c0,
-            stage=SleepStage.N1,
-            cycle_index=0,
-        )
+            s_prev:    Process S at the start of the interval.
+            dt_hours:  Duration of the interval in hours.
+            is_sleep:  True if the organism is in a sleep stage.
 
-    # ------------------------------------------------------------------
-    # Process S and C dynamics
-    # ------------------------------------------------------------------
+        Returns:
+            Updated Process S value clamped to [s_min, s_max].
 
-    def _process_s(self, s_prev: float, dt_hours: float, is_sleep: bool) -> float:
-        """Update Process S over interval dt given wake/sleep state. [cite:20]
-
-        During wake:
-            S(t+dt) = s_max - (s_max - S(t)) * exp(-dt / tau_wake)
-
-        During sleep:
-            S(t+dt) = S(t) * exp(-dt / tau_sleep)
+        References
+        ----------
+        Borbély 1982, eq. 1–2; Achermann & Borbély 2003.
         """
         p = self.params
         if is_sleep:
-            s = s_prev * math.exp(-dt_hours / p.tau_sleep)
+            s_new = s_prev * math.exp(-dt_hours / p.tau_sleep)
         else:
-            s = p.s_max - (p.s_max - s_prev) * math.exp(-dt_hours / p.tau_wake)
-        return min(max(s, p.s_min), p.s_max)
-
-    def _process_c_global_time(self, global_time_hours: float) -> float:
-        """Circadian component as sinusoid over absolute time. [cite:20]
-
-        Process C is a near-24 h oscillator with phase and amplitude.
-        """
-        p = self.params
-        phase = 2.0 * math.pi * (global_time_hours - p.circadian_phase) / p.circadian_period
-        return p.circadian_amplitude * math.sin(phase)
-
-    def _process_c(self, current_state: SleepState, dt_hours: float, sleep_start_clock_time: float) -> float:
-        global_time = sleep_start_clock_time + current_state.time_hours + dt_hours
-        return self._process_c_global_time(global_time_hours=global_time)
+            s_new = p.s_max - (p.s_max - s_prev) * math.exp(-dt_hours / p.tau_wake)
+        return float(min(max(s_new, p.s_min), p.s_max))
 
     # ------------------------------------------------------------------
-    # Stage dynamics and cycle structure
+    # Process C dynamics
+    # ------------------------------------------------------------------
+
+    def _process_c(
+        self,
+        global_time_hours: float,
+    ) -> float:
+        """Compute Process C (circadian alerting signal) at absolute clock time.
+
+        Modelled as a sinusoid with period *circadian_period* and phase
+        *circadian_phase*::
+
+            C(t) = A × sin(2π(t − φ) / T)
+
+        where A is amplitude, φ is the phase of the maximum, and T is the period.
+
+        Args:
+            global_time_hours: Wall-clock time (0–48 h range for overnight).
+
+        Returns:
+            Circadian drive value in [−amplitude, +amplitude].
+
+        References
+        ----------
+        Borbély et al. 2016, eq. 2.
+        """
+        p = self.params
+        phase_rad = (
+            2.0 * math.pi
+            * (global_time_hours - p.circadian_phase)
+            / p.circadian_period
+        )
+        return float(p.circadian_amplitude * math.sin(phase_rad))
+
+    # ------------------------------------------------------------------
+    # Stage inference (heuristic discretisation)
     # ------------------------------------------------------------------
 
     def _infer_stage(
@@ -140,31 +264,72 @@ class SleepCycleModel:
         cycle_index: int,
         current_stage: SleepStage,
         time_in_cycle_hours: float,
+        time_in_stage_hours: float,
     ) -> SleepStage:
-        """Heuristic mapping from S, C, and cycle structure to discrete sleep stage.
+        """Map continuous (S, C) and cycle position to a discrete sleep stage.
 
-        Empirical constraints:
-          - N3 dominant early in the night when S is high.
-          - REM periods lengthen toward morning, aligned with circadian peaks.
-          - Cycles are ~90 minutes on average. [cite:18]
+        Heuristic rules grounded in empirical sleep architecture:
+
+        1. **Cycle phase**: Each ~90-minute cycle is divided into NREM and REM
+           portions; REM occupies the final ~30% of later cycles.
+        2. **N3 preference**: High Process S in early cycles (≤2) biases toward
+           N3 in the early cycle phase.
+        3. **REM lengthening**: REM probability increases with cycle index
+           (*rem_cycle_bias*) and circadian drive (Process C).
+        4. **Minimum stage duration**: Prevents spurious single-tick transitions
+           (N3 minimum 10 min; REM minimum 5 min).
+
+        Args:
+            s_value:             Current Process S.
+            c_value:             Current Process C.
+            cycle_index:         Current 90-min cycle index (0-based).
+            current_stage:       Stage at start of tick (for transition guards).
+            time_in_cycle_hours: Elapsed time within the current cycle.
+            time_in_stage_hours: Elapsed time in the current stage.
+
+        Returns:
+            New SleepStage.
         """
-        cycle_length_h = 1.5
+        p = self.params
+        cycle_length_h = 1.5  # 90-minute cycle (empirical mean)
         cycle_phase = (time_in_cycle_hours % cycle_length_h) / cycle_length_h
 
-        high_s = s_value >= self.params.n3_threshold
-        high_c = c_value >= 0.2
+        # Guard: enforce minimum time in N3 (10 min) and REM (5 min)
+        if current_stage == SleepStage.N3 and time_in_stage_hours < 10 / 60:
+            return SleepStage.N3
+        if current_stage == SleepStage.REM and time_in_stage_hours < 5 / 60:
+            return SleepStage.REM
 
+        # Early cycle phase (0–25%): deep or light NREM
         if cycle_phase < 0.25:
-            if high_s and cycle_index <= 2:
+            if s_value >= p.n3_s_threshold and cycle_index <= 2:
                 return SleepStage.N3
             return SleepStage.N2
-        elif cycle_phase < 0.6:
+
+        # Mid cycle phase (25–60%): consolidation in N2
+        elif cycle_phase < 0.60:
+            # Allow N3 continuation if still high S and early night
+            if (
+                current_stage == SleepStage.N3
+                and s_value >= p.n3_s_threshold * 0.9
+                and cycle_index <= 1
+            ):
+                return SleepStage.N3
             return SleepStage.N2
+
+        # Late cycle phase (60–100%): REM window
         else:
-            rem_prob_bias = self.params.rem_bias + 0.2 * cycle_index
-            if high_c or rem_prob_bias > 0.3:
+            rem_prob = p.rem_cycle_bias * (cycle_index + 1)
+            # Circadian boost: positive C (evening/morning) increases REM tendency
+            if c_value > p.rem_c_threshold:
+                rem_prob += 0.20
+            if rem_prob > 0.35 or (cycle_index >= 3 and c_value > 0.0):
                 return SleepStage.REM
             return SleepStage.N2
+
+    # ------------------------------------------------------------------
+    # Step
+    # ------------------------------------------------------------------
 
     def step(
         self,
@@ -172,16 +337,32 @@ class SleepCycleModel:
         dt_hours: float,
         sleep_start_clock_time: float = 23.0,
     ) -> SleepState:
-        """Advance the sleep model by dt_hours and return the new state."""
+        """Advance the sleep model by *dt_hours*.
+
+        Args:
+            state:                   Current SleepState.
+            dt_hours:                Time step in hours (e.g. 1/120 for 30 s).
+            sleep_start_clock_time:  Wall-clock hour (0–24) of sleep onset,
+                                     used to compute the global circadian time.
+
+        Returns:
+            Updated SleepState.
+        """
         is_sleep = state.stage != SleepStage.WAKE
 
-        s_new = self._process_s(state.process_s, dt_hours=dt_hours, is_sleep=is_sleep)
-        c_new = self._process_c(state, dt_hours=dt_hours, sleep_start_clock_time=sleep_start_clock_time)
+        s_new = self._process_s_step(
+            s_prev=state.process_s,
+            dt_hours=dt_hours,
+            is_sleep=is_sleep,
+        )
+
+        new_time_hours = state.time_hours + dt_hours
+        global_time = sleep_start_clock_time + new_time_hours
+        c_new = self._process_c(global_time_hours=global_time)
 
         cycle_length_h = 1.5
-        total_time = state.time_hours + dt_hours
-        cycle_index = int(total_time // cycle_length_h)
-        time_in_cycle = total_time - cycle_index * cycle_length_h
+        cycle_index = int(new_time_hours // cycle_length_h)
+        time_in_cycle = new_time_hours - cycle_index * cycle_length_h
 
         new_stage = self._infer_stage(
             s_value=s_new,
@@ -189,14 +370,50 @@ class SleepCycleModel:
             cycle_index=cycle_index,
             current_stage=state.stage,
             time_in_cycle_hours=time_in_cycle,
+            time_in_stage_hours=state.time_in_stage_hours,
+        )
+
+        time_in_stage = (
+            state.time_in_stage_hours + dt_hours
+            if new_stage == state.stage
+            else 0.0
         )
 
         return SleepState(
-            time_hours=total_time,
+            time_hours=new_time_hours,
             process_s=s_new,
             process_c=c_new,
             stage=new_stage,
             cycle_index=cycle_index,
+            time_in_stage_hours=time_in_stage,
+        )
+
+    # ------------------------------------------------------------------
+    # Convenience
+    # ------------------------------------------------------------------
+
+    def initial_state(
+        self,
+        sleep_start_clock_time: float = 23.0,
+    ) -> SleepState:
+        """Return the initial SleepState at sleep onset.
+
+        Args:
+            sleep_start_clock_time: Wall-clock hour of sleep onset.
+
+        Returns:
+            SleepState with high Process S and appropriate circadian phase.
+        """
+        p = self.params
+        s0 = p.initial_s_fraction * p.s_max
+        c0 = self._process_c(global_time_hours=sleep_start_clock_time)
+        return SleepState(
+            time_hours=0.0,
+            process_s=s0,
+            process_c=c0,
+            stage=SleepStage.N1,
+            cycle_index=0,
+            time_in_stage_hours=0.0,
         )
 
     def simulate_night(
@@ -205,17 +422,62 @@ class SleepCycleModel:
         dt_minutes: float = 0.5,
         sleep_start_clock_time: float = 23.0,
     ) -> Tuple[list[SleepState], list[SleepStage]]:
-        """Simulate an entire night and return state trajectory and hypnogram."""
+        """Simulate a full sleep night and return the trajectory.
+
+        Performance target: 8-hour night with 0.5-min ticks completes in
+        <1 second on a modern CPU (960 steps, pure Python math).
+
+        Args:
+            duration_hours:         Total simulated duration (hours).
+            dt_minutes:             Temporal resolution (minutes per tick).
+            sleep_start_clock_time: Wall-clock hour of sleep onset.
+
+        Returns:
+            states: Time-ordered list of SleepState snapshots.
+            stages: Corresponding SleepStage hypnogram labels.
+        """
         dt_hours = dt_minutes / 60.0
         num_steps = int(duration_hours / dt_hours)
 
-        state = self.initial_state(sleep_start_circadian_time=sleep_start_clock_time)
+        state = self.initial_state(sleep_start_clock_time=sleep_start_clock_time)
         states: list[SleepState] = [state]
         stages: list[SleepStage] = [state.stage]
 
         for _ in range(num_steps):
-            state = self.step(state, dt_hours=dt_hours, sleep_start_clock_time=sleep_start_clock_time)
+            state = self.step(
+                state,
+                dt_hours=dt_hours,
+                sleep_start_clock_time=sleep_start_clock_time,
+            )
             states.append(state)
             stages.append(state.stage)
 
         return states, stages
+
+    def process_s_curve(
+        self,
+        duration_hours: float = 8.0,
+        dt_minutes: float = 0.5,
+        sleep_start_clock_time: float = 23.0,
+    ) -> list[float]:
+        """Return just the Process S time series (convenience for plotting)."""
+        states, _ = self.simulate_night(
+            duration_hours=duration_hours,
+            dt_minutes=dt_minutes,
+            sleep_start_clock_time=sleep_start_clock_time,
+        )
+        return [s.process_s for s in states]
+
+    def process_c_curve(
+        self,
+        duration_hours: float = 8.0,
+        dt_minutes: float = 0.5,
+        sleep_start_clock_time: float = 23.0,
+    ) -> list[float]:
+        """Return just the Process C time series (convenience for plotting)."""
+        states, _ = self.simulate_night(
+            duration_hours=duration_hours,
+            dt_minutes=dt_minutes,
+            sleep_start_clock_time=sleep_start_clock_time,
+        )
+        return [s.process_c for s in states]
