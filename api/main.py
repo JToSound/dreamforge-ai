@@ -4,6 +4,8 @@ from fastapi import FastAPI
 
 from api.routes import simulation, journal
 
+from api.routes.llm_settings import router as llm_router
+app.include_router(llm_router)
 
 app = FastAPI(title="DreamForge AI API", version="0.2.0")
 

@@ -1,3 +1,54 @@
+# 在檔案頂部加入
+from core.llm_client import get_llm_client
+
+# 把原來的 template narrative 生成邏輯替換成：
+async def _generate_narrative(
+    self,
+    stage: str,
+    emotion: str,
+    memory_fragments: list[str],
+    ach: float,
+    bizarreness_score: float,
+) -> tuple[str, str]:
+    """Call LLM to generate a real dream narrative and scene description."""
+    client = get_llm_client()
+
+    # Build context from memory fragments
+    memory_text = "\n".join(f"- {frag}" for frag in memory_fragments[:5]) or "- (no specific memories)"
+
+    system_prompt = (
+        "You are a dream narrator. Write vivid, surreal, first-person dream descriptions "
+        "grounded in neuroscience. Dreams during REM are more vivid and bizarre. "
+        "NREM dreams are hazier and more thought-like. Keep each narrative under 80 words. "
+        "Never say 'you find yourself' — start with an active scene."
+    )
+
+    user_prompt = (
+        f"Generate a dream segment with these parameters:\n"
+        f"Sleep stage: {stage}\n"
+        f"Dominant emotion: {emotion}\n"
+        f"Bizarreness level: {bizarreness_score:.2f} (0=mundane, 1=extremely bizarre)\n"
+        f"Acetylcholine level: {ach:.2f} (higher = more vivid/hallucinatory)\n"
+        f"Memory fragments active:\n{memory_text}\n\n"
+        f"Write TWO things separated by '|||':\n"
+        f"1. A first-person dream narrative (60-80 words)\n"
+        f"2. A brief scene description for visualization (15-20 words)\n"
+        f"Format: <narrative>|||<scene>"
+    )
+
+    raw = await client.chat(system=system_prompt, user=user_prompt)
+
+    # Parse response
+    if "|||" in raw:
+        parts = raw.split("|||", 1)
+        narrative = parts[0].strip().lstrip("<narrative>").rstrip(">").strip()
+        scene = parts[1].strip().lstrip("<scene>").rstrip(">").strip()
+    else:
+        narrative = raw.strip()
+        scene = f"A {stage} dream scene with {emotion} tone."
+
+    return narrative, scene
+
 from __future__ import annotations
 
 import json

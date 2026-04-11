@@ -1,33 +1,37 @@
-version: '3.9'
+version: "3.9"
 
 services:
   api:
     build: .
-    working_dir: /app
-    environment:
-      - PYTHONPATH=/app
-      - LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1
-    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
+    environment:
+      # ── LM Studio 設定 ──────────────────────────────────────
+      # host.docker.internal 指向你 Mac/Windows 的 localhost
+      LLM_PROVIDER:     lmstudio
+      LLM_BASE_URL:     http://host.docker.internal:1234/v1
+      LLM_MODEL:        qwen/qwen3.5-9b
+      LLM_API_KEY:      lm-studio
+      LLM_TIMEOUT:      "120"
+      LLM_MAX_TOKENS:   "512"
+      LLM_TEMPERATURE:  "0.85"
+      # ── Redis ───────────────────────────────────────────────
+      REDIS_URL:        redis://redis:6379
     depends_on:
       - redis
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "host.docker.internal:host-gateway"   # Linux Docker 必須加呢行
 
   dashboard:
-    build: .
-    working_dir: /app
-    environment:
-      - PYTHONPATH=/app
-      - LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1
-    command: streamlit run visualization/dashboard/app.py --server.port=8501 --server.address=0.0.0.0
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
     ports:
       - "8501:8501"
+    environment:
+      API_BASE_URL: http://api:8000
     depends_on:
       - api
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
   redis:
     image: redis:7-alpine
