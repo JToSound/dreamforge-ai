@@ -1,69 +1,121 @@
+"""Pydantic schemas for DreamForge AI REST API.
+
+All request/response models are defined here to keep api/routes/* thin.
+"""
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from enum import Enum
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
-from core.models.dream_segment import DreamNight
-
 
 # ---------------------------------------------------------------------------
-# Request
+# LLM Configuration
 # ---------------------------------------------------------------------------
 
-class DreamSimulationRequest(BaseModel):
-    """Request body for running a single-night simulation."""
+class LLMProvider(str, Enum):
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
+    OLLAMA = "ollama"
+    OPENAI_COMPATIBLE = "openai_compatible"
 
-    duration_hours: float = Field(8.0, gt=0.0)
-    dt_minutes: float = Field(0.5, gt=0.0)
-    ssri_strength: float = Field(1.0, gt=0.0)
-    stress_level: float = Field(0.0, ge=0.0)
 
-    llm_enabled: bool = Field(False)
-    llm_provider: Optional[str] = Field(None)
-    llm_model: Optional[str] = Field(None)
-    llm_important_only: bool = Field(True)
-    llm_api_key: Optional[str] = Field(
-        None,
-        description="Optional API key passed from the frontend; overrides the server env var.",
+class LLMConfig(BaseModel):
+    """LLM backend configuration supplied by the user at runtime."""
+
+    provider: LLMProvider = Field(
+        default=LLMProvider.OPENAI,
+        description="Which LLM provider to use.",
+    )
+    model: str = Field(
+        default="gpt-4o",
+        description="Model name/ID (e.g. 'gpt-4o', 'claude-3-5-sonnet-20241022', 'llama3').",
+    )
+    api_key: Optional[str] = Field(
+        default=None,
+        description="API key for the provider. Leave null to read from environment variable.",
+    )
+    base_url: Optional[str] = Field(
+        default=None,
+        description="Custom base URL for Ollama or OpenAI-compatible endpoints (e.g. http://localhost:11434/v1).",
+    )
+    temperature: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=2.0,
+        description="Sampling temperature passed to the LLM.",
+    )
+    max_tokens: int = Field(
+        default=512,
+        ge=64,
+        le=4096,
+        description="Max tokens per LLM call.",
     )
 
 
 # ---------------------------------------------------------------------------
-# Segment / Summary
+# Simulation parameters
 # ---------------------------------------------------------------------------
 
-class DreamSegmentSchema(BaseModel):
-    id: str
-    start_time_hours: float
-    end_time_hours: float
-    stage: str
-    narrative: str
-    scene_description: str
-    dominant_emotion: str
-    bizarreness_score: float
-    lucidity_probability: float
+class PharmacologyInput(BaseModel):
+    ssri: bool = Field(default=False, description="Whether subject is on an SSRI.")
+    ssri_factor: float = Field(default=1.0, ge=0.5, le=3.0)
+    melatonin: bool = Field(default=False)
+    cannabis: bool = Field(default=False)
 
 
-class NightSummarySchema(BaseModel):
-    sleep_stages: Dict[str, float]
-    neurochemistry: Dict[str, Dict[str, float]]
-    bizarreness: Dict[str, Any]
-    memory: Dict[str, Any]
+class DayInput(BaseModel):
+    """Events / emotional state of the day prior to sleep."""
+
+    events: list[str] = Field(
+        default_factory=list,
+        description="Brief text descriptions of notable events from the day.",
+    )
+    stress_level: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Subjective stress level (0 = calm, 1 = extremely stressed).",
+    )
+    mood: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Baseline mood valence (0 = very negative, 1 = very positive).",
+    )
+    pharmacology: PharmacologyInput = Field(default_factory=PharmacologyInput)
+
+
+class SimulationConfig(BaseModel):
+    duration_hours: float = Field(default=8.0, ge=1.0, le=12.0)
+    dt_minutes: float = Field(default=0.5, ge=0.1, le=5.0)
+    sleep_start_clock_time: float = Field(default=23.0, ge=18.0, le=30.0)
+    tau_wake: float = Field(default=18.0)
+    tau_sleep: float = Field(default=4.5)
+    noise_std: float = Field(default=0.05)
+
+
+class SimulationRequest(BaseModel):
+    """Full request body for POST /simulate-night."""
+
+    day_input: DayInput = Field(default_factory=DayInput)
+    config: SimulationConfig = Field(default_factory=SimulationConfig)
+    llm: LLMConfig = Field(
+        default_factory=LLMConfig,
+        description="LLM backend to use for narrative/phenomenology generation.",
+    )
+    generate_narrative: bool = Field(
+        default=True,
+        description="If True, call the LLM to generate dream narratives. If False, skip LLM calls (faster).",
+    )
 
 
 # ---------------------------------------------------------------------------
-# Timeseries schemas (new — for hypnogram / neuro-flux / memory-graph viz)
+# Simulation response
 # ---------------------------------------------------------------------------
 
-class SleepStateSchema(BaseModel):
-    time_hours: float
-    stage: str
-    process_s: float
-    process_c: float
-
-
-class NeuroStateSchema(BaseModel):
+class NeurochemSnapshot(BaseModel):
     time_hours: float
     ach: float
     serotonin: float
@@ -71,67 +123,50 @@ class NeuroStateSchema(BaseModel):
     cortisol: float
 
 
-class MemoryGraphSchema(BaseModel):
-    nodes: List[Dict[str, Any]]
-    edges: List[Dict[str, Any]]
+class DreamSegmentOut(BaseModel):
+    segment_index: int
+    time_hours: float
+    stage: str
+    narrative: str
+    dominant_emotion: str
+    bizarreness_score: float
+    lucidity_score: float
+    active_memory_labels: list[str]
+    neurochemistry: NeurochemSnapshot
 
 
-# ---------------------------------------------------------------------------
-# Top-level response
-# ---------------------------------------------------------------------------
-
-class DreamNightSchema(BaseModel):
+class MemoryNodeOut(BaseModel):
     id: str
-    config: Dict[str, Any]
-    segments: List[DreamSegmentSchema]
-    summary: NightSummarySchema
-    # Raw timeseries for frontend charts
-    sleep_history: List[SleepStateSchema] = Field(default_factory=list)
-    neuro_history: List[NeuroStateSchema] = Field(default_factory=list)
-    memory_graph: MemoryGraphSchema = Field(
-        default_factory=lambda: MemoryGraphSchema(nodes=[], edges=[])
-    )
+    label: str
+    memory_type: str
+    activation: float
+    salience: float
+    emotion: str
+    arousal: float
 
 
-# ---------------------------------------------------------------------------
-# Serialiser
-# ---------------------------------------------------------------------------
+class MemoryEdgeOut(BaseModel):
+    source: str
+    target: str
+    weight: float
 
-def serialize_dream_night(night: DreamNight) -> DreamNightSchema:
-    meta: Dict[str, Any] = night.metadata or {}
-    summary: Dict[str, Any] = meta.get("summary", {})
 
-    sleep_raw: List[Dict[str, Any]] = meta.get("sleep_history", [])
-    neuro_raw: List[Dict[str, Any]] = meta.get("neuro_history", [])
-    memory_raw: Dict[str, Any] = meta.get("memory_graph", {"nodes": [], "edges": []})
+class AgentActivityPoint(BaseModel):
+    time_hours: float
+    agent: str
+    event: str
+    confidence: float
 
-    return DreamNightSchema(
-        id=night.id,
-        config=night.config,
-        segments=[
-            DreamSegmentSchema(
-                id=s.id,
-                start_time_hours=s.start_time_hours,
-                end_time_hours=s.end_time_hours,
-                stage=s.stage.value,
-                narrative=s.narrative,
-                scene_description=s.scene_description,
-                dominant_emotion=s.dominant_emotion.value,
-                bizarreness_score=s.bizarreness_score,
-                lucidity_probability=s.lucidity_probability,
-            )
-            for s in night.segments
-        ],
-        summary=NightSummarySchema(
-            sleep_stages=summary.get("sleep_stages", {}),
-            neurochemistry=summary.get("neurochemistry", {}),
-            bizarreness=summary.get("bizarreness", {}),
-            memory=summary.get("memory", {}),
-        ),
-        sleep_history=[SleepStateSchema(**s) for s in sleep_raw],
-        neuro_history=[NeuroStateSchema(**n) for n in neuro_raw],
-        memory_graph=MemoryGraphSchema(
-            nodes=memory_raw.get("nodes", []),
-            edges=memory_raw.get("edges", []),
-        ),
-    )
+
+class SimulationResult(BaseModel):
+    simulation_id: str
+    duration_hours: float
+    total_segments: int
+    hypnogram: list[dict[str, Any]]
+    neurochemistry_series: list[NeurochemSnapshot]
+    dream_segments: list[DreamSegmentOut]
+    memory_graph: dict[str, Any]
+    agent_activity: list[AgentActivityPoint]
+    llm_provider_used: str
+    llm_model_used: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
