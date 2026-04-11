@@ -1,695 +1,651 @@
-import { Suspense, useMemo, useRef, useState } from "react";
-import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Stars } from "@react-three/drei";
-import { DreamScene } from "./components/DreamScene";
+import { useState } from 'react'
 import {
   useSimulationData,
-  type SimulationRequestConfig,
-  type SleepState,
-  type NeuroState,
-} from "./useSimulationData";
+  LLMConfig,
+  SleepConfig,
+  SimulateRequest,
+  DreamSegment,
+} from './useSimulationData'
 
-// ---------------------------------------------------------------------------
-// Stage colour map for hypnogram
-// ---------------------------------------------------------------------------
-const STAGE_Y: Record<string, number> = {
-  WAKE: 4,
-  REM: 3,
-  N1: 2,
-  N2: 1,
-  N3: 0,
-};
+const PROVIDER_MODELS: Record<string, string[]> = {
+  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+  anthropic: ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-3-5'],
+  ollama: ['llama3', 'mistral', 'phi3', 'gemma2'],
+}
+
 const STAGE_COLOR: Record<string, string> = {
-  WAKE: "#f59e0b",
-  REM: "#22d3ee",
-  N1: "#818cf8",
-  N2: "#6366f1",
-  N3: "#1e40af",
-};
-
-// ---------------------------------------------------------------------------
-// Mini SVG Hypnogram
-// ---------------------------------------------------------------------------
-function Hypnogram({ history }: { history: SleepState[] }) {
-  if (!history.length) return null;
-  const W = 340, H = 100, PAD = 6;
-  const maxT = history[history.length - 1].time_hours;
-  const xOf = (t: number) => PAD + ((t / maxT) * (W - PAD * 2));
-  const yOf = (stage: string) => PAD + ((4 - (STAGE_Y[stage] ?? 2)) / 4) * (H - PAD * 2);
-
-  const points = history
-    .map((s) => `${xOf(s.time_hours).toFixed(1)},${yOf(s.stage).toFixed(1)}`)
-    .join(" ");
-
-  // Colour segments by stage
-  const rects = history.slice(0, -1).map((s, i) => {
-    const x1 = xOf(s.time_hours);
-    const x2 = xOf(history[i + 1].time_hours);
-    return (
-      <rect
-        key={i}
-        x={x1}
-        y={yOf(s.stage)}
-        width={x2 - x1}
-        height={2.5}
-        fill={STAGE_COLOR[s.stage] ?? "#6366f1"}
-        opacity={0.7}
-      />
-    );
-  });
-
-  const labels = Object.entries(STAGE_Y).map(([label, val]) => (
-    <text
-      key={label}
-      x={1}
-      y={yOf(label) + 4}
-      fontSize={6}
-      fill={STAGE_COLOR[label]}
-      fontFamily="monospace"
-    >
-      {label}
-    </text>
-  ));
-
-  return (
-    <svg width={W} height={H} style={{ display: "block", width: "100%" }}>
-      {rects}
-      <polyline
-        points={points}
-        fill="none"
-        stroke="rgba(255,255,255,0.35)"
-        strokeWidth={0.8}
-      />
-      {labels}
-    </svg>
-  );
+  WAKE: '#f59e0b',
+  N1: '#60a5fa',
+  N2: '#818cf8',
+  N3: '#6366f1',
+  REM: '#f472b6',
 }
 
-// ---------------------------------------------------------------------------
-// Mini SVG Neurochemical Flux
-// ---------------------------------------------------------------------------
-function NeuroFlux({ history }: { history: NeuroState[] }) {
-  if (!history.length) return null;
-  const W = 340, H = 100, PAD = 6;
-  const maxT = history[history.length - 1].time_hours;
-  const xOf = (t: number) => PAD + ((t / maxT) * (W - PAD * 2));
-
-  type Key = "ach" | "serotonin" | "ne" | "cortisol";
-  const lines: { key: Key; color: string; label: string }[] = [
-    { key: "ach", color: "#22d3ee", label: "ACh" },
-    { key: "serotonin", color: "#a78bfa", label: "5-HT" },
-    { key: "ne", color: "#f472b6", label: "NE" },
-    { key: "cortisol", color: "#fbbf24", label: "CORT" },
-  ];
-
-  // Normalise each channel to [0,1] over its own range
-  const norm = (arr: number[]) => {
-    const mn = Math.min(...arr);
-    const mx = Math.max(...arr);
-    return mx === mn ? arr.map(() => 0.5) : arr.map((v) => (v - mn) / (mx - mn));
-  };
-
-  const yOf = (v: number) => PAD + (1 - v) * (H - PAD * 2);
-
-  const polylines = lines.map(({ key, color, label }) => {
-    const vals = norm(history.map((n) => n[key] as number));
-    const pts = history
-      .map((n, i) => `${xOf(n.time_hours).toFixed(1)},${yOf(vals[i]).toFixed(1)}`)
-      .join(" ");
-    return (
-      <g key={key}>
-        <polyline points={pts} fill="none" stroke={color} strokeWidth={1.2} opacity={0.85} />
-        <text
-          x={W - PAD - 1}
-          y={yOf(vals[vals.length - 1]) + 3}
-          fontSize={5.5}
-          fill={color}
-          textAnchor="end"
-          fontFamily="monospace"
-        >
-          {label}
-        </text>
-      </g>
-    );
-  });
-
+function EmotionBadge({ emotion }: { emotion: string }) {
+  const colors: Record<string, string> = {
+    joy: '#fbbf24',
+    fear: '#f87171',
+    sadness: '#60a5fa',
+    anger: '#ef4444',
+    surprise: '#a78bfa',
+    disgust: '#34d399',
+    neutral: '#9ca3af',
+  }
   return (
-    <svg width={W} height={H} style={{ display: "block", width: "100%" }}>
-      {polylines}
-    </svg>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Panel card
-// ---------------------------------------------------------------------------
-function PanelCard({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
+    <span
       style={{
-        borderRadius: "0.75rem",
-        padding: "0.65rem 0.8rem",
-        background: "linear-gradient(135deg,rgba(15,23,42,0.92),rgba(30,64,175,0.55))",
-        boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
-        border: "1px solid rgba(148,163,184,0.12)",
+        background: colors[emotion] ?? '#9ca3af',
+        color: '#000',
+        borderRadius: 9999,
+        padding: '2px 10px',
+        fontSize: 11,
+        fontWeight: 600,
+        letterSpacing: '0.05em',
+        textTransform: 'uppercase',
       }}
     >
+      {emotion}
+    </span>
+  )
+}
+
+function BizarrenessBar({ value }: { value: number }) {
+  const pct = Math.round(value * 100)
+  const color = value < 0.33 ? '#34d399' : value < 0.66 ? '#fbbf24' : '#f87171'
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <div
         style={{
-          fontSize: "0.7rem",
-          fontWeight: 700,
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
-          color: "#94a3b8",
-          marginBottom: "0.45rem",
+          flex: 1,
+          height: 6,
+          background: '#374151',
+          borderRadius: 3,
+          overflow: 'hidden',
         }}
       >
-        {title}
+        <div
+          style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 3 }}
+        />
       </div>
-      {children}
+      <span style={{ fontSize: 11, color: '#9ca3af', minWidth: 30 }}>{pct}%</span>
     </div>
-  );
+  )
 }
 
-// ---------------------------------------------------------------------------
-// Main App
-// ---------------------------------------------------------------------------
-export function App() {
-  const [loading, setLoading] = useState(false);
-  const { data, error, runSimulation } = useSimulationData(setLoading);
+function SegmentCard({ seg }: { seg: DreamSegment }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div
+      onClick={() => setOpen(!open)}
+      style={{
+        background: '#1f2937',
+        borderRadius: 10,
+        padding: '14px 16px',
+        cursor: 'pointer',
+        border: '1px solid #374151',
+        transition: 'border-color 0.15s',
+      }}
+      onMouseEnter={e => ((e.currentTarget as HTMLDivElement).style.borderColor = '#6366f1')}
+      onMouseLeave={e => ((e.currentTarget as HTMLDivElement).style.borderColor = '#374151')}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span
+            style={{
+              background: STAGE_COLOR[seg.stage] ?? '#6b7280',
+              color: '#000',
+              borderRadius: 6,
+              padding: '2px 8px',
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            {seg.stage}
+          </span>
+          <span style={{ fontSize: 12, color: '#9ca3af' }}>
+            {seg.time_hours.toFixed(2)}h
+          </span>
+          <EmotionBadge emotion={seg.dominant_emotion} />
+        </div>
+        <span style={{ fontSize: 11, color: '#6b7280' }}>{open ? '▲' : '▼'}</span>
+      </div>
 
-  // Simulation params
-  const [durationHours, setDurationHours] = useState(8.0);
-  const [dtMinutes, setDtMinutes] = useState(0.5);
-  const [ssriStrength, setSsriStrength] = useState(1.0);
-  const [stressLevel, setStressLevel] = useState(0.2);
+      <div style={{ marginTop: 8 }}>
+        <BizarrenessBar value={seg.bizarreness_score} />
+      </div>
 
-  // LLM settings
-  const [llmEnabled, setLlmEnabled] = useState(false);
-  const [llmProvider, setLlmProvider] = useState<"" | "openai" | "lmstudio" | "ollama">("openai");
-  const [llmModel, setLlmModel] = useState("gpt-4o-mini");
-  const [llmImportantOnly, setLlmImportantOnly] = useState(true);
-  const [llmApiKey, setLlmApiKey] = useState("");
+      {open && (
+        <p
+          style={{
+            marginTop: 10,
+            fontSize: 13,
+            lineHeight: 1.6,
+            color: '#d1d5db',
+            fontStyle: 'italic',
+          }}
+        >
+          "{seg.narrative}"
+        </p>
+      )}
+    </div>
+  )
+}
 
-  // Fake progress bar
-  const [progress, setProgress] = useState(0);
-  const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+export default function App() {
+  // ── LLM config state ─────────────────────────────────────────────────────
+  const [provider, setProvider] = useState<LLMConfig['provider']>('openai')
+  const [model, setModel] = useState('gpt-4o')
+  const [apiKey, setApiKey] = useState('')
+  const [baseUrl, setBaseUrl] = useState('')
+  const [temperature, setTemperature] = useState(0.9)
+  const [maxTokens, setMaxTokens] = useState(512)
+
+  // ── Sleep config state ───────────────────────────────────────────────────
+  const [durationHours, setDurationHours] = useState(8)
+  const [stressLevel, setStressLevel] = useState(0.5)
+  const [priorEvents, setPriorEvents] = useState(
+    'Had a stressful meeting\nWent for an evening run\nWatched a sci-fi film'
+  )
+
+  const { status, progress, progressMsg, currentStage, result, liveSegments, error, runSimulation, cancel } =
+    useSimulationData()
 
   const handleRun = () => {
-    const config: SimulationRequestConfig = {
-      duration_hours: durationHours,
-      dt_minutes: dtMinutes,
-      ssri_strength: ssriStrength,
+    const req: SimulateRequest = {
+      llm: {
+        provider,
+        model,
+        api_key: apiKey,
+        base_url: baseUrl || undefined,
+        temperature,
+        max_tokens: maxTokens,
+      },
+      sleep: {
+        duration_hours: durationHours,
+        sleep_start_clock_time: 23,
+        dt_minutes: 0.5,
+      },
+      prior_day_events: priorEvents.split('\n').filter(Boolean),
       stress_level: stressLevel,
-      llm_enabled: llmEnabled,
-      llm_provider: llmEnabled && llmProvider ? llmProvider : null,
-      llm_model: llmEnabled && llmModel ? llmModel : null,
-      llm_important_only: llmImportantOnly,
-      llm_api_key: llmEnabled && llmApiKey ? llmApiKey : null,
-    };
+    }
+    runSimulation(req)
+  }
 
-    setProgress(0);
-    if (progressTimerRef.current) clearInterval(progressTimerRef.current);
-    let cur = 0;
-    progressTimerRef.current = setInterval(() => {
-      cur = Math.min(cur + 4, 88);
-      setProgress(cur);
-    }, 200);
+  const handleProviderChange = (p: LLMConfig['provider']) => {
+    setProvider(p)
+    setModel(PROVIDER_MODELS[p][0])
+    if (p === 'ollama') setBaseUrl('http://localhost:11434/v1')
+    else setBaseUrl('')
+  }
 
-    runSimulation(config).finally(() => {
-      if (progressTimerRef.current) clearInterval(progressTimerRef.current);
-      setProgress(100);
-      setTimeout(() => setProgress(0), 800);
-    });
-  };
-
-  // ------------------------------------------------------------------
-  // Slider helper
-  // ------------------------------------------------------------------
-  const SliderRow = ({
-    label,
-    value,
-    min,
-    max,
-    step,
-    onChange,
-  }: {
-    label: string;
-    value: number;
-    min: number;
-    max: number;
-    step: number;
-    onChange: (v: number) => void;
-  }) => (
-    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-      <span style={{ fontSize: "0.7rem", color: "#94a3b8", width: "70px", flexShrink: 0 }}>
-        {label}
-      </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        style={{ flex: 1, accentColor: "#22d3ee" }}
-      />
-      <span style={{ fontSize: "0.7rem", color: "#e2e8f0", width: "30px", textAlign: "right" }}>
-        {value}
-      </span>
-    </div>
-  );
-
-  const inputStyle: React.CSSProperties = {
-    width: "100%",
-    padding: "0.25rem 0.4rem",
-    borderRadius: "0.4rem",
-    border: "1px solid rgba(148,163,184,0.3)",
-    background: "rgba(15,23,42,0.9)",
-    color: "#e2e8f0",
-    fontSize: "0.72rem",
-  };
-
-  const selectStyle: React.CSSProperties = { ...inputStyle };
+  const running = status === 'running'
+  const segments = running ? liveSegments : result?.dream_segments ?? []
 
   return (
     <div
       style={{
-        width: "100vw",
-        height: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        background: "#020617",
-        color: "#e2e8f0",
-        fontFamily: "'Inter',system-ui,sans-serif",
+        minHeight: '100vh',
+        background: '#111827',
+        color: '#f9fafb',
+        fontFamily: "'Inter', sans-serif",
+        display: 'grid',
+        gridTemplateColumns: '340px 1fr',
+        gridTemplateRows: 'auto 1fr',
       }}
     >
-      {/* ---------------------------------------------------------------- */}
-      {/* Header */}
-      {/* ---------------------------------------------------------------- */}
+      {/* ── Header ────────────────────────────────────────────────────────── */}
       <header
         style={{
-          padding: "0.6rem 1.2rem",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          background: "linear-gradient(90deg,#020617,#0f172a)",
-          borderBottom: "1px solid rgba(148,163,184,0.18)",
-          gap: "1rem",
-          flexWrap: "wrap",
-          flexShrink: 0,
+          gridColumn: '1 / -1',
+          borderBottom: '1px solid #1f2937',
+          padding: '16px 32px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 16,
+          background: '#0f172a',
         }}
       >
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <circle cx="14" cy="14" r="14" fill="#6366f1" opacity="0.15" />
+          <path d="M14 6 Q20 10 20 14 Q20 20 14 22 Q8 20 8 14 Q8 10 14 6Z" fill="#6366f1" opacity="0.6" />
+          <circle cx="14" cy="14" r="3" fill="#a5b4fc" />
+        </svg>
         <div>
-          <h1 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, letterSpacing: "-0.01em" }}>
-            🌙 DreamForge AI
+          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em' }}>
+            DreamForge AI
           </h1>
-          <p style={{ margin: 0, fontSize: "0.7rem", color: "#94a3b8" }}>
-            3D dream space · hypnogram · neurochemistry · memory graph
+          <p style={{ margin: 0, fontSize: 11, color: '#6b7280' }}>
+            Multi-agent dream simulation
           </p>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          {/* Progress bar */}
-          {progress > 0 && (
+        {running && (
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
             <div
               style={{
-                width: "140px",
-                height: "5px",
-                borderRadius: "999px",
-                background: "rgba(30,41,59,0.9)",
-                overflow: "hidden",
+                background: '#1f2937',
+                borderRadius: 9999,
+                height: 8,
+                width: 220,
+                overflow: 'hidden',
               }}
             >
               <div
                 style={{
-                  width: `${progress}%`,
-                  height: "100%",
-                  borderRadius: "999px",
-                  background: "linear-gradient(90deg,#22d3ee,#6366f1)",
-                  transition: "width 160ms ease",
+                  height: '100%',
+                  width: `${Math.round(progress * 100)}%`,
+                  background: 'linear-gradient(90deg, #6366f1, #f472b6)',
+                  transition: 'width 0.3s ease',
+                  borderRadius: 9999,
                 }}
               />
             </div>
-          )}
-
-          <button
-            onClick={handleRun}
-            disabled={loading}
-            style={{
-              padding: "0.38rem 1rem",
-              borderRadius: "999px",
-              border: "none",
-              background: loading
-                ? "rgba(99,102,241,0.4)"
-                : "linear-gradient(90deg,#22d3ee,#6366f1)",
-              color: "white",
-              fontWeight: 700,
-              cursor: loading ? "wait" : "pointer",
-              fontSize: "0.78rem",
-              letterSpacing: "0.02em",
-              transition: "opacity 180ms",
-            }}
-          >
-            {loading ? "Simulating…" : "▶ Run Simulation"}
-          </button>
-        </div>
+            <span style={{ fontSize: 12, color: '#a5b4fc', minWidth: 36 }}>
+              {Math.round(progress * 100)}%
+            </span>
+            <span
+              style={{
+                background: STAGE_COLOR[currentStage] ?? '#6b7280',
+                color: '#000',
+                fontSize: 10,
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: 4,
+              }}
+            >
+              {currentStage || 'INIT'}
+            </span>
+            <button
+              onClick={cancel}
+              style={{
+                background: '#374151',
+                border: 'none',
+                color: '#f9fafb',
+                borderRadius: 6,
+                padding: '4px 12px',
+                fontSize: 12,
+                cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
       </header>
 
-      {/* ---------------------------------------------------------------- */}
-      {/* Body: 3D canvas left | side panel right */}
-      {/* ---------------------------------------------------------------- */}
-      <main
+      {/* ── Left panel: config ──────────────────────────────────────────────── */}
+      <aside
         style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "row",
-          minHeight: 0,
-          gap: 0,
+          background: '#0f172a',
+          borderRight: '1px solid #1f2937',
+          padding: '24px 20px',
+          overflowY: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 20,
         }}
       >
-        {/* Left: 3D Dream Space */}
-        <section
-          style={{
-            flex: "1.4 1 0",
-            minWidth: 0,
-            position: "relative",
-            borderRight: "1px solid rgba(148,163,184,0.1)",
-          }}
-        >
-          {error && (
-            <div
-              style={{
-                position: "absolute",
-                top: "0.5rem",
-                left: "0.75rem",
-                zIndex: 10,
-                background: "rgba(127,29,29,0.85)",
-                padding: "0.35rem 0.75rem",
-                borderRadius: "0.5rem",
-                fontSize: "0.72rem",
-                color: "#fecaca",
-                maxWidth: "90%",
-              }}
-            >
-              ⚠ {error}
-            </div>
-          )}
-          <Canvas
-            style={{ width: "100%", height: "100%" }}
-            camera={{ position: [0, 4, 10], fov: 55 }}
+        {/* LLM Config */}
+        <section>
+          <h2
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: '#6b7280',
+              marginBottom: 12,
+            }}
           >
-            <color attach="background" args={["#020617"]} />
-            <fog attach="fog" args={["#020617", 10, 40]} />
-            <ambientLight intensity={0.2} />
-            <directionalLight intensity={0.8} position={[5, 10, 5]} />
-            <Stars radius={80} depth={50} count={5000} factor={4} fade speed={1} />
-            <Suspense fallback={null}>
-              {data && <DreamScene simulation={data} />}
-            </Suspense>
-            <OrbitControls enablePan={false} minDistance={5} maxDistance={40} />
-          </Canvas>
+            LLM Settings
+          </h2>
 
-          {!data && !loading && (
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                pointerEvents: "none",
-              }}
-            >
-              <div
+          <label style={labelStyle}>Provider</label>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+            {(['openai', 'anthropic', 'ollama'] as const).map(p => (
+              <button
+                key={p}
+                onClick={() => handleProviderChange(p)}
                 style={{
-                  textAlign: "center",
-                  color: "#475569",
-                  fontSize: "0.8rem",
-                  lineHeight: 1.6,
+                  flex: 1,
+                  padding: '6px 0',
+                  borderRadius: 6,
+                  border: '1px solid',
+                  borderColor: provider === p ? '#6366f1' : '#374151',
+                  background: provider === p ? '#312e81' : '#1f2937',
+                  color: provider === p ? '#c7d2fe' : '#9ca3af',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  textTransform: 'capitalize',
                 }}
               >
-                <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>💤</div>
-                Press <strong style={{ color: "#94a3b8" }}>Run Simulation</strong> to begin
-              </div>
-            </div>
+                {p}
+              </button>
+            ))}
+          </div>
+
+          <label style={labelStyle}>Model</label>
+          <select
+            value={model}
+            onChange={e => setModel(e.target.value)}
+            style={inputStyle}
+          >
+            {PROVIDER_MODELS[provider].map(m => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+
+          <label style={labelStyle}>API Key</label>
+          <input
+            type="password"
+            placeholder={provider === 'ollama' ? 'Not required for Ollama' : 'sk-…'}
+            value={apiKey}
+            onChange={e => setApiKey(e.target.value)}
+            style={inputStyle}
+            disabled={provider === 'ollama'}
+          />
+
+          {provider === 'ollama' && (
+            <>
+              <label style={labelStyle}>Ollama Base URL</label>
+              <input
+                value={baseUrl}
+                onChange={e => setBaseUrl(e.target.value)}
+                style={inputStyle}
+              />
+            </>
           )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 4 }}>
+            <div>
+              <label style={labelStyle}>Temperature</label>
+              <input
+                type="number"
+                min={0}
+                max={2}
+                step={0.1}
+                value={temperature}
+                onChange={e => setTemperature(Number(e.target.value))}
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Max Tokens</label>
+              <input
+                type="number"
+                min={64}
+                max={4096}
+                step={64}
+                value={maxTokens}
+                onChange={e => setMaxTokens(Number(e.target.value))}
+                style={inputStyle}
+              />
+            </div>
+          </div>
         </section>
 
-        {/* Right: Settings + Charts */}
-        <aside
+        {/* Sleep Config */}
+        <section>
+          <h2 style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#6b7280', marginBottom: 12 }}>
+            Simulation
+          </h2>
+
+          <label style={labelStyle}>Night Duration (hours)</label>
+          <input
+            type="range"
+            min={4}
+            max={12}
+            step={0.5}
+            value={durationHours}
+            onChange={e => setDurationHours(Number(e.target.value))}
+            style={{ width: '100%', marginBottom: 4 }}
+          />
+          <span style={{ fontSize: 12, color: '#9ca3af' }}>{durationHours}h</span>
+
+          <label style={{ ...labelStyle, marginTop: 12 }}>Stress Level</label>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={stressLevel}
+            onChange={e => setStressLevel(Number(e.target.value))}
+            style={{ width: '100%', marginBottom: 4 }}
+          />
+          <span style={{ fontSize: 12, color: '#9ca3af' }}>
+            {stressLevel < 0.33 ? '😌 Low' : stressLevel < 0.66 ? '😐 Medium' : '😰 High'} ({stressLevel.toFixed(2)})
+          </span>
+
+          <label style={{ ...labelStyle, marginTop: 12 }}>Prior Day Events</label>
+          <textarea
+            rows={5}
+            value={priorEvents}
+            onChange={e => setPriorEvents(e.target.value)}
+            placeholder="One event per line…"
+            style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.5 }}
+          />
+        </section>
+
+        {/* Run Button */}
+        <button
+          onClick={running ? cancel : handleRun}
+          disabled={false}
           style={{
-            flex: "1 1 300px",
-            minWidth: "280px",
-            maxWidth: "440px",
-            overflowY: "auto",
-            display: "flex",
-            flexDirection: "column",
-            gap: "0.6rem",
-            padding: "0.75rem",
-            background: "rgba(2,6,23,0.95)",
+            background: running
+              ? '#7f1d1d'
+              : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+            border: 'none',
+            borderRadius: 8,
+            color: '#fff',
+            fontSize: 14,
+            fontWeight: 700,
+            padding: '12px 0',
+            cursor: 'pointer',
+            letterSpacing: '0.02em',
+            boxShadow: running ? 'none' : '0 0 20px rgba(99,102,241,0.4)',
+            transition: 'all 0.2s',
           }}
         >
-          {/* Simulation Params */}
-          <PanelCard title="Simulation Parameters">
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-              <SliderRow
-                label="Duration h"
-                value={durationHours}
-                min={4}
-                max={10}
-                step={0.5}
-                onChange={setDurationHours}
-              />
-              <SliderRow
-                label="dt min"
-                value={dtMinutes}
-                min={0.25}
-                max={2}
-                step={0.25}
-                onChange={setDtMinutes}
-              />
-              <SliderRow
-                label="SSRI"
-                value={ssriStrength}
-                min={0.5}
-                max={2.0}
-                step={0.1}
-                onChange={setSsriStrength}
-              />
-              <SliderRow
-                label="Stress"
-                value={stressLevel}
-                min={0}
-                max={1}
-                step={0.05}
-                onChange={setStressLevel}
-              />
-            </div>
-          </PanelCard>
+          {running ? '⏹ Stop Simulation' : '▶ Run Simulation'}
+        </button>
 
-          {/* LLM Settings */}
-          <PanelCard title="LLM Settings">
-            <label
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.4rem",
-                fontSize: "0.72rem",
-                marginBottom: "0.4rem",
-                cursor: "pointer",
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={llmEnabled}
-                onChange={(e) => setLlmEnabled(e.target.checked)}
-                style={{ accentColor: "#22d3ee" }}
-              />
-              Enable LLM-backed dream narratives
-            </label>
+        {error && (
+          <div
+            style={{
+              background: '#7f1d1d',
+              border: '1px solid #ef4444',
+              borderRadius: 8,
+              padding: 12,
+              fontSize: 12,
+              color: '#fca5a5',
+            }}
+          >
+            ⚠ {error}
+          </div>
+        )}
+      </aside>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: "0.4rem",
-                opacity: llmEnabled ? 1 : 0.4,
-                pointerEvents: llmEnabled ? "auto" : "none",
-              }}
-            >
-              <div>
-                <div style={{ fontSize: "0.65rem", color: "#94a3b8", marginBottom: "0.15rem" }}>
-                  Provider
-                </div>
-                <select
-                  value={llmProvider}
-                  onChange={(e) => setLlmProvider(e.target.value as any)}
-                  style={selectStyle}
-                >
-                  <option value="">Select…</option>
-                  <option value="openai">OpenAI</option>
-                  <option value="lmstudio">LM Studio</option>
-                  <option value="ollama">Ollama</option>
-                </select>
-              </div>
-              <div>
-                <div style={{ fontSize: "0.65rem", color: "#94a3b8", marginBottom: "0.15rem" }}>
-                  Model
-                </div>
-                <input
-                  type="text"
-                  value={llmModel}
-                  onChange={(e) => setLlmModel(e.target.value)}
-                  style={inputStyle}
-                  placeholder="gpt-4o-mini"
-                />
-              </div>
-              <div style={{ gridColumn: "1 / -1" }}>
-                <div style={{ fontSize: "0.65rem", color: "#94a3b8", marginBottom: "0.15rem" }}>
-                  API Key
-                </div>
-                <input
-                  type="password"
-                  value={llmApiKey}
-                  onChange={(e) => setLlmApiKey(e.target.value)}
-                  style={inputStyle}
-                  placeholder="sk-…  (stored only in-browser)"
-                />
-              </div>
-            </div>
-
-            <label
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.4rem",
-                fontSize: "0.68rem",
-                marginTop: "0.4rem",
-                color: "#94a3b8",
-                opacity: llmEnabled ? 1 : 0.4,
-                pointerEvents: llmEnabled ? "auto" : "none",
-                cursor: "pointer",
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={llmImportantOnly}
-                onChange={(e) => setLlmImportantOnly(e.target.checked)}
-                style={{ accentColor: "#22d3ee" }}
-              />
-              Only use LLM for REM / high-replay segments
-            </label>
-          </PanelCard>
-
-          {/* Hypnogram */}
-          {data && data.sleep_history.length > 0 && (
-            <PanelCard title="Sleep Hypnogram">
-              <Hypnogram history={data.sleep_history} />
-              <div
+      {/* ── Main content area ──────────────────────────────────────────────── */}
+      <main style={{ overflowY: 'auto', padding: '24px 32px' }}>
+        {/* Progress message */}
+        {(running || status === 'complete') && (
+          <div
+            style={{
+              background: '#1f2937',
+              borderRadius: 8,
+              padding: '10px 16px',
+              marginBottom: 20,
+              fontSize: 13,
+              color: '#a5b4fc',
+              display: 'flex',
+              gap: 10,
+              alignItems: 'center',
+            }}
+          >
+            {running && (
+              <span
                 style={{
-                  display: "flex",
-                  gap: "0.5rem",
-                  flexWrap: "wrap",
-                  marginTop: "0.35rem",
+                  display: 'inline-block',
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  background: '#f472b6',
+                  animation: 'pulse 1s infinite',
+                }}
+              />
+            )}
+            {progressMsg}
+          </div>
+        )}
+
+        {/* Summary stats */}
+        {result && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 12,
+              marginBottom: 24,
+            }}
+          >
+            {[
+              { label: 'Duration', value: `${result.duration_hours}h` },
+              { label: 'Segments', value: result.total_segments },
+              { label: 'Mean Bizarreness', value: `${(result.mean_bizarreness * 100).toFixed(0)}%` },
+              { label: 'Dominant Emotion', value: result.dominant_emotion },
+            ].map(stat => (
+              <div
+                key={stat.label}
+                style={{
+                  background: '#1f2937',
+                  borderRadius: 10,
+                  padding: '14px 16px',
+                  border: '1px solid #374151',
                 }}
               >
-                {Object.entries(STAGE_COLOR).map(([s, c]) => (
-                  <span
-                    key={s}
-                    style={{ fontSize: "0.6rem", color: c, fontFamily: "monospace" }}
-                  >
-                    ● {s}
-                  </span>
-                ))}
-              </div>
-            </PanelCard>
-          )}
-
-          {/* Neurochemical Flux */}
-          {data && data.neuro_history.length > 0 && (
-            <PanelCard title="Neurochemical Flux">
-              <NeuroFlux history={data.neuro_history} />
-            </PanelCard>
-          )}
-
-          {/* Summary stats */}
-          {data && (
-            <PanelCard title="Night Summary">
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: "0.35rem 0.6rem",
-                  fontSize: "0.7rem",
-                }}
-              >
-                {Object.entries(data.summary.sleep_stages).map(([s, v]) => (
-                  <div key={s}>
-                    <span style={{ color: STAGE_COLOR[s] ?? "#94a3b8" }}>{s}</span>
-                    <span style={{ float: "right", color: "#e2e8f0" }}>
-                      {(v * 100).toFixed(0)}%
-                    </span>
-                  </div>
-                ))}
-                <div style={{ gridColumn: "1 / -1", borderTop: "1px solid rgba(148,163,184,0.1)", paddingTop: "0.3rem", marginTop: "0.1rem" }}>
-                  <span style={{ color: "#94a3b8" }}>Mean bizarreness</span>
-                  <span style={{ float: "right" }}>{data.summary.bizarreness.mean.toFixed(2)}</span>
+                <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  {stat.label}
                 </div>
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <span style={{ color: "#94a3b8" }}>Segments</span>
-                  <span style={{ float: "right" }}>{data.segments.length}</span>
-                </div>
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <span style={{ color: "#94a3b8" }}>Memory nodes</span>
-                  <span style={{ float: "right" }}>{data.memory_graph.nodes.length}</span>
+                <div style={{ fontSize: 22, fontWeight: 700, color: '#f9fafb' }}>
+                  {stat.value}
                 </div>
               </div>
-            </PanelCard>
-          )}
+            ))}
+          </div>
+        )}
 
-          {/* Top memory nodes */}
-          {data && data.summary.memory?.top_nodes?.length > 0 && (
-            <PanelCard title="Top Memory Nodes">
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
-                {data.summary.memory.top_nodes.slice(0, 6).map((n) => (
-                  <div
-                    key={n.id}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      fontSize: "0.68rem",
-                      padding: "0.15rem 0",
-                      borderBottom: "1px solid rgba(148,163,184,0.06)",
-                    }}
-                  >
-                    <span
-                      style={{
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        maxWidth: "180px",
-                        color: "#c7d2fe",
-                      }}
-                    >
-                      {n.label}
-                    </span>
-                    <span style={{ color: "#94a3b8", flexShrink: 0 }}>
-                      {n.emotion} · {n.salience.toFixed(2)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </PanelCard>
-          )}
-        </aside>
+        {/* Summary narrative */}
+        {result?.summary_narrative && (
+          <div
+            style={{
+              background: '#1f2937',
+              borderRadius: 10,
+              padding: '16px 20px',
+              marginBottom: 24,
+              borderLeft: '3px solid #6366f1',
+              fontSize: 13,
+              color: '#d1d5db',
+              lineHeight: 1.6,
+            }}
+          >
+            {result.summary_narrative}
+          </div>
+        )}
+
+        {/* Dream segments */}
+        {segments.length > 0 && (
+          <>
+            <h3
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: '#9ca3af',
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                marginBottom: 12,
+              }}
+            >
+              Dream Segments ({segments.length})
+              {running && <span style={{ color: '#f472b6', marginLeft: 8 }}>● Live</span>}
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {segments.map(seg => (
+                <SegmentCard key={seg.segment_index} seg={seg} />
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Empty state */}
+        {segments.length === 0 && !running && status === 'idle' && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: 300,
+              color: '#374151',
+              gap: 16,
+            }}
+          >
+            <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+              <circle cx="32" cy="32" r="32" fill="#1f2937" />
+              <path d="M32 16 Q44 22 44 32 Q44 44 32 48 Q20 44 20 32 Q20 22 32 16Z" fill="#374151" />
+              <circle cx="32" cy="32" r="6" fill="#4b5563" />
+            </svg>
+            <p style={{ fontSize: 14 }}>Configure your LLM and press Run Simulation</p>
+          </div>
+        )}
       </main>
+
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.3; }
+        }
+        select, input, textarea {
+          background: #1f2937;
+          border: 1px solid #374151;
+          border-radius: 6px;
+          color: #f9fafb;
+          padding: 7px 10px;
+          width: 100%;
+          font-size: 13px;
+          box-sizing: border-box;
+          margin-bottom: 10px;
+          outline: none;
+          transition: border-color 0.15s;
+        }
+        select:focus, input:focus, textarea:focus {
+          border-color: #6366f1;
+        }
+        select option { background: #1f2937; }
+      `}</style>
     </div>
-  );
+  )
+}
+
+const labelStyle: React.CSSProperties = {
+  display: 'block',
+  fontSize: 11,
+  fontWeight: 600,
+  color: '#9ca3af',
+  marginBottom: 4,
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+}
+
+const inputStyle: React.CSSProperties = {
+  background: '#1f2937',
+  border: '1px solid #374151',
+  borderRadius: 6,
+  color: '#f9fafb',
+  padding: '7px 10px',
+  width: '100%',
+  fontSize: 13,
+  boxSizing: 'border-box',
+  marginBottom: 10,
+  outline: 'none',
 }

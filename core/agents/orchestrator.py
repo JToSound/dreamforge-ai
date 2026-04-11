@@ -1,127 +1,163 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Callable, List, Optional
+import logging
+import uuid
+from typing import Any, Callable, Optional
 
-from core.agents.sleep_cycle_agent import SleepCycleAgent, SleepCycleConfig
-from core.agents.neurochemistry_agent import NeurochemistryAgent
-from core.agents.memory_consolidation_agent import MemoryConsolidationAgent
-from core.simulation.event_bus import EventBus, AgentActivityLogger
-from core.simulation.time_model import TimeModel
-from core.agents.dream_constructor_agent import DreamConstructorAgent
-from core.agents.metacognitive_agent import MetacognitiveAgent
-from core.agents.phenomenology_reporter import PhenomenologyReporter
-from core.models.dream_segment import DreamSegment
-from core.utils.pharmacology import PharmacologyProfile, apply_pharmacology
+from core.agents.dream_constructor_agent import DreamConstructorAgent, DreamSegment
+from core.models.memory_graph import MemoryGraph, MemoryNodeModel, MemoryEdgeModel, MemoryType, EmotionLabel
 from core.models.neurochemistry import NeurochemistryModel, NeurochemistryParameters
-from core.utils.llm_adapters import create_llm_callable
+from core.models.sleep_cycle import SleepCycleModel, TwoProcessParameters
+from core.simulation.engine import SimulationEngine, SimulationConfig
 
+logger = logging.getLogger(__name__)
 
-@dataclass
-class OrchestratorConfig:
-    night_duration_hours: float = 8.0
-    dt_minutes: float = 0.5
-    pharmacology: Optional[PharmacologyProfile] = None
-
-    # LLM configuration
-    llm_enabled: bool = False
-    llm_provider: Optional[str] = None
-    llm_model: Optional[str] = None
-    llm_important_only: bool = True
-    llm_api_key: Optional[str] = None
+ProgressCallback = Callable[[float, str, str, Optional[DreamSegment]], None]
 
 
 class OrchestratorAgent:
-    """Top-level coordinator for a single-night dream simulation."""
+    """Top-level orchestrator that wires all agents together and drives a full-night simulation.
 
-    def __init__(self, config: Optional[OrchestratorConfig] = None) -> None:
-        self.config = config or OrchestratorConfig()
-        self.event_bus = EventBus()
-        self.activity_logger = AgentActivityLogger(self.event_bus)
+    Args:
+        llm_config: dict with keys provider/model/api_key/base_url/temperature/max_tokens.
+        sleep_config: dict of TwoProcessParameters overrides.
+        neuro_config: dict of NeurochemistryParameters overrides.
+        memory_config: dict with keys max_nodes/decay_rate/prune_threshold/replay_max_length.
+        on_progress: optional callback(progress, stage, message, segment).
+    """
 
-        neuro_params = NeurochemistryParameters()
-        if self.config.pharmacology is not None:
-            neuro_params = apply_pharmacology(neuro_params, self.config.pharmacology)
+    def __init__(
+        self,
+        llm_config: Optional[dict] = None,
+        sleep_config: Optional[dict] = None,
+        neuro_config: Optional[dict] = None,
+        memory_config: Optional[dict] = None,
+        on_progress: Optional[ProgressCallback] = None,
+    ) -> None:
+        self.simulation_id = str(uuid.uuid4())
+        self.on_progress = on_progress
 
-        sleep_cfg = SleepCycleConfig(dt_minutes=self.config.dt_minutes)
-        self.sleep_agent = SleepCycleAgent(event_bus=self.event_bus, config=sleep_cfg)
-        self.neuro_agent = NeurochemistryAgent(
-            model=NeurochemistryModel(params=neuro_params),
-            event_bus=self.event_bus,
+        # Sleep model
+        sleep_params = TwoProcessParameters(**(sleep_config or {}))
+        self.sleep_model = SleepCycleModel(params=sleep_params)
+
+        # Neurochemistry model
+        neuro_params = NeurochemistryParameters(**(neuro_config or {}))
+        self.neuro_model = NeurochemistryModel(params=neuro_params)
+
+        # Memory graph
+        self.memory_graph = MemoryGraph()
+        self._memory_config = memory_config or {}
+
+        # Dream constructor
+        self.dream_constructor = DreamConstructorAgent(llm_config=llm_config)
+
+        # Simulation engine
+        self.engine = SimulationEngine(
+            sleep_model=self.sleep_model,
+            neuro_model=self.neuro_model,
+            memory_graph=self.memory_graph,
+            dream_constructor=self.dream_constructor,
         )
-        self.memory_agent = MemoryConsolidationAgent(event_bus=self.event_bus)
 
-        llm_callable = None
-        if self.config.llm_enabled:
-            llm_callable = create_llm_callable(
-                self.config.llm_provider,
-                self.config.llm_model,
-                api_key=self.config.llm_api_key,
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _emit_progress(
+        self,
+        progress: float,
+        stage: str,
+        message: str,
+        segment: Optional[DreamSegment] = None,
+    ) -> None:
+        if self.on_progress:
+            try:
+                self.on_progress(progress, stage, message, segment)
+            except Exception as exc:
+                logger.warning("Progress callback raised: %s", exc)
+
+    def seed_memory_from_events(
+        self,
+        prior_day_events: list[str],
+        stress_level: float = 0.5,
+    ) -> None:
+        """Encode prior-day events into the memory graph before simulation."""
+        from core.models.memory_graph import MemoryNodeModel, MemoryType, EmotionLabel
+        import random
+
+        emotion_map = {
+            (0.0, 0.3): EmotionLabel.JOY,
+            (0.3, 0.6): EmotionLabel.NEUTRAL,
+            (0.6, 0.8): EmotionLabel.SADNESS,
+            (0.8, 1.0): EmotionLabel.FEAR,
+        }
+
+        def pick_emotion(stress: float) -> EmotionLabel:
+            for (lo, hi), emo in emotion_map.items():
+                if lo <= stress < hi:
+                    return emo
+            return EmotionLabel.NEUTRAL
+
+        node_ids: list[str] = []
+        for i, event in enumerate(prior_day_events):
+            arousal = min(1.0, stress_level + random.uniform(-0.1, 0.1))
+            node = MemoryNodeModel(
+                label=event[:128],
+                memory_type=MemoryType.EPISODIC,
+                activation=0.8 - i * 0.05,
+                salience=0.9 - i * 0.05,
+                emotion=pick_emotion(stress_level),
+                arousal=arousal,
+                recency_hours=float(i),
             )
+            nid = self.memory_graph.add_memory(node)
+            node_ids.append(nid)
 
-        self.dream_agent = DreamConstructorAgent(
-            event_bus=self.event_bus,
-            llm=llm_callable,
-            important_only=self.config.llm_important_only,
-        )
-        self.meta_agent = MetacognitiveAgent(event_bus=self.event_bus)
-        self.phenom_agent = PhenomenologyReporter(event_bus=self.event_bus)
-
-        self.neuro_agent.set_stage_fn(lambda t: self.sleep_agent.state.stage)
-
-        self.time_model = TimeModel(
-            start_time_hours=0.0,
-            dt_minutes=self.config.dt_minutes,
-            duration_hours=self.config.night_duration_hours,
-        )
-
-        self.sleep_history: List = []
-        self.neuro_history: List = []
+        # Add associations between adjacent events
+        for i in range(len(node_ids) - 1):
+            edge = MemoryEdgeModel(
+                source_id=node_ids[i],
+                target_id=node_ids[i + 1],
+                weight=0.6,
+                emotion_alignment=0.5,
+                context_overlap=0.4,
+            )
+            try:
+                self.memory_graph.add_association(edge)
+            except ValueError:
+                pass
 
     def run_night(
         self,
-        on_progress: Optional[Callable[[float], None]] = None,
-    ) -> List[DreamSegment]:
-        """Run a full-night simulation.
+        duration_hours: float = 8.0,
+        sleep_start_clock_time: float = 23.0,
+        dt_minutes: float = 0.5,
+        prior_day_events: Optional[list[str]] = None,
+        stress_level: float = 0.5,
+        llm_every_n_segments: int = 12,
+    ) -> dict[str, Any]:
+        """Run a full-night simulation and return structured results."""
+        self._emit_progress(0.0, "init", "Seeding memory from prior-day events…")
+        self.seed_memory_from_events(prior_day_events or [], stress_level=stress_level)
 
-        Args:
-            on_progress: Optional callback receiving simulation progress in [0.0, 1.0].
-                         Called after every simulation tick so callers can update progress bars.
-        """
-        segments: List[DreamSegment] = []
+        config = SimulationConfig(
+            duration_hours=duration_hours,
+            dt_minutes=dt_minutes,
+            sleep_start_clock_time=sleep_start_clock_time,
+            stress_level=stress_level,
+            prior_day_events=prior_day_events or [],
+            llm_every_n_segments=llm_every_n_segments,
+        )
 
-        while self.time_model.has_next_step:
-            sleep_state = self.sleep_agent.step()
-            self.sleep_history.append(sleep_state)
+        def _internal_progress(progress: float, stage: str, message: str, segment: Optional[DreamSegment]):
+            self._emit_progress(progress, stage, message, segment)
 
-            neuro_state = self.neuro_agent.step_to(sleep_state.time_hours)
-            self.neuro_history.append(neuro_state)
+        result = self.engine.run(
+            config=config,
+            on_progress=_internal_progress,
+        )
 
-            replay_seq = self.memory_agent.maybe_replay(current_time_hours=sleep_state.time_hours)
-            self.memory_agent.decay_and_prune(dt_hours=self.time_model.dt_hours)
-
-            segment = self.dream_agent.step(
-                sleep_state=sleep_state,
-                neuro_state=neuro_state,
-                replay_seq=replay_seq,
-            )
-
-            if segment is not None:
-                self.meta_agent.update_for_segment(segment, sleep_state, neuro_state)
-                self.phenom_agent.record_segment(segment)
-                segments.append(segment)
-
-            # Report progress as fraction of simulated night completed
-            if on_progress is not None:
-                elapsed = self.time_model.current_time_hours - self.time_model.start_time_hours
-                duration = self.time_model.duration_hours
-                progress = elapsed / duration if duration > 0 else 1.0
-                on_progress(max(0.0, min(progress, 1.0)))
-
-            self.time_model.step()
-
-        # Ensure final 100 % callback
-        if on_progress is not None:
-            on_progress(1.0)
-
-        return segments
+        self._emit_progress(1.0, "complete", "Simulation complete.")
+        return {
+            "simulation_id": self.simulation_id,
+            **result,
+        }

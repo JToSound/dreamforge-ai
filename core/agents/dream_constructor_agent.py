@@ -1,191 +1,229 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional, Protocol
+import json
+import logging
+from typing import Optional
 
-from core.models.dream_segment import DreamSegment
-from core.models.memory_graph import ReplaySequence, EmotionLabel
+from pydantic import BaseModel
+
+from core.models.sleep_cycle import SleepStage, SleepState
 from core.models.neurochemistry import NeurochemistryState
-from core.models.sleep_cycle import SleepState, SleepStage
-from core.simulation.event_bus import EventBus, Event, EventType
+from core.models.memory_graph import ReplaySequence, EmotionLabel
+
+logger = logging.getLogger(__name__)
 
 
-class LLMCallable(Protocol):
-    """Protocol for pluggable LLM backends.
-
-    Any callable that takes a prompt string and returns a completion string can
-    satisfy this protocol.
-    """
-
-    def __call__(self, prompt: str) -> str:  # pragma: no cover - protocol
-        ...
-
-
-@dataclass
-class DreamConstructorConfig:
-    min_stage_for_dreaming: SleepStage = SleepStage.N1
-    use_llm: bool = True
-    important_only: bool = True
-
-
-_STAGE_ORDER = {
-    SleepStage.WAKE: 0,
-    SleepStage.N1: 1,
-    SleepStage.N2: 2,
-    SleepStage.N3: 3,
-    SleepStage.REM: 4,
-}
+class DreamSegment(BaseModel):
+    segment_index: int
+    time_hours: float
+    stage: str
+    narrative: str
+    dominant_emotion: str
+    bizarreness_score: float
+    lucidity_probability: float
+    active_memory_ids: list[str]
+    neurochemistry: dict[str, float]
 
 
 class DreamConstructorAgent:
-    """Agent that turns current brain state into a dream segment.
+    """Generates dream narrative segments using a real LLM backend.
 
-    By default it uses lightweight template-based narratives, but it exposes a
-    simple hook for plugging in any LLM backend (OpenAI, Anthropic, local
-    models via Ollama/LM Studio, etc.).
+    Supports OpenAI, Anthropic, and Ollama providers via a unified interface.
+    Falls back to a deterministic template when no API key is available.
     """
 
-    def __init__(
-        self,
-        event_bus: Optional[EventBus] = None,
-        config: Optional[DreamConstructorConfig] = None,
-        llm: Optional[LLMCallable] = None,
-        important_only: Optional[bool] = None,
-    ) -> None:
-        self.event_bus = event_bus or EventBus()
-        self.config = config or DreamConstructorConfig()
-        if important_only is not None:
-            self.config.important_only = important_only
-        self._last_time_hours: float = 0.0
-        self._llm: Optional[LLMCallable] = llm
+    def __init__(self, llm_config: Optional[dict] = None) -> None:
+        self.llm_config = llm_config or {}
+        self._client = None
+        self._provider = self.llm_config.get("provider", "openai")
+        self._model = self.llm_config.get("model", "gpt-4o")
+        self._temperature = float(self.llm_config.get("temperature", 0.9))
+        self._max_tokens = int(self.llm_config.get("max_tokens", 512))
+        self._api_key = self.llm_config.get("api_key")
+        self._base_url = self.llm_config.get("base_url")
 
-    def set_llm_backend(self, llm: LLMCallable) -> None:
-        """Inject or replace the LLM backend at runtime."""
+    # ─────────────────────────────────────────────────────────────────────────
+    # LLM client initialisation (lazy)
+    # ─────────────────────────────────────────────────────────────────────────
 
-        self._llm = llm
+    def _get_client(self):
+        if self._client is not None:
+            return self._client
 
-    def _is_important_segment(self, sleep_state: SleepState, replay_seq: Optional[ReplaySequence]) -> bool:
-        if sleep_state.stage == SleepStage.REM:
-            return True
-        if replay_seq is None:
-            return False
-        return len(replay_seq.node_ids) >= 2
+        if self._provider in ("openai", "ollama"):
+            try:
+                from openai import OpenAI
+                kwargs: dict = {}
+                if self._api_key:
+                    kwargs["api_key"] = self._api_key
+                if self._base_url:
+                    kwargs["base_url"] = self._base_url
+                elif self._provider == "ollama":
+                    kwargs["base_url"] = "http://localhost:11434/v1"
+                    kwargs.setdefault("api_key", "ollama")
+                self._client = OpenAI(**kwargs)
+            except ImportError:
+                logger.warning("openai package not installed; using fallback generator.")
+        elif self._provider == "anthropic":
+            try:
+                import anthropic
+                kwargs = {}
+                if self._api_key:
+                    kwargs["api_key"] = self._api_key
+                self._client = anthropic.Anthropic(**kwargs)
+            except ImportError:
+                logger.warning("anthropic package not installed; using fallback generator.")
 
-    def step(
-        self,
-        sleep_state: SleepState,
-        neuro_state: NeurochemistryState,
-        replay_seq: Optional[ReplaySequence],
-    ) -> Optional[DreamSegment]:
-        if sleep_state.stage == SleepStage.WAKE:
-            self._last_time_hours = sleep_state.time_hours
-            return None
+        return self._client
 
-        if _STAGE_ORDER[sleep_state.stage] < _STAGE_ORDER[self.config.min_stage_for_dreaming]:
-            self._last_time_hours = sleep_state.time_hours
-            return None
+    # ─────────────────────────────────────────────────────────────────────────
+    # Prompt construction
+    # ─────────────────────────────────────────────────────────────────────────
 
-        segment = DreamSegment(
-            start_time_hours=self._last_time_hours,
-            end_time_hours=sleep_state.time_hours,
-            stage=sleep_state.stage,
-        )
-
-        dominant_emotion = replay_seq.dominant_emotion if replay_seq is not None else EmotionLabel.NEUTRAL
-        segment.dominant_emotion = dominant_emotion
-        if replay_seq is not None:
-            segment.active_memory_ids = replay_seq.node_ids
-
-        use_llm = self.config.use_llm and self._llm is not None
-        if self.config.important_only and not self._is_important_segment(sleep_state, replay_seq):
-            use_llm = False
-
-        if use_llm:
-            segment.narrative = self._build_narrative_llm(sleep_state, neuro_state, segment)
-            segment.scene_description = self._build_scene_description_llm(sleep_state, segment)
-        else:
-            segment.narrative = self._build_narrative_template(sleep_state, neuro_state, segment)
-            segment.scene_description = self._build_scene_description_template(sleep_state, segment)
-
-        segment.bizarreness_score = self._estimate_bizarreness(segment)
-
-        self._emit_event(segment)
-        self._last_time_hours = sleep_state.time_hours
-        return segment
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _build_narrative_template(
+    def _build_prompt(
         self,
         sleep_state: SleepState,
         neuro_state: NeurochemistryState,
-        segment: DreamSegment,
+        replay: Optional[ReplaySequence],
+        stress_level: float,
+        prior_events: list[str],
+        segment_index: int,
     ) -> str:
-        emotion = segment.dominant_emotion.value
-        return (
-            f"You find yourself in a dream during {sleep_state.stage.value} sleep. "
-            f"The emotional tone feels {emotion}. Time flows strangely as the night progresses."
+        ach = round(neuro_state.ach, 3)
+        five_ht = round(neuro_state.serotonin, 3)
+        ne = round(neuro_state.ne, 3)
+        cortisol = round(neuro_state.cortisol, 3)
+        stage = sleep_state.stage.value
+        replay_summary = ""
+        if replay and replay.node_ids:
+            replay_summary = (
+                f"Active memory replay (dominant emotion: {replay.dominant_emotion.value}): "
+                f"{len(replay.node_ids)} fragments firing with total salience "
+                f"{replay.total_weight:.2f}."
+            )
+        events_str = "; ".join(prior_events) if prior_events else "none recorded"
+
+        system_msg = (
+            "You are DreamForge AI's Dream Constructor. Your job is to generate a "
+            "short, vivid, first-person dream narrative segment grounded in the "
+            "provided neurobiological state. Be surreal, emotionally resonant, and "
+            "scientifically consistent with the current neurotransmitter levels.\n"
+            "Respond ONLY with a JSON object with keys:\n"
+            "  narrative (str), dominant_emotion (str: neutral/joy/fear/sadness/anger/surprise/disgust),\n"
+            "  bizarreness_score (float 0-1), lucidity_probability (float 0-1)."
         )
 
-    def _build_scene_description_template(self, sleep_state: SleepState, segment: DreamSegment) -> str:
-        return f"A vignette from {sleep_state.stage.value} sleep, colored by {segment.dominant_emotion.value} emotion."
+        user_msg = (
+            f"Segment #{segment_index} | Sleep stage: {stage} | "
+            f"Time into night: {sleep_state.time_hours:.2f}h\n"
+            f"Neurochemistry: ACh={ach}, 5-HT={five_ht}, NE={ne}, Cortisol={cortisol}\n"
+            f"Stress level: {stress_level:.2f}\n"
+            f"Prior day events: {events_str}\n"
+            f"{replay_summary}\n"
+            "Generate the dream segment JSON now."
+        )
+        return system_msg, user_msg
 
-    def _build_narrative_llm(
+    # ─────────────────────────────────────────────────────────────────────────
+    # LLM call
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _call_llm(self, system_msg: str, user_msg: str) -> dict:
+        client = self._get_client()
+        if client is None:
+            return self._fallback_response()
+
+        try:
+            if self._provider in ("openai", "ollama"):
+                resp = client.chat.completions.create(
+                    model=self._model,
+                    messages=[
+                        {"role": "system", "content": system_msg},
+                        {"role": "user", "content": user_msg},
+                    ],
+                    temperature=self._temperature,
+                    max_tokens=self._max_tokens,
+                    response_format={"type": "json_object"},
+                )
+                raw = resp.choices[0].message.content or "{}"
+                return json.loads(raw)
+
+            elif self._provider == "anthropic":
+                resp = client.messages.create(
+                    model=self._model,
+                    max_tokens=self._max_tokens,
+                    system=system_msg,
+                    messages=[{"role": "user", "content": user_msg}],
+                )
+                raw = resp.content[0].text if resp.content else "{}"
+                # Anthropic may not guarantee JSON; extract best-effort
+                try:
+                    start = raw.index("{")
+                    end = raw.rindex("}") + 1
+                    return json.loads(raw[start:end])
+                except (ValueError, json.JSONDecodeError):
+                    return self._fallback_response()
+
+        except Exception as exc:
+            logger.error("LLM call failed: %s", exc)
+            return self._fallback_response()
+
+        return self._fallback_response()
+
+    @staticmethod
+    def _fallback_response() -> dict:
+        import random
+        narratives = [
+            "I find myself in a corridor that keeps extending, doors multiplying as I walk.",
+            "There is a lake made of light. My hands pass through it, leaving ripples in the air.",
+            "A figure I recognise but cannot name hands me something I immediately forget.",
+            "The city rearranges itself each time I look away. Streets fold like paper.",
+            "I am trying to speak but the words arrive before I think of them.",
+        ]
+        return {
+            "narrative": random.choice(narratives),
+            "dominant_emotion": random.choice(["neutral", "surprise", "fear", "joy"]),
+            "bizarreness_score": round(random.uniform(0.3, 0.9), 2),
+            "lucidity_probability": round(random.uniform(0.0, 0.25), 2),
+        }
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Public interface
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def generate_segment(
         self,
+        segment_index: int,
         sleep_state: SleepState,
         neuro_state: NeurochemistryState,
-        segment: DreamSegment,
-    ) -> str:
-        assert self._llm is not None
-        prompt = (
-            "You are an introspective, poetic dream narrator. Given the current sleep stage, "
-            "neuromodulator levels, and a list of activated memories, write a short, vivid "
-            "first-person dream description that feels surreal but emotionally coherent.\n\n"
-            "Guidelines:\n"
-            "- 3 to 5 sentences, at most 120 words.\n"
-            "- Blend memories into symbolic imagery instead of listing them.\n"
-            "- Maintain a consistent emotional tone, but allow brief flashes of contrast.\n"
-            "- Do NOT mention neuromodulators or technical terms.\n\n"
-            f"Sleep stage: {sleep_state.stage.value}\n"
-            f"ACh level (relative): {neuro_state.ach:.2f}\n"
-            f"Serotonin level (relative): {neuro_state.serotonin:.2f}\n"
-            f"Noradrenaline level (relative): {neuro_state.ne:.2f}\n"
-            f"Cortisol level (relative): {neuro_state.cortisol:.2f}\n"
-            f"Dominant emotion: {segment.dominant_emotion.value}\n"
-            f"Active memory fragment IDs: {segment.active_memory_ids}\n\n"
-            "Return only the dream narrative without any explanation or bullet points."
+        replay: Optional[ReplaySequence],
+        stress_level: float = 0.5,
+        prior_events: Optional[list[str]] = None,
+    ) -> DreamSegment:
+        """Generate one dream segment for the given simulation state."""
+        system_msg, user_msg = self._build_prompt(
+            sleep_state=sleep_state,
+            neuro_state=neuro_state,
+            replay=replay,
+            stress_level=stress_level,
+            prior_events=prior_events or [],
+            segment_index=segment_index,
         )
-        return self._llm(prompt)
+        data = self._call_llm(system_msg, user_msg)
 
-    def _build_scene_description_llm(self, sleep_state: SleepState, segment: DreamSegment) -> str:
-        assert self._llm is not None
-        prompt = (
-            "You are a visual scene summarizer. Given a dream segment, return one concise, "
-            "third-person scene description that a 3D artist could use as a reference.\n\n"
-            "Guidelines:\n"
-            "- Focus on setting, lighting, and mood.\n"
-            "- Use concrete imagery (colors, textures, motion).\n"
-            "- At most 30 words.\n\n"
-            f"Sleep stage: {sleep_state.stage.value}\n"
-            f"Dominant emotion: {segment.dominant_emotion.value}\n"
-            f"Existing narrative (if any): {segment.narrative}\n"
-            "Return only the scene description without any explanation or bullet points."
+        return DreamSegment(
+            segment_index=segment_index,
+            time_hours=sleep_state.time_hours,
+            stage=sleep_state.stage.value,
+            narrative=str(data.get("narrative", "")),
+            dominant_emotion=str(data.get("dominant_emotion", "neutral")),
+            bizarreness_score=float(data.get("bizarreness_score", 0.5)),
+            lucidity_probability=float(data.get("lucidity_probability", 0.0)),
+            active_memory_ids=[],
+            neurochemistry={
+                "ach": neuro_state.ach,
+                "serotonin": neuro_state.serotonin,
+                "ne": neuro_state.ne,
+                "cortisol": neuro_state.cortisol,
+            },
         )
-        return self._llm(prompt)
-
-    def _estimate_bizarreness(self, segment: DreamSegment) -> float:
-        n = len(segment.active_memory_ids)
-        base = 0.1 * n
-        if n >= 2:
-            base += 0.1
-        return min(1.0, base)
-
-    def _emit_event(self, segment: DreamSegment) -> None:
-        event = Event(
-            type=EventType.DREAM_SEGMENT_GENERATED,
-            payload={"segment_id": segment.id},
-            timestamp_hours=segment.end_time_hours,
-        )
-        self.event_bus.publish(event)

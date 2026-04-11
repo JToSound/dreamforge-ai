@@ -1,19 +1,28 @@
-fastapi==0.115.5
-uvicorn[standard]==0.32.0
-pydantic==2.9.2
-numpy==1.26.4
-scipy==1.13.1
-networkx==3.3
-plotly==5.24.1
-streamlit==1.40.0
-black==24.8.0
-ruff==0.7.0
-pytest==8.3.3
+# Core
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.6.0
+python-dotenv>=1.0.0
+redis>=5.0.0
 
-# LLM client libraries and HTTP utilities
-openai>=1.57.0
-anthropic>=0.39.0
-google-generativeai>=0.8.0
-langchain>=0.3.0
-ollama>=0.3.0
-requests>=2.32.0
+# Scientific
+numpy>=1.26.0
+scipy>=1.12.0
+networkx>=3.2.0
+
+# LLM
+openai>=1.0.0
+anthropic>=0.25.0
+langchain>=0.1.0
+langchain-openai>=0.0.5
+langgraph>=0.0.20
+
+# Visualization
+streamlit>=1.32.0
+plotly>=5.20.0
+pandas>=2.2.0
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+httpx>=0.27.0
