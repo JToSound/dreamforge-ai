@@ -1,19 +1,698 @@
+"""
+api/main.py
+───────────
+DreamForge AI — FastAPI application entry point.
+
+Endpoints
+─────────
+GET  /                        Health ping
+GET  /api/health/llm          LLM connectivity check
+GET  /api/llm/config          Read current LLM config
+POST /api/llm/config          Update LLM config at runtime
+POST /api/simulation/night    Run a full-night dream simulation
+GET  /api/simulation/{id}     Retrieve a stored simulation
+POST /api/simulation/counterfactual  Run a counterfactual variant
+GET  /api/dreams              List all stored simulation summaries
+
+Docs
+────
+Swagger UI : http://localhost:8000/docs
+ReDoc      : http://localhost:8000/redoc
+"""
+
 from __future__ import annotations
 
-from fastapi import FastAPI
+import asyncio
+import logging
+import math
+import os
+import random
+import uuid
+from typing import Any, Dict, List, Optional
 
-from api.routes import simulation, journal
+import numpy as np
+from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
-from api.routes.llm_settings import router as llm_router
-app.include_router(llm_router)
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("dreamforge.api")
 
-app = FastAPI(title="DreamForge AI API", version="0.2.0")
+# ── Import local modules (with graceful fallback if running standalone) ────────
+try:
+    import sys, pathlib
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+    from core.llm_client import LLMClient, LLMConfig, get_llm_client
+except ImportError:
+    # Minimal inline fallback so the server still starts for /docs inspection
+    logger.warning("core.llm_client not found — using inline stub")
+
+    from dataclasses import dataclass
+
+    @dataclass
+    class LLMConfig:
+        provider: str = "lmstudio"
+        base_url: str = "http://host.docker.internal:1234/v1"
+        model: str = "qwen/qwen3.5-9b"
+        api_key: str = "lm-studio"
+        timeout: int = 120
+        max_tokens: int = 512
+        temperature: float = 0.85
+
+        @classmethod
+        def from_env(cls):
+            return cls(
+                provider=os.getenv("LLM_PROVIDER", "lmstudio"),
+                base_url=os.getenv("LLM_BASE_URL", "http://host.docker.internal:1234/v1"),
+                model=os.getenv("LLM_MODEL", "qwen/qwen3.5-9b"),
+                api_key=os.getenv("LLM_API_KEY", "lm-studio"),
+                timeout=int(os.getenv("LLM_TIMEOUT", "120")),
+                max_tokens=int(os.getenv("LLM_MAX_TOKENS", "512")),
+                temperature=float(os.getenv("LLM_TEMPERATURE", "0.85")),
+            )
+
+    class LLMClient:
+        def __init__(self, config=None):
+            self.config = config or LLMConfig.from_env()
+
+        async def chat(self, system: str, user: str) -> str:
+            import httpx
+            payload = {
+                "model": self.config.model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "max_tokens": self.config.max_tokens,
+                "temperature": self.config.temperature,
+            }
+            try:
+                async with httpx.AsyncClient(
+                    base_url=self.config.base_url,
+                    headers={
+                        "Authorization": f"Bearer {self.config.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    timeout=self.config.timeout,
+                ) as client:
+                    resp = await client.post("/chat/completions", json=payload)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    return data["choices"][0]["message"]["content"].strip()
+            except Exception as exc:
+                logger.error("LLM call failed: %s", exc)
+                return f"[LLM unavailable: {exc}]"
+
+        async def check_health(self) -> dict:
+            import httpx
+            try:
+                async with httpx.AsyncClient(
+                    base_url=self.config.base_url,
+                    headers={"Authorization": f"Bearer {self.config.api_key}"},
+                    timeout=5,
+                ) as client:
+                    resp = await client.get("/models")
+                    resp.raise_for_status()
+                    models = resp.json().get("data", [])
+                    return {"ok": True, "models": [m.get("id", "") for m in models]}
+            except Exception as exc:
+                return {"ok": False, "error": str(exc)}
+
+        async def aclose(self):
+            pass
+
+    _default_client: Optional[LLMClient] = None
+
+    def get_llm_client() -> LLMClient:
+        global _default_client
+        if _default_client is None:
+            _default_client = LLMClient()
+        return _default_client
 
 
-@app.get("/health")
-async def health() -> dict:
-    return {"status": "ok"}
+# ── In-memory store ───────────────────────────────────────────────────────────
+_simulations: Dict[str, dict] = {}
 
 
-app.include_router(simulation.router, prefix="/api")
-app.include_router(journal.router, prefix="/api")
+# ── Pydantic schemas (inline — no dependency on api/schemas.py) ───────────────
+
+class LLMConfigRequest(BaseModel):
+    provider: Optional[str] = Field(None, examples=["lmstudio", "ollama", "openai"])
+    base_url: Optional[str] = Field(None, examples=["http://localhost:1234/v1"])
+    model: Optional[str] = Field(None, examples=["qwen/qwen3.5-9b", "llama3", "gpt-4o"])
+    api_key: Optional[str] = Field(None, examples=["lm-studio", "ollama", "sk-..."])
+    max_tokens: Optional[int] = Field(None, ge=64, le=4096)
+    temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
+    timeout: Optional[int] = Field(None, ge=10, le=600)
+
+
+class LLMConfigResponse(BaseModel):
+    provider: str
+    base_url: str
+    model: str
+    api_key_set: bool
+    max_tokens: int
+    temperature: float
+    timeout: int
+
+
+class LLMHealthResponse(BaseModel):
+    ok: bool
+    provider: str
+    model: str
+    base_url: str
+    available_models: List[str] = []
+    error: Optional[str] = None
+
+
+class SimulationConfig(BaseModel):
+    duration_hours: float = Field(8.0, ge=1.0, le=12.0)
+    dt_minutes: float = Field(0.5, ge=0.1, le=5.0)
+    ssri_strength: float = Field(1.0, ge=0.0, le=3.0)
+    stress_level: float = Field(0.2, ge=0.0, le=1.0)
+    sleep_start_hour: float = Field(23.0, ge=18.0, le=26.0)
+    prior_day_events: List[str] = Field(default_factory=list)
+    emotional_state: str = Field("neutral")
+    use_llm: bool = Field(True)
+    llm_segments_only: bool = Field(False)
+
+
+class DreamSegmentResponse(BaseModel):
+    id: str
+    start_time_hours: float
+    end_time_hours: float
+    stage: str
+    narrative: str
+    scene_description: str
+    dominant_emotion: str
+    bizarreness_score: float
+    lucidity_probability: float
+    neurochemistry: Optional[Dict[str, float]] = None
+    active_memory_ids: List[str] = []
+
+
+class SimulationResponse(BaseModel):
+    id: str
+    config: SimulationConfig
+    segments: List[DreamSegmentResponse]
+    summary: Dict[str, Any] = {}
+    llm_used: bool = False
+    llm_model: Optional[str] = None
+
+
+class CounterfactualRequest(BaseModel):
+    base_simulation_id: str
+    perturbations: Dict[str, Any] = Field(...)
+    use_llm: bool = True
+
+
+# ── FastAPI app ───────────────────────────────────────────────────────────────
+
+app = FastAPI(
+    title="DreamForge AI",
+    description=(
+        "## DreamForge AI REST API\n\n"
+        "Multi-agent computational dream simulation with LLM-powered narrative generation.\n\n"
+        "### Quick start\n"
+        "1. `POST /api/llm/config` — point at your LLM (LM Studio / Ollama / OpenAI)\n"
+        "2. `GET  /api/health/llm` — verify connectivity\n"
+        "3. `POST /api/simulation/night` — run a full dream simulation\n"
+        "4. `GET  /api/simulation/{id}` — retrieve results\n"
+    ),
+    version="0.2.0",
+    contact={"name": "DreamForge", "url": "https://github.com/your-org/dreamforge-ai"},
+    license_info={"name": "MIT"},
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ── Lifespan ──────────────────────────────────────────────────────────────────
+
+@app.on_event("startup")
+async def startup_event():
+    client = get_llm_client()
+    health = await client.check_health()
+    if health.get("ok"):
+        logger.info("LLM backend reachable at %s — models: %s",
+                    client.config.base_url, health.get("models"))
+    else:
+        logger.warning("LLM backend NOT reachable at %s: %s",
+                       client.config.base_url, health.get("error"))
+
+
+# ── Helper: biophysical simulation ───────────────────────────────────────────
+
+def _simulate_night_physics(config: SimulationConfig) -> List[dict]:
+    """
+    Lightweight biophysical simulation (Process S/C + neurochemistry).
+    Returns list of segment dicts with stage, neurochemistry snapshot, etc.
+    No LLM involved here.
+    """
+    dt_h = config.dt_minutes / 60.0
+    n_steps = int(config.duration_hours / dt_h)
+    tau_sleep, tau_wake = 4.5, 18.0
+    s_max = 1.0
+    s = 0.9  # start with high sleep pressure
+
+    segments = []
+    cycle_len_h = 1.5
+
+    # Simple neurochemistry baselines by stage
+    neuro_by_stage = {
+        "N1":   {"ach": 0.50, "serotonin": 0.30, "ne": 0.30, "cortisol": 0.40},
+        "N2":   {"ach": 0.45, "serotonin": 0.28, "ne": 0.28, "cortisol": 0.38},
+        "N3":   {"ach": 0.30, "serotonin": 0.20, "ne": 0.20, "cortisol": 0.35},
+        "REM":  {"ach": 0.90, "serotonin": 0.05, "ne": 0.05, "cortisol": 0.50},
+        "WAKE": {"ach": 0.70, "serotonin": 0.80, "ne": 0.80, "cortisol": 0.60},
+    }
+
+    emotions = ["neutral", "curious", "anxious", "joyful", "melancholic", "fearful", "serene"]
+    emotion_weights_by_stress = {
+        "low":  [0.30, 0.20, 0.10, 0.20, 0.10, 0.05, 0.05],
+        "high": [0.10, 0.10, 0.35, 0.10, 0.15, 0.15, 0.05],
+    }
+
+    stress_cat = "high" if config.stress_level > 0.5 else "low"
+    emo_weights = emotion_weights_by_stress[stress_cat]
+
+    for i in range(n_steps):
+        t = i * dt_h
+        # Process S decay during sleep
+        s = s * math.exp(-dt_h / tau_sleep)
+        s = max(0.05, min(s, s_max))
+
+        # Circadian component
+        c = 0.5 * math.sin(2 * math.pi * (config.sleep_start_hour + t - 18.0) / 24.2)
+
+        # Stage determination
+        cycle_phase = (t % cycle_len_h) / cycle_len_h
+        cycle_idx = int(t // cycle_len_h)
+
+        if cycle_phase < 0.15:
+            stage = "N1"
+        elif cycle_phase < 0.35:
+            stage = "N3" if (s > 0.6 and cycle_idx <= 2) else "N2"
+        elif cycle_phase < 0.65:
+            stage = "N2"
+        else:
+            rem_prob = 0.3 + 0.12 * cycle_idx + max(0, c) * 0.3
+            stage = "REM" if random.random() < rem_prob else "N2"
+
+        # Neurochemistry with noise + SSRI modulation
+        neuro = dict(neuro_by_stage[stage])
+        neuro["serotonin"] = min(1.0, neuro["serotonin"] * config.ssri_strength)
+        neuro = {k: max(0.0, v + random.gauss(0, 0.02)) for k, v in neuro.items()}
+
+        # Bizarreness: high ACh + low monoamines → more bizarre
+        bizarreness = (neuro["ach"] * 0.4 + (1 - neuro["serotonin"]) * 0.3 +
+                       (1 - neuro["ne"]) * 0.2 + config.stress_level * 0.1)
+        bizarreness = round(min(1.0, max(0.0, bizarreness + random.gauss(0, 0.05))), 3)
+
+        # Lucidity probability: highest during REM with lower stress
+        lucidity = (0.05 if stage != "REM" else
+                    max(0.0, 0.15 + neuro["ach"] * 0.10 - config.stress_level * 0.08))
+        lucidity = round(min(1.0, max(0.0, lucidity + random.gauss(0, 0.01))), 4)
+
+        # Dominant emotion
+        dominant_emotion = random.choices(emotions, weights=emo_weights, k=1)[0]
+        if config.emotional_state != "neutral" and random.random() < 0.3:
+            dominant_emotion = config.emotional_state
+
+        segments.append({
+            "id": str(uuid.uuid4()),
+            "start_time_hours": round(t, 6),
+            "end_time_hours": round(t + dt_h, 6),
+            "stage": stage,
+            "dominant_emotion": dominant_emotion,
+            "bizarreness_score": bizarreness,
+            "lucidity_probability": lucidity,
+            "neurochemistry": {k: round(v, 4) for k, v in neuro.items()},
+            "active_memory_ids": [],
+            # Placeholders — will be replaced by LLM below
+            "narrative": "",
+            "scene_description": "",
+        })
+
+    return segments
+
+
+def _template_narrative(seg: dict, config: SimulationConfig) -> tuple[str, str]:
+    """Fallback template-based narrative when LLM is disabled."""
+    stage = seg["stage"]
+    emotion = seg["dominant_emotion"]
+    bizarre = seg["bizarreness_score"]
+
+    templates = {
+        "REM":  f"The dream unfolds vividly — a {emotion} scene fractured by impossible geometry. "
+                f"Faces shift and timelines collapse. Bizarreness index: {bizarre:.2f}.",
+        "N3":   f"Deep dreamless silence, punctuated by fleeting sensations. A faint {emotion} undercurrent.",
+        "N2":   f"Fragmented images surface briefly — a {emotion} echo of the prior day.",
+        "N1":   f"The boundary between wake and sleep blurs. A {emotion} hypnagogic drift.",
+        "WAKE": "A brief awakening. The room is dark. Fragments dissolve.",
+    }
+    scene_templates = {
+        "REM":  f"A surreal landscape shaped by {emotion} — colours oversaturated, gravity optional.",
+        "N3":   "An infinite dark plain, warm and formless.",
+        "N2":   f"Flickering impressions: corridors, voices, a {emotion} feeling without source.",
+        "N1":   "The hypnagogic edge — phosphenes and whispers.",
+        "WAKE": "A brief moment of wakefulness in darkness.",
+    }
+    return templates.get(stage, ""), scene_templates.get(stage, "")
+
+
+async def _generate_llm_narrative(
+    seg: dict,
+    config: SimulationConfig,
+    client: LLMClient,
+) -> tuple[str, str]:
+    """
+    Call the LLM to generate a dream narrative and scene description
+    for a single segment.
+    """
+    events_str = (
+        "\n".join(f"- {e}" for e in config.prior_day_events)
+        if config.prior_day_events
+        else "No specific prior-day events provided."
+    )
+
+    system_prompt = (
+        "You are the PhenomenologyReporter agent inside DreamForge AI, a computational "
+        "dream simulation system. Your role is to translate biophysical sleep data into "
+        "vivid, scientifically grounded first-person dream narratives.\n\n"
+        "Guidelines:\n"
+        "- Write in present tense, first person ('I find myself...')\n"
+        "- Incorporate the sleep stage characteristics (REM=vivid/bizarre, N3=deep/fragmentary)\n"
+        "- Reflect the emotional tone and bizarreness score in your prose\n"
+        "- Weave in prior-day events as transformed, symbolic memory fragments\n"
+        "- Keep narrative under 120 words, scene description under 60 words\n"
+        "- Output ONLY valid JSON: {\"narrative\": \"...\", \"scene\": \"...\"}"
+    )
+
+    user_prompt = (
+        f"Sleep stage: {seg['stage']}\n"
+        f"Dominant emotion: {seg['dominant_emotion']}\n"
+        f"Bizarreness score: {seg['bizarreness_score']:.2f} (0=mundane, 1=extremely bizarre)\n"
+        f"Lucidity probability: {seg['lucidity_probability']:.2f}\n"
+        f"Neurochemistry snapshot:\n"
+        f"  ACh={seg['neurochemistry']['ach']:.2f}  "
+        f"5-HT={seg['neurochemistry']['serotonin']:.2f}  "
+        f"NE={seg['neurochemistry']['ne']:.2f}  "
+        f"Cortisol={seg['neurochemistry']['cortisol']:.2f}\n"
+        f"Prior-day events:\n{events_str}\n\n"
+        f"Generate the dream narrative and scene description as JSON."
+    )
+
+    raw = await client.chat(system=system_prompt, user=user_prompt)
+
+    # Parse JSON response robustly
+    import json, re
+    try:
+        # Strip markdown code fences if present
+        cleaned = re.sub(r"```(?:json)?", "", raw).strip().rstrip("`").strip()
+        parsed = json.loads(cleaned)
+        narrative = parsed.get("narrative", raw)
+        scene = parsed.get("scene", "")
+    except (json.JSONDecodeError, ValueError):
+        # Fallback: use raw text as narrative
+        narrative = raw
+        scene = f"A {seg['dominant_emotion']} dreamscape at {seg['stage']} depth."
+
+    return narrative, scene
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────
+
+@app.get("/", tags=["System"])
+async def root():
+    """Health ping."""
+    return {"service": "DreamForge AI", "status": "running", "version": "0.2.0"}
+
+
+@app.get("/api/health/llm", response_model=LLMHealthResponse, tags=["LLM"])
+async def llm_health():
+    """Check connectivity to the configured LLM backend."""
+    client = get_llm_client()
+    result = await client.check_health()
+    return LLMHealthResponse(
+        ok=result.get("ok", False),
+        provider=client.config.provider,
+        model=client.config.model,
+        base_url=client.config.base_url,
+        available_models=result.get("models", []),
+        error=result.get("error"),
+    )
+
+
+@app.get("/api/llm/config", response_model=LLMConfigResponse, tags=["LLM"])
+async def get_llm_config():
+    """Return the current LLM configuration (API key is masked)."""
+    client = get_llm_client()
+    cfg = client.config
+    return LLMConfigResponse(
+        provider=cfg.provider,
+        base_url=cfg.base_url,
+        model=cfg.model,
+        api_key_set=bool(cfg.api_key and cfg.api_key not in ("", "none")),
+        max_tokens=cfg.max_tokens,
+        temperature=cfg.temperature,
+        timeout=cfg.timeout,
+    )
+
+
+@app.post("/api/llm/config", response_model=LLMConfigResponse, tags=["LLM"])
+async def update_llm_config(req: LLMConfigRequest):
+    """
+    Update the LLM configuration at runtime — no restart required.
+
+    Useful for switching between LM Studio, Ollama, and OpenAI without
+    changing environment variables.
+    """
+    import importlib, sys as _sys
+
+    # Rebuild config from current + overrides
+    client = get_llm_client()
+    old = client.config
+
+    new_cfg = LLMConfig(
+        provider=req.provider or old.provider,
+        base_url=req.base_url or old.base_url,
+        model=req.model or old.model,
+        api_key=req.api_key or old.api_key,
+        max_tokens=req.max_tokens if req.max_tokens is not None else old.max_tokens,
+        temperature=req.temperature if req.temperature is not None else old.temperature,
+        timeout=req.timeout if req.timeout is not None else old.timeout,
+    )
+
+    # Close old client, reinitialise singleton
+    await client.aclose()
+
+    # Patch the singleton via the module
+    try:
+        import core.llm_client as llm_mod
+        llm_mod._default_client = LLMClient(config=new_cfg)
+        updated_client = llm_mod._default_client
+    except Exception:
+        # Fallback for stub path
+        import builtins
+        global _default_client  # type: ignore[name-defined]
+        _default_client = LLMClient(config=new_cfg)
+        updated_client = _default_client
+
+    logger.info("LLM config updated: provider=%s model=%s base_url=%s",
+                new_cfg.provider, new_cfg.model, new_cfg.base_url)
+
+    cfg = updated_client.config
+    return LLMConfigResponse(
+        provider=cfg.provider,
+        base_url=cfg.base_url,
+        model=cfg.model,
+        api_key_set=bool(cfg.api_key and cfg.api_key not in ("", "none")),
+        max_tokens=cfg.max_tokens,
+        temperature=cfg.temperature,
+        timeout=cfg.timeout,
+    )
+
+
+@app.post(
+    "/api/simulation/night",
+    response_model=SimulationResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Simulation"],
+)
+async def simulate_night(config: SimulationConfig):
+    """
+    Run a full-night dream simulation.
+
+    **Pipeline:**
+    1. Two-process sleep model (Borbély) determines stage trajectory
+    2. ODE-based neurochemistry computed per segment
+    3. Bizarreness + lucidity scores derived from neurochemical state
+    4. If `use_llm=True`: LLM generates vivid first-person narrative per REM segment
+       (or all segments if `llm_segments_only=False`)
+    5. Results persisted in memory and returned as structured JSON
+
+    **Tip:** Set `use_llm=false` for a fast (< 1 s) template-only run to verify
+    the simulation pipeline, then re-enable for full narrative generation.
+    """
+    sim_id = str(uuid.uuid4())
+    logger.info("Starting simulation %s (%.1fh, dt=%.1fmin, LLM=%s)",
+                sim_id, config.duration_hours, config.dt_minutes, config.use_llm)
+
+    # Step 1: biophysical simulation
+    raw_segments = _simulate_night_physics(config)
+
+    # Step 2: narrative generation
+    client = get_llm_client()
+    llm_used = False
+
+    # Determine which segments get LLM treatment
+    if config.use_llm:
+        if config.llm_segments_only:
+            llm_indices = [i for i, s in enumerate(raw_segments) if s["stage"] == "REM"]
+            # Sample at most 20 REM segments for speed
+            if len(llm_indices) > 20:
+                step = len(llm_indices) // 20
+                llm_indices = llm_indices[::step][:20]
+        else:
+            # Sample 1 segment per cycle (every ~90 min / dt steps)
+            cycle_steps = int(90 / config.dt_minutes)
+            llm_indices = list(range(0, len(raw_segments), cycle_steps))[:15]
+    else:
+        llm_indices = []
+
+    # Call LLM for selected segments (with concurrency limit)
+    semaphore = asyncio.Semaphore(3)  # max 3 concurrent LLM calls
+
+    async def _safe_llm(idx: int):
+        nonlocal llm_used
+        seg = raw_segments[idx]
+        async with semaphore:
+            try:
+                narrative, scene = await _generate_llm_narrative(seg, config, client)
+                llm_used = True
+            except Exception as exc:
+                logger.error("LLM narrative failed for segment %d: %s", idx, exc)
+                narrative, scene = _template_narrative(seg, config)
+        raw_segments[idx]["narrative"] = narrative
+        raw_segments[idx]["scene_description"] = scene
+
+    if llm_indices:
+        await asyncio.gather(*[_safe_llm(i) for i in llm_indices])
+
+    # Fill remaining segments with templates
+    for i, seg in enumerate(raw_segments):
+        if not seg["narrative"]:
+            n, s = _template_narrative(seg, config)
+            seg["narrative"] = n
+            seg["scene_description"] = s
+
+    # Step 3: build response
+    segments_out = [DreamSegmentResponse(**seg) for seg in raw_segments]
+
+    # Summary statistics
+    stages = [s.stage for s in segments_out]
+    stage_counts = {st: stages.count(st) for st in set(stages)}
+    total = len(stages)
+    stage_pct = {st: round(cnt / total, 3) for st, cnt in stage_counts.items()}
+
+    all_bizarre = [s.bizarreness_score for s in segments_out]
+    all_emotions = [s.dominant_emotion for s in segments_out]
+    dominant_emotion = max(set(all_emotions), key=all_emotions.count)
+
+    summary = {
+        "total_segments": total,
+        "night_span_hours": config.duration_hours,
+        "stage_distribution": stage_pct,
+        "mean_bizarreness": round(float(np.mean(all_bizarre)), 3),
+        "max_bizarreness": round(float(np.max(all_bizarre)), 3),
+        "dominant_emotion": dominant_emotion,
+        "rem_fraction": stage_pct.get("REM", 0.0),
+        "llm_segments_generated": len(llm_indices) if llm_used else 0,
+    }
+
+    result = SimulationResponse(
+        id=sim_id,
+        config=config,
+        segments=segments_out,
+        summary=summary,
+        llm_used=llm_used,
+        llm_model=client.config.model if llm_used else None,
+    )
+
+    # Persist to in-memory store
+    _simulations[sim_id] = result.model_dump()
+    logger.info("Simulation %s complete — %d segments, LLM=%s", sim_id, total, llm_used)
+
+    return result
+
+
+@app.get(
+    "/api/simulation/{sim_id}",
+    response_model=SimulationResponse,
+    tags=["Simulation"],
+)
+async def get_simulation(sim_id: str):
+    """Retrieve a previously run simulation by ID."""
+    if sim_id not in _simulations:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Simulation '{sim_id}' not found. Run POST /api/simulation/night first.",
+        )
+    return _simulations[sim_id]
+
+
+@app.get("/api/dreams", tags=["Simulation"])
+async def list_dreams():
+    """List all stored simulation summaries."""
+    summaries = []
+    for sim_id, data in _simulations.items():
+        summaries.append({
+            "id": sim_id,
+            "duration_hours": data["config"]["duration_hours"],
+            "segment_count": len(data["segments"]),
+            "dominant_emotion": data["summary"].get("dominant_emotion"),
+            "mean_bizarreness": data["summary"].get("mean_bizarreness"),
+            "llm_used": data["llm_used"],
+            "llm_model": data.get("llm_model"),
+            "rem_fraction": data["summary"].get("rem_fraction"),
+        })
+    return {"count": len(summaries), "simulations": summaries}
+
+
+@app.post("/api/simulation/counterfactual", tags=["Simulation"])
+async def counterfactual(req: CounterfactualRequest):
+    """
+    Run a counterfactual dream variant based on an existing simulation.
+
+    Applies `perturbations` (parameter overrides) to the original config
+    and re-runs the simulation, allowing side-by-side comparison.
+    """
+    if req.base_simulation_id not in _simulations:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Base simulation '{req.base_simulation_id}' not found.",
+        )
+
+    base = _simulations[req.base_simulation_id]
+    base_config_dict = dict(base["config"])
+
+    # Apply perturbations
+    for key, val in req.perturbations.items():
+        if key in base_config_dict:
+            base_config_dict[key] = val
+
+    base_config_dict["use_llm"] = req.use_llm
+    new_config = SimulationConfig(**base_config_dict)
+
+    return await simulate_night(new_config)
