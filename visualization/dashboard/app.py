@@ -139,7 +139,7 @@ def run_simulation() -> Optional[dict]:
     try:
         with st.spinner("🧬 Simulating dream cycle…"):
             r = httpx.post(
-                f"{API_BASE}/simulate-night",
+                f"{API_BASE}/api/simulation/night",
                 json=payload,
                 timeout=300,        # LLM 可能需要時間
             )

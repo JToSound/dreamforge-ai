@@ -187,7 +187,7 @@ class SimulationConfig(BaseModel):
 
 
 class SimulationRequest(BaseModel):
-    """Full request body for POST /simulate-night."""
+    """Full request body for POST /api/simulation/night."""
 
     day_input: DayInput = Field(default_factory=DayInput)
     config: SimulationConfig = Field(default_factory=SimulationConfig)

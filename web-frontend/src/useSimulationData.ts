@@ -97,7 +97,7 @@ export function useSimulationData() {
     abortRef.current = new AbortController()
 
     try {
-      const response = await fetch('/api/simulate-night', {
+      const response = await fetch('/api/simulation/night', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req),

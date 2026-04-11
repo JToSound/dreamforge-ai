@@ -294,8 +294,8 @@ All charts support SVG/PNG/JSON export. Dark mode and colorblind-accessible pale
 ## 9. API Endpoints
 
 ```
-POST   /simulate-night          Run one full-night simulation
-POST   /simulate-batch          Run multiple nights / counterfactual variants
+POST   /api/simulation/night    Run one full-night simulation
+POST   /api/simulation/batch    Run multiple nights / counterfactual variants
 GET    /dream/{id}              Retrieve dream report as structured JSON
 GET    /dream/{id}/narrative    First-person narrative text
 GET    /visualization/{id}      Data feeds for frontend charts
