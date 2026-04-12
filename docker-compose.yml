@@ -21,10 +21,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dashboard
+      args:
+        DEV: "1"
     ports:
       - "8501:8501"
     environment:
       API_BASE_URL: http://api:8000
+      PYTHONPATH: /app
     depends_on:
       - api
     extra_hosts:

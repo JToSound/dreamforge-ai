@@ -1,22 +1,43 @@
-# Dockerfile.dashboard
-FROM python:3.11-slim
+# syntax=docker/dockerfile:1.4
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# 安裝 dashboard 依賴
-COPY requirements.dashboard.txt ./
-RUN pip install --no-cache-dir -r requirements.dashboard.txt
+# Install minimal build tools for wheels (only in builder stage)
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential gcc git && rm -rf /var/lib/apt/lists/*
 
-COPY visualization/ ./visualization/
-COPY core/ ./core/
+# Copy packaging metadata first so we can leverage layer caching when source changes.
+COPY pyproject.toml setup.cfg requirements.dashboard.txt ./
+
+RUN pip install --upgrade pip setuptools wheel
+
+# Pre-build wheels for python dependencies using BuildKit cache for pip.
+# This makes subsequent builds much faster and more reproducible.
+RUN --mount=type=cache,target=/root/.cache/pip \
+     pip wheel --wheel-dir=/wheels -r requirements.dashboard.txt
+
+FROM python:3.11-slim AS runtime
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Copy pre-built wheels from builder stage to speed up install.
+COPY --from=builder /wheels /wheels
+COPY pyproject.toml setup.cfg requirements.dashboard.txt ./
+
+# Install dependency wheels (non-network) if present.
+RUN pip install --no-cache-dir /wheels/* || true
+
+# Copy project source after dependencies to keep layers cache-friendly.
+COPY . .
+
+# Support building dev (editable) or production installs via build-arg DEV.
+ARG DEV=1
+RUN if [ "$DEV" = "1" ] ; then pip install --no-cache-dir -e . ; else pip install --no-cache-dir . ; fi
 
 EXPOSE 8501
 
-CMD ["streamlit", "run", "visualization/dashboard/app.py", \
-     "--server.port=8501", \
-     "--server.address=0.0.0.0", \
-     "--server.headless=true", \
-     "--server.fileWatcherType=none"]
+CMD ["streamlit", "run", "visualization/dashboard/app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true", "--server.fileWatcherType=none"]

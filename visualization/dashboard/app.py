@@ -2,6 +2,19 @@
 DreamForge AI — Streamlit Dashboard
 Real-time dream simulation visualization with LLM configuration.
 """
+import sys
+import pathlib
+import os
+
+# Ensure repository root is on sys.path so `import core...` works when
+# running the Streamlit app directly (e.g., `streamlit run visualization/dashboard/app.py`).
+# This is a pragmatic fix for containerized/dev setups where the cwd may not
+# be the project root. For production, prefer setting PYTHONPATH or installing
+# the package.
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 import json
 import time
 from typing import Optional

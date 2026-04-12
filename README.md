@@ -137,6 +137,32 @@ For detailed equations, parameter choices, and literature references, see `RESEA
 
 ---
 
+## Development
+
+Run the dashboard locally:
+
+```bash
+# local python dev
+pip install -r requirements.dashboard.txt
+pip install -e .
+streamlit run visualization/dashboard/app.py --server.port=8501 --server.address=0.0.0.0
+```
+
+## Docker (development)
+
+We provide a cache-friendly dashboard Dockerfile and compose setup. For local development use the editable install build (default DEV=1 in `docker-compose.yml`). Build with BuildKit enabled for best caching:
+
+```bash
+# enable BuildKit (Linux/macOS)
+export DOCKER_BUILDKIT=1
+docker compose build --progress=plain dashboard
+docker compose up dashboard
+```
+
+## CI
+
+The GitHub Actions workflow uses Buildx with the GHA cache (`cache-from` / `cache-to`) to persist Docker build cache between runs, speeding up subsequent builds.
+
 ## Roadmap
 
 - Phase 1 – Core simulation engine
