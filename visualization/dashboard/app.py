@@ -16,6 +16,9 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 from core.utils.llm_backend import LLMBackend, Providers as LLMProviders
+from core.simulation.runner import SimulationRunner
+import networkx as nx
+import math
 import os
 
 try:
@@ -248,10 +251,8 @@ else:
     animate_btn = anim_col.button("▶ Animate Night")
 
     if animate_btn:
-        # Simple streaming loop that replays neuro and hypnogram over ticks
-        import time
-        ticks = len(neuro_data) if neuro_data else max(1, n_seg)
-        # prepare placeholders
+        runner = SimulationRunner(result)
+        # placeholders
         kpi_c1 = st.empty()
         kpi_c2 = st.empty()
         kpi_c3 = st.empty()
@@ -261,65 +262,153 @@ else:
         mem_ph = st.empty()
         narrative_ph = st.empty()
 
-        # streaming frames
-        for i in range(ticks):
-            # KPI updates
-            cur_stage = segments[i].get("stage") if i < len(segments) else segments[-1].get("stage")
-            cur_ach = neuro_data[i].get("ach") if i < len(neuro_data) else neuro_data[-1].get("ach") if neuro_data else 0.0
-            cur_biz = segments[i].get("bizarreness", 0.0) if i < len(segments) else 0.0
-            cur_active = segments[i].get("active_memory_ids", []) if i < len(segments) else []
+        # Prepare figures once
+        y_map = {"WAKE": 4, "REM": 3, "N1": 2, "N2": 1, "N3": 0}
 
-            kpi_c1.metric("Current Stage", cur_stage)
-            kpi_c2.metric("ACh Level", f"{cur_ach:.2f}")
-            kpi_c3.metric("Bizarreness", f"{cur_biz:.2f}")
-            kpi_c4.metric("Active Memories", len(cur_active))
+        hyp_fig = go.Figure()
+        hyp_fig.add_trace(go.Scatter(x=[], y=[], mode="lines", line=dict(color="#a78bfa", width=2)))
+        hyp_fig.update_layout(title="Hypnogram (live)", template="plotly_dark", height=220)
 
-            # Hypnogram (left)
-            try:
-                times = [s.get("start_time_hours", idx * duration_hours / n_seg) for idx, s in enumerate(segments[: i + 1])]
-                stages_plot = [s.get("stage", "N2") for s in segments[: i + 1]]
-                y_map = {"WAKE": 4, "REM": 3, "N1": 2, "N2": 1, "N3": 0}
-                y_vals = [y_map.get(s, 1) for s in stages_plot]
-                fig_h = go.Figure()
-                fig_h.add_trace(go.Scatter(x=times, y=y_vals, mode="lines", line=dict(color="#a78bfa", width=2)))
-                fig_h.update_layout(title="Hypnogram (live)", template="plotly_dark", height=220)
-                left_ph.plotly_chart(fig_h, use_container_width=True)
-            except Exception:
-                pass
+        neuro_fig = go.Figure()
+        neuro_colors = {"ach": "#7B68EE", "serotonin": "#FFD700", "ne": "#FF6B6B", "cortisol": "#98D8C8"}
+        neuro_traces = ["ach", "serotonin", "ne", "cortisol"]
+        for name in neuro_traces:
+            neuro_fig.add_trace(go.Scatter(x=[], y=[], mode="lines", name=name.upper(), line=dict(color=neuro_colors.get(name, "#888"), width=2)))
+        neuro_fig.update_layout(title="Neurochemistry (live)", template="plotly_dark", height=320)
 
-            # Neurochemistry (right)
-            try:
-                idxs = list(range(0, i + 1))
-                ds = neuro_data[: i + 1]
-                dfn = pd.DataFrame(ds)
-                fig_n = go.Figure()
-                for col_name, color, label in [("ach", "#7B68EE", "ACh"), ("serotonin", "#FFD700", "5-HT"), ("ne", "#FF6B6B", "NE"), ("cortisol", "#98D8C8", "Cortisol")]:
-                    if col_name in dfn.columns:
-                        fig_n.add_trace(go.Scatter(x=dfn.get("time_hours", dfn.index), y=dfn[col_name], name=label, line=dict(color=color, width=2)))
-                fig_n.update_layout(title="Neurochemistry (live)", template="plotly_dark", height=320)
-                right_ph.plotly_chart(fig_n, use_container_width=True)
-            except Exception:
-                pass
+        # Memory graph layout (precompute positions)
+        mg_nodes = mem_graph.get("nodes", [])
+        mg_edges = mem_graph.get("edges", [])
+        node_ids = [nd.get("id") for nd in mg_nodes]
+        G = nx.Graph()
+        for nd in node_ids:
+            G.add_node(nd)
+        for e in mg_edges:
+            G.add_edge(e.get("source"), e.get("target"))
+        if len(G.nodes) > 0:
+            pos = nx.spring_layout(G, seed=42)
+        else:
+            pos = {nid: (math.cos(i * 2 * math.pi / max(1, len(node_ids))), math.sin(i * 2 * math.pi / max(1, len(node_ids)))) for i, nid in enumerate(node_ids)}
 
-            # Memory graph pulse (simple update of node sizes)
-            try:
-                mg = mem_graph
-                nodes = mg.get("nodes", [])
-                edges = mg.get("edges", [])
-                # show static memory graph for now
-                mem_ph.write(f"Active memories: {len(nodes)} — pulsing during replays")
-            except Exception:
-                pass
+        node_x = [pos[nid][0] for nid in node_ids] if node_ids else []
+        node_y = [pos[nid][1] for nid in node_ids] if node_ids else []
+        node_labels = [nd.get("label", nid)[:30] for nd, nid in zip(mg_nodes, node_ids)]
 
-            # Narrative (typewriter effect)
-            try:
-                narrative = segments[i].get("narrative") if i < len(segments) else ""
-                narrative_ph.markdown(f"**Segment {i+1}:** {narrative}")
-            except Exception:
-                pass
+        mem_fig = go.Figure()
+        mem_fig.add_trace(go.Scatter(x=node_x, y=node_y, mode="markers+text", marker=dict(size=[10 for _ in node_ids], color="#94a3b8"), text=node_labels, textposition="top center"))
+        mem_fig.update_layout(title="Memory Graph (live)", template="plotly_dark", height=420)
 
-            # small sleep to produce animation effect
-            time.sleep(0.03)
+        # state for typewriter effect and REM pulse
+        prev_stage = None
+        typewriter_state = {"active": False, "text": "", "pos": 0, "target": "", "last_update": 0}
+        rem_pulse_until = 0.0
+
+        start_time = time.time()
+        # Iterate ticks
+        for tick in runner.run():
+            now = time.time()
+            # KPIs
+            kpi_c1.metric("Current Stage", str(tick.stage))
+            kpi_c2.metric("ACh Level", f"{tick.ach:.2f}")
+            kpi_c3.metric("Bizarreness", f"{tick.biz:.2f}")
+            kpi_c4.metric("Active Memories", len(tick.active_memory_ids or []))
+
+            # Update hypnogram incrementally
+            hyp_x = list(hyp_fig.data[0].x) if hyp_fig.data and hyp_fig.data[0].x is not None else []
+            hyp_y = list(hyp_fig.data[0].y) if hyp_fig.data and hyp_fig.data[0].y is not None else []
+            hyp_x.append(tick.time_hours)
+            hyp_y.append(y_map.get(str(tick.stage), 1))
+            hyp_fig.data[0].x = hyp_x
+            hyp_fig.data[0].y = hyp_y
+
+            # REM pulse detection
+            if prev_stage is not None and str(prev_stage) != str(tick.stage) and str(tick.stage) == "REM":
+                rem_pulse_until = now + 0.5
+            prev_stage = tick.stage
+
+            # apply transient hypnogram flash if in pulse window
+            if now < rem_pulse_until:
+                hyp_fig.update_traces(line=dict(color="#f59e0b", width=3))
+            else:
+                hyp_fig.update_traces(line=dict(color="#a78bfa", width=2))
+
+            left_ph.plotly_chart(hyp_fig, use_container_width=True)
+
+            # Update neurochemistry traces
+            for idx, name in enumerate(neuro_traces):
+                xs = list(neuro_fig.data[idx].x) if neuro_fig.data[idx].x is not None else []
+                ys = list(neuro_fig.data[idx].y) if neuro_fig.data[idx].y is not None else []
+                xs.append(tick.time_hours)
+                val = getattr(tick, name, None)
+                ys.append(float(val) if val is not None else 0.0)
+                neuro_fig.data[idx].x = xs
+                neuro_fig.data[idx].y = ys
+
+            # neuro pulse overlay during REM entry: add a temporary marker
+            if now < rem_pulse_until:
+                # add small marker for ACh spike (first trace)
+                neuro_fig.data[0].marker = dict(size=6, color="#ffffff")
+            else:
+                neuro_fig.data[0].marker = dict(size=0)
+
+            right_ph.plotly_chart(neuro_fig, use_container_width=True)
+
+            # Memory graph: update node sizes from mem activation snapshots if provided
+            mem_activation_series = result.get("memory_activation_series") or []
+            sizes = [10 for _ in node_ids]
+            if mem_activation_series:
+                # try to find frame for this tick time
+                frame = next((f for f in mem_activation_series if abs(float(f.get("time_hours", 0.0)) - float(tick.time_hours)) < 1e-3), None)
+                if frame:
+                    # frame['activations'] expected list of {id,label,activation}
+                    act_map = {a.get("id"): float(a.get("activation", 0.0)) for a in frame.get("activations", [])}
+                    for i, nid in enumerate(node_ids):
+                        sizes[i] = max(8, 8 + int(act_map.get(nid, 0.0) * 40))
+
+            # apply replay event pulses
+            for ev in (tick.replay_events or []):
+                for i, nid in enumerate(node_ids):
+                    if nid in ev.get("node_ids", []):
+                        sizes[i] = min(60, sizes[i] + 20)
+
+            # update mem_fig markers
+            if mem_fig.data:
+                mem_fig.data[0].marker.size = sizes
+                mem_ph.plotly_chart(mem_fig, use_container_width=True)
+
+            # Narrative: chunked typewriter (few chars per tick)
+            if typewriter_state["active"]:
+                # advance
+                step = 6
+                pos = typewriter_state["pos"] + step
+                typewriter_state["pos"] = min(len(typewriter_state["target"]), pos)
+                display = typewriter_state["target"][: typewriter_state["pos"]]
+                # emotion color badge
+                emotion = None
+                if tick.segment_index is not None and tick.segment_index < len(segments):
+                    emotion = segments[tick.segment_index].get("dominant_emotion", "neutral")
+                color = {
+                    "joy": "#fbbf24", "fear": "#f87171", "sadness": "#60a5fa",
+                    "anger": "#ef4444", "neutral": "#94a3b8", "surprise": "#a78bfa",
+                }.get(emotion, "#94a3b8")
+                narrative_ph.markdown(
+                    f"<div style='background:{color}; padding:0.6rem; border-radius:6px;'>" \
+                    f"<strong>Segment {tick.segment_index+1}:</strong> {display}</div>", unsafe_allow_html=True
+                )
+                if typewriter_state["pos"] >= len(typewriter_state["target"]):
+                    typewriter_state["active"] = False
+            else:
+                # check if new narrative available
+                if tick.narrative and (not typewriter_state["target"] or tick.narrative != typewriter_state["target"]):
+                    typewriter_state["active"] = True
+                    typewriter_state["target"] = tick.narrative
+                    typewriter_state["pos"] = 0
+                    narrative_ph.markdown(f"**Segment {tick.segment_index+1}:** ")
+
+            # maintain responsive timing (target ~30ms per tick)
+            elapsed = time.time() - now
+            sleep_for = max(0.0, 0.03 - elapsed)
+            time.sleep(sleep_for)
 
     st.markdown("---")
 
