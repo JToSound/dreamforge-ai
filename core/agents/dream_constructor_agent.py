@@ -1,54 +1,3 @@
-# 在檔案頂部加入
-from core.llm_client import get_llm_client
-
-# 把原來的 template narrative 生成邏輯替換成：
-async def _generate_narrative(
-    self,
-    stage: str,
-    emotion: str,
-    memory_fragments: list[str],
-    ach: float,
-    bizarreness_score: float,
-) -> tuple[str, str]:
-    """Call LLM to generate a real dream narrative and scene description."""
-    client = get_llm_client()
-
-    # Build context from memory fragments
-    memory_text = "\n".join(f"- {frag}" for frag in memory_fragments[:5]) or "- (no specific memories)"
-
-    system_prompt = (
-        "You are a dream narrator. Write vivid, surreal, first-person dream descriptions "
-        "grounded in neuroscience. Dreams during REM are more vivid and bizarre. "
-        "NREM dreams are hazier and more thought-like. Keep each narrative under 80 words. "
-        "Never say 'you find yourself' — start with an active scene."
-    )
-
-    user_prompt = (
-        f"Generate a dream segment with these parameters:\n"
-        f"Sleep stage: {stage}\n"
-        f"Dominant emotion: {emotion}\n"
-        f"Bizarreness level: {bizarreness_score:.2f} (0=mundane, 1=extremely bizarre)\n"
-        f"Acetylcholine level: {ach:.2f} (higher = more vivid/hallucinatory)\n"
-        f"Memory fragments active:\n{memory_text}\n\n"
-        f"Write TWO things separated by '|||':\n"
-        f"1. A first-person dream narrative (60-80 words)\n"
-        f"2. A brief scene description for visualization (15-20 words)\n"
-        f"Format: <narrative>|||<scene>"
-    )
-
-    raw = await client.chat(system=system_prompt, user=user_prompt)
-
-    # Parse response
-    if "|||" in raw:
-        parts = raw.split("|||", 1)
-        narrative = parts[0].strip().lstrip("<narrative>").rstrip(">").strip()
-        scene = parts[1].strip().lstrip("<scene>").rstrip(">").strip()
-    else:
-        narrative = raw.strip()
-        scene = f"A {stage} dream scene with {emotion} tone."
-
-    return narrative, scene
-
 from __future__ import annotations
 
 import json
@@ -113,8 +62,8 @@ class DreamConstructorAgent:
                     kwargs["base_url"] = "http://localhost:11434/v1"
                     kwargs.setdefault("api_key", "ollama")
                 self._client = OpenAI(**kwargs)
-            except ImportError:
-                logger.warning("openai package not installed; using fallback generator.")
+            except Exception as e:
+                logger.warning("openai client init failed; using fallback generator: %s", e)
         elif self._provider == "anthropic":
             try:
                 import anthropic
@@ -122,8 +71,8 @@ class DreamConstructorAgent:
                 if self._api_key:
                     kwargs["api_key"] = self._api_key
                 self._client = anthropic.Anthropic(**kwargs)
-            except ImportError:
-                logger.warning("anthropic package not installed; using fallback generator.")
+            except Exception as e:
+                logger.warning("anthropic client init failed; using fallback generator: %s", e)
 
         return self._client
 
@@ -139,6 +88,7 @@ class DreamConstructorAgent:
         stress_level: float,
         prior_events: list[str],
         segment_index: int,
+        prev_segments: Optional[list] = None,
     ) -> str:
         ach = round(neuro_state.ach, 3)
         five_ht = round(neuro_state.serotonin, 3)
@@ -153,6 +103,21 @@ class DreamConstructorAgent:
                 f"{replay.total_weight:.2f}."
             )
         events_str = "; ".join(prior_events) if prior_events else "none recorded"
+
+        # Include short context from previous segments to improve coherence
+        prev_text = ""
+        if prev_segments:
+            ctx = []
+            for s in prev_segments[-3:]:
+                try:
+                    ctx.append(str(getattr(s, "narrative", s.get("narrative", ""))))
+                except Exception:
+                    try:
+                        ctx.append(str(s.narrative))
+                    except Exception:
+                        pass
+            if ctx:
+                prev_text = "Previous segments context:\n" + "\n".join(f"- {c}" for c in ctx)
 
         system_msg = (
             "You are DreamForge AI's Dream Constructor. Your job is to generate a "
@@ -171,6 +136,7 @@ class DreamConstructorAgent:
             f"Stress level: {stress_level:.2f}\n"
             f"Prior day events: {events_str}\n"
             f"{replay_summary}\n"
+            f"{prev_text}\n"
             "Generate the dream segment JSON now."
         )
         return system_msg, user_msg
@@ -250,6 +216,7 @@ class DreamConstructorAgent:
         replay: Optional[ReplaySequence],
         stress_level: float = 0.5,
         prior_events: Optional[list[str]] = None,
+        prev_segments: Optional[list] = None,
     ) -> DreamSegment:
         """Generate one dream segment for the given simulation state."""
         system_msg, user_msg = self._build_prompt(
@@ -259,6 +226,7 @@ class DreamConstructorAgent:
             stress_level=stress_level,
             prior_events=prior_events or [],
             segment_index=segment_index,
+            prev_segments=prev_segments,
         )
         data = self._call_llm(system_msg, user_msg)
 

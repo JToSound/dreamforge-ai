@@ -152,6 +152,10 @@ class SleepState:
 
     time_in_stage_hours: float = field(default=0.0)
     """Elapsed time in the current stage (hours), used for transition guards."""
+    minutes_in_stage: float = field(default=0.0)
+    """Elapsed time in the current stage (minutes)."""
+    minutes_in_cycle: float = field(default=0.0)
+    """Elapsed time in the current cycle (minutes)."""
 
 
 # ---------------------------------------------------------------------------
@@ -436,23 +440,114 @@ class SleepCycleModel:
             states: Time-ordered list of SleepState snapshots.
             stages: Corresponding SleepStage hypnogram labels.
         """
+        # Build a staged cycle schedule (minutes) that specifies which stage is
+        # active at each time; this ensures realistic ultradian cycles rather
+        # than relying on a sawtooth phase heuristic.
         dt_hours = dt_minutes / 60.0
-        num_steps = int(duration_hours / dt_hours)
+        total_minutes = int(duration_hours * 60)
+
+        schedule = self._build_cycle_schedule(total_minutes=total_minutes)
+
+        # helper: find active segment index by minute using incremental pointer
+        seg_idx = 0
+        seg_start = schedule[0]["start_min"]
+        seg_end = schedule[0]["end_min"]
 
         state = self.initial_state(sleep_start_clock_time=sleep_start_clock_time)
         states: list[SleepState] = [state]
         stages: list[SleepStage] = [state.stage]
 
-        for _ in range(num_steps):
-            state = self.step(
-                state,
+        for step in range(int(total_minutes / dt_minutes)):
+            current_min = step * dt_minutes
+
+            # advance segment pointer if needed
+            while seg_idx + 1 < len(schedule) and current_min >= schedule[seg_idx]["end_min"]:
+                seg_idx += 1
+                seg_start = schedule[seg_idx]["start_min"]
+                seg_end = schedule[seg_idx]["end_min"]
+
+            seg = schedule[seg_idx]
+            current_stage = seg["stage"]
+            cycle_index = seg["cycle_index"]
+            minutes_in_stage = current_min - seg_start
+            minutes_in_cycle = current_min - seg["cycle_cycle_start_min"]
+
+            is_sleep = current_stage != SleepStage.WAKE
+
+            s_new = self._process_s_step(
+                s_prev=state.process_s,
                 dt_hours=dt_hours,
-                sleep_start_clock_time=sleep_start_clock_time,
+                is_sleep=is_sleep,
+            )
+
+            new_time_hours = state.time_hours + dt_hours
+            global_time = sleep_start_clock_time + new_time_hours
+            c_new = self._process_c(global_time_hours=global_time)
+
+            time_in_stage_hours = minutes_in_stage / 60.0
+
+            state = SleepState(
+                time_hours=new_time_hours,
+                process_s=s_new,
+                process_c=c_new,
+                stage=current_stage,
+                cycle_index=cycle_index,
+                time_in_stage_hours=time_in_stage_hours,
+                minutes_in_stage=minutes_in_stage,
+                minutes_in_cycle=minutes_in_cycle,
             )
             states.append(state)
             stages.append(state.stage)
 
         return states, stages
+
+    def _build_cycle_schedule(self, total_minutes: int) -> list[dict]:
+        """Build a schedule of (stage, start_min, end_min, cycle_index).
+
+        Durations follow empirical templates per cycle (see Task 2 spec) with
+        ±20% jitter (clipped) applied to each stage duration.
+        """
+        import numpy as _np
+
+        templates = {
+            1: [(SleepStage.N1, 5), (SleepStage.N2, 20), (SleepStage.N3, 30), (SleepStage.N2, 10), (SleepStage.REM, 10)],
+            2: [(SleepStage.N1, 3), (SleepStage.N2, 20), (SleepStage.N3, 20), (SleepStage.N2, 10), (SleepStage.REM, 20)],
+            3: [(SleepStage.N1, 2), (SleepStage.N2, 20), (SleepStage.N3, 10), (SleepStage.N2, 10), (SleepStage.REM, 35)],
+            4: [(SleepStage.N1, 2), (SleepStage.N2, 25), (SleepStage.N3, 5),  (SleepStage.N2, 10), (SleepStage.REM, 45)],
+        }
+        default_template = [(SleepStage.N1, 2), (SleepStage.N2, 30), (SleepStage.REM, 50)]
+
+        schedule: list[dict] = []
+        cursor = 0.0
+        cycle_idx = 0
+
+        while cursor < total_minutes:
+            cycle_idx += 1
+            templ = templates.get(cycle_idx, default_template)
+            cycle_start_min = cursor
+
+            for stage, base_min in templ:
+                # jitter multiplier ~ N(1, 0.2), clipped to [0.8, 1.2]
+                mult = float(_np.random.normal(1.0, 0.2))
+                mult = max(0.8, min(1.2, mult))
+                dur = max(1.0, base_min * mult)
+
+                start_min = cursor
+                end_min = min(total_minutes, cursor + dur)
+
+                schedule.append({
+                    "cycle_index": cycle_idx - 1,
+                    "stage": stage,
+                    "start_min": start_min,
+                    "end_min": end_min,
+                    "cycle_cycle_start_min": cycle_start_min,
+                })
+
+                cursor = end_min
+                if cursor >= total_minutes:
+                    break
+
+        return schedule
 
     def process_s_curve(
         self,

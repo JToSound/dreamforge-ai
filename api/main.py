@@ -314,10 +314,21 @@ def _simulate_night_physics(config: SimulationConfig) -> List[dict]:
         neuro["serotonin"] = min(1.0, neuro["serotonin"] * config.ssri_strength)
         neuro = {k: max(0.0, v + random.gauss(0, 0.02)) for k, v in neuro.items()}
 
-        # Bizarreness: high ACh + low monoamines → more bizarre
-        bizarreness = (neuro["ach"] * 0.4 + (1 - neuro["serotonin"]) * 0.3 +
-                       (1 - neuro["ne"]) * 0.2 + config.stress_level * 0.1)
-        bizarreness = round(min(1.0, max(0.0, bizarreness + random.gauss(0, 0.05))), 3)
+        # Bizarreness: primarily driven by ACh, with secondary contribution from
+        # suppressed monoamines and stress; add small noise for variability.
+        alpha = 0.6
+        mono_coeff = 0.25
+        ne_coeff = 0.1
+        stress_coeff = 0.05
+        noise_std = 0.03
+
+        biz_val = (
+            alpha * neuro["ach"]
+            + mono_coeff * (1.0 - neuro["serotonin"])
+            + ne_coeff * (1.0 - neuro["ne"])
+            + stress_coeff * config.stress_level
+        )
+        bizarreness = round(min(1.0, max(0.0, biz_val + random.gauss(0, noise_std))), 3)
 
         # Lucidity probability: highest during REM with lower stress
         lucidity = (0.05 if stage != "REM" else

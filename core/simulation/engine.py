@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 import numpy as np
+import random
 
 from core.models.sleep_cycle import SleepCycleModel, SleepState, SleepStage
 from core.models.neurochemistry import NeurochemistryModel, NeurochemistryState
@@ -21,6 +22,14 @@ class SimulationConfig:
     stress_level: float = 0.5
     prior_day_events: list[str] = field(default_factory=list)
     llm_every_n_segments: int = 12   # call LLM every N segments to control cost/latency
+    # Memory activation recording (for diagnostics / heatmaps)
+    record_memory_activations: bool = False
+    memory_activation_every_n_steps: int = 12
+    memory_activation_top_n: int = 50
+    # Bizarreness computation parameters (alpha * ACh + beta * replay_strength + noise)
+    biz_alpha: float = 0.6
+    biz_beta: float = 0.3
+    biz_noise_std: float = 0.05
 
 
 ProgressCallback = Callable[
@@ -60,36 +69,36 @@ class SimulationEngine:
         Returns a dict compatible with SimulateNightResponse.
         """
         dt_h = config.dt_minutes / 60.0
-        total_steps = int(config.duration_hours / dt_h)
 
-        # ── Initialise state ──────────────────────────────────────────────
-        sleep_state = self.sleep_model.initial_state(
-            sleep_start_circadian_time=config.sleep_start_clock_time
+        # Precompute the full-night sleep schedule so we can query stage by time
+        states, stages = self.sleep_model.simulate_night(
+            duration_hours=config.duration_hours,
+            dt_minutes=config.dt_minutes,
+            sleep_start_clock_time=config.sleep_start_clock_time,
         )
+
+        total_steps = max(1, len(states) - 1)
+
+        # Initialise neuro state
         neuro_state = self.neuro_model.initial_state()
 
         hypnogram: list[dict] = []
         neuro_series: list[dict] = []
         dream_segments: list[Any] = []
+        memory_activation_series: list[dict] = []
         segment_index = 0
 
+        # Stage lookup based on precomputed states
         def _stage_fn(t_hours: float) -> SleepStage:
-            # Thin wrapper so NeurochemistryModel can query stage by time.
-            # We approximate with the current sleep_state stage.
-            return sleep_state.stage
+            idx = int(min(max(0, t_hours / dt_h), len(states) - 1))
+            return states[int(idx)].stage
 
-        # ── Main loop ────────────────────────────────────────────────────
-        for step in range(total_steps):
-            progress = step / total_steps
+        # ── Main loop iterating precomputed states ─────────────────────────
+        for step in range(1, len(states)):
+            progress = (step - 1) / total_steps
+            sleep_state = states[step]
 
-            # 1. Advance sleep model
-            sleep_state = self.sleep_model.step(
-                sleep_state,
-                dt_hours=dt_h,
-                sleep_start_clock_time=config.sleep_start_clock_time,
-            )
-
-            # 2. Advance neurochemistry (one ODE step)
+            # 2. Advance neurochemistry (integrate up to this time, using stage_fn that maps t->stage)
             t_now = sleep_state.time_hours
             try:
                 traj, _ = self.neuro_model.integrate(
@@ -118,9 +127,24 @@ class SimulationEngine:
                 "cortisol": round(neuro_state.cortisol, 4),
             })
 
-            # 4. Memory decay every ~6 minutes
+            # 4. Memory decay every ~6 minutes (12 ticks of 30s if dt_minutes=0.5)
             if step % 12 == 0:
                 self.memory_graph.decay_salience(dt_hours=dt_h * 12)
+
+            # Optional: record memory activation snapshots for diagnostics/heatmaps
+            if config.record_memory_activations and (step % config.memory_activation_every_n_steps == 0):
+                try:
+                    G = self.memory_graph.to_networkx()
+                    activations = []
+                    for nid, data in G.nodes(data=True):
+                        activations.append({
+                            "id": nid,
+                            "activation": float(data.get("activation", 0.0)),
+                            "label": data.get("label", nid),
+                        })
+                    memory_activation_series.append({"time_hours": round(t_now, 4), "activations": activations})
+                except Exception as exc:
+                    logger.debug("memory activation record failed at step %d: %s", step, exc)
 
             # 5. Generate dream segment at LLM cadence (REM / N2 preferred)
             is_dream_stage = sleep_state.stage in (SleepStage.REM, SleepStage.N2)
@@ -129,6 +153,22 @@ class SimulationEngine:
                     max_length=10,
                     start_bias_tags=config.prior_day_events[:3],
                 )
+
+                # Apply immediate activation boost to replayed nodes so activation dynamics are visible
+                if replay:
+                    try:
+                        # memory_graph may implement apply_replay_effect; fall back safely
+                        if hasattr(self.memory_graph, "apply_replay_effect"):
+                            self.memory_graph.apply_replay_effect(replay)
+                        else:
+                            # increase activation heuristically
+                            for nid in replay.node_ids:
+                                if nid in self.memory_graph.to_networkx().nodes:
+                                    cur = float(self.memory_graph.to_networkx().nodes[nid].get("activation", 0.5))
+                                    self.memory_graph.to_networkx().nodes[nid]["activation"] = min(1.0, cur + 0.25)
+                    except Exception:
+                        pass
+
                 try:
                     seg = self.dream_constructor.generate_segment(
                         segment_index=segment_index,
@@ -137,12 +177,44 @@ class SimulationEngine:
                         replay=replay,
                         stress_level=config.stress_level,
                         prior_events=config.prior_day_events,
+                        prev_segments=dream_segments,
                     )
                     # Attach memory IDs from replay
                     if replay:
                         seg.active_memory_ids = replay.node_ids[:5]
                     dream_segments.append(seg)
                     segment_index += 1
+
+                    # Recompute/adjust bizarreness using deterministic formula so
+                    # it's consistent across LLM vs fallback generators.
+                    try:
+                        ach_val = float(neuro_state.ach)
+                        replay_strength = 0.0
+                        if replay and hasattr(replay, 'total_weight'):
+                            try:
+                                nodes_count = max(1, self.memory_graph.to_networkx().number_of_nodes())
+                                replay_strength = float(replay.total_weight) / float(nodes_count)
+                                replay_strength = min(1.0, replay_strength)
+                            except Exception:
+                                replay_strength = min(1.0, float(replay.total_weight))
+
+                        biz = (
+                            config.biz_alpha * ach_val
+                            + config.biz_beta * replay_strength
+                            + random.gauss(0.0, config.biz_noise_std)
+                        )
+                        biz = max(0.0, min(1.0, biz))
+                        # override segment value (keep as float with 3-decimal precision)
+                        try:
+                            seg.bizarreness_score = round(float(biz), 3)
+                        except Exception:
+                            # If seg is a dict-like object, set key instead
+                            try:
+                                seg['bizarreness_score'] = round(float(biz), 3)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
 
                     if on_progress:
                         on_progress(
@@ -182,6 +254,7 @@ class SimulationEngine:
             "neurochemistry_series": neuro_series,
             "dream_segments": [s.model_dump() for s in dream_segments],
             "memory_graph": self.memory_graph.to_json_serializable(),
+            "memory_activation_series": memory_activation_series,
             "summary_narrative": summary,
             "mean_bizarreness": round(mean_biz, 3),
             "dominant_emotion": dominant_emotion,

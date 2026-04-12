@@ -15,6 +15,13 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
+from core.utils.llm_backend import LLMBackend, Providers as LLMProviders
+import os
+
+try:
+    from tools.plot_sim import plot_memory_activation_heatmap
+except Exception:
+    plot_memory_activation_heatmap = None
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -58,28 +65,57 @@ with st.sidebar:
 
     st.markdown("### ⚙️ LLM Configuration")
 
-    llm_provider = st.selectbox(
+    # instantiate backend once for auto-discovery
+    try:
+        _llm_backend = st.session_state.get("llm_backend")
+        if _llm_backend is None:
+            _llm_backend = LLMBackend()
+            st.session_state["llm_backend"] = _llm_backend
+    except Exception:
+        _llm_backend = None
+
+    llm_provider = st.radio(
         "Provider",
-        ["lmstudio", "openai", "anthropic", "ollama"],
-        help="Select your LLM backend",
+        ["Auto-detect", "OpenAI", "Anthropic", "Ollama", "Offline Demo"],
+        index=0,
     )
 
-    provider_defaults = {
-        "lmstudio":  ("http://host.docker.internal:1234/v1", "local-model"),
-        "openai":    ("https://api.openai.com/v1",           "gpt-4o"),
-        "anthropic": ("https://api.anthropic.com",           "claude-3-5-sonnet-20241022"),
-        "ollama":    ("http://host.docker.internal:11434/v1","llama3.2"),
-    }
-    default_url, default_model = provider_defaults[llm_provider]
+    # populate fields based on detected backend if available
+    detected = None
+    if _llm_backend is not None:
+        detected = _llm_backend.config.provider.value
 
-    llm_base_url = st.text_input("Base URL", value=default_url)
-    llm_model    = st.text_input("Model", value=default_model)
+    llm_base_url = st.text_input("Base URL", value=getattr(_llm_backend.config, "ollama_base_url", "http://localhost:11434"))
+    llm_model    = st.text_input("Model", value=getattr(_llm_backend.config, "model_name", "gpt-4o"))
     llm_api_key  = st.text_input(
         "API Key",
-        value="lm-studio" if llm_provider == "lmstudio" else "",
+        value="" if detected != LLMProviders.OPENAI.value else (getattr(_llm_backend.config, "api_key", "")),
         type="password",
-        help="Leave blank for LM Studio / Ollama",
+        help="Leave blank to use auto-detected or offline DreamScript",
     )
+
+    # Status indicator
+    status_text = "Unknown"
+    status_color = "#f59e0b"
+    if _llm_backend is None:
+        status_text = "Unavailable"
+        status_color = "#ef4444"
+    else:
+        status_text = f"Detected: {_llm_backend.config.provider.value}"
+        status_color = "#10b981" if _llm_backend.config.provider != LLMProviders.DREAMSCRIPT else "#f59e0b"
+
+    st.markdown(f"**Status:** <span style='color:{status_color}; font-weight:700'>{status_text}</span>", unsafe_allow_html=True)
+    if st.button("Test Connection"):
+        if _llm_backend is None:
+            st.error("LLM backend unavailable.")
+        else:
+            with st.spinner("Testing LLM..."):
+                try:
+                    test_out = _llm_backend.generate("Test: say hi")
+                    st.success("LLM responded")
+                    st.text_area("LLM test response", value=test_out, height=120)
+                except Exception as e:
+                    st.error(f"LLM test failed: {e}")
 
     st.markdown("---")
     st.markdown("### 🌙 Simulation Parameters")
@@ -206,6 +242,84 @@ else:
     k2.metric("REM Segments",      n_rem)
     k3.metric("Avg Bizarreness",   f"{avg_bizarre:.2f}")
     k4.metric("Night Span",        f"{metadata.get('duration_hours', duration_hours):.1f} h")
+
+    # Real-time animation controls
+    anim_col, _, _ = st.columns([1, 0.2, 1])
+    animate_btn = anim_col.button("▶ Animate Night")
+
+    if animate_btn:
+        # Simple streaming loop that replays neuro and hypnogram over ticks
+        import time
+        ticks = len(neuro_data) if neuro_data else max(1, n_seg)
+        # prepare placeholders
+        kpi_c1 = st.empty()
+        kpi_c2 = st.empty()
+        kpi_c3 = st.empty()
+        kpi_c4 = st.empty()
+        left_ph = st.empty()
+        right_ph = st.empty()
+        mem_ph = st.empty()
+        narrative_ph = st.empty()
+
+        # streaming frames
+        for i in range(ticks):
+            # KPI updates
+            cur_stage = segments[i].get("stage") if i < len(segments) else segments[-1].get("stage")
+            cur_ach = neuro_data[i].get("ach") if i < len(neuro_data) else neuro_data[-1].get("ach") if neuro_data else 0.0
+            cur_biz = segments[i].get("bizarreness", 0.0) if i < len(segments) else 0.0
+            cur_active = segments[i].get("active_memory_ids", []) if i < len(segments) else []
+
+            kpi_c1.metric("Current Stage", cur_stage)
+            kpi_c2.metric("ACh Level", f"{cur_ach:.2f}")
+            kpi_c3.metric("Bizarreness", f"{cur_biz:.2f}")
+            kpi_c4.metric("Active Memories", len(cur_active))
+
+            # Hypnogram (left)
+            try:
+                times = [s.get("start_time_hours", idx * duration_hours / n_seg) for idx, s in enumerate(segments[: i + 1])]
+                stages_plot = [s.get("stage", "N2") for s in segments[: i + 1]]
+                y_map = {"WAKE": 4, "REM": 3, "N1": 2, "N2": 1, "N3": 0}
+                y_vals = [y_map.get(s, 1) for s in stages_plot]
+                fig_h = go.Figure()
+                fig_h.add_trace(go.Scatter(x=times, y=y_vals, mode="lines", line=dict(color="#a78bfa", width=2)))
+                fig_h.update_layout(title="Hypnogram (live)", template="plotly_dark", height=220)
+                left_ph.plotly_chart(fig_h, use_container_width=True)
+            except Exception:
+                pass
+
+            # Neurochemistry (right)
+            try:
+                idxs = list(range(0, i + 1))
+                ds = neuro_data[: i + 1]
+                dfn = pd.DataFrame(ds)
+                fig_n = go.Figure()
+                for col_name, color, label in [("ach", "#7B68EE", "ACh"), ("serotonin", "#FFD700", "5-HT"), ("ne", "#FF6B6B", "NE"), ("cortisol", "#98D8C8", "Cortisol")]:
+                    if col_name in dfn.columns:
+                        fig_n.add_trace(go.Scatter(x=dfn.get("time_hours", dfn.index), y=dfn[col_name], name=label, line=dict(color=color, width=2)))
+                fig_n.update_layout(title="Neurochemistry (live)", template="plotly_dark", height=320)
+                right_ph.plotly_chart(fig_n, use_container_width=True)
+            except Exception:
+                pass
+
+            # Memory graph pulse (simple update of node sizes)
+            try:
+                mg = mem_graph
+                nodes = mg.get("nodes", [])
+                edges = mg.get("edges", [])
+                # show static memory graph for now
+                mem_ph.write(f"Active memories: {len(nodes)} — pulsing during replays")
+            except Exception:
+                pass
+
+            # Narrative (typewriter effect)
+            try:
+                narrative = segments[i].get("narrative") if i < len(segments) else ""
+                narrative_ph.markdown(f"**Segment {i+1}:** {narrative}")
+            except Exception:
+                pass
+
+            # small sleep to produce animation effect
+            time.sleep(0.03)
 
     st.markdown("---")
 
@@ -478,6 +592,27 @@ else:
             st.plotly_chart(fig3, use_container_width=True)
         else:
             st.info("No memory graph data returned.")
+
+        # Memory activation heatmap (if available)
+        mem_activation = result.get("memory_activation_series") or result.get("memory_activation") or []
+        if mem_activation:
+            if st.button("🔬 Generate Memory Activation Heatmap", key="gen_mem_heatmap"):
+                outdir = os.path.join('reports', 'plots')
+                os.makedirs(outdir, exist_ok=True)
+                sim_id = result.get("id") or result.get("simulation_id") or int(time.time())
+                if plot_memory_activation_heatmap is None:
+                    st.error("Plotting module not available (import failed).")
+                else:
+                    try:
+                        p = plot_memory_activation_heatmap(mem_activation, outdir, sim_id)
+                        if p:
+                            st.image(p, caption="Memory Activation Heatmap", use_column_width=True)
+                        else:
+                            st.info("No activation data to plot.")
+                    except Exception as e:
+                        st.error(f"Error generating heatmap: {e}")
+        else:
+            st.info("No memory activation snapshots found in result.")
 
     # ── Dream Narrative ───────────────────────────────────────────────────────
     with tab_dream:

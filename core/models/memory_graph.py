@@ -121,6 +121,8 @@ class MemoryGraph:
 
     def __init__(self) -> None:
         self._g: nx.MultiDiGraph = nx.MultiDiGraph()
+        # Log of replay events for visualization and export
+        self.replay_event_log: list[dict] = []
 
     # ------------------------------------------------------------------
     # Node and edge management
@@ -215,6 +217,10 @@ class MemoryGraph:
         self,
         max_length: int = 10,
         start_bias_tags: Optional[list[str]] = None,
+        current_time_hours: float = 0.0,
+        pulse_height: float = 0.35,
+        propagation_delay_s: float = 0.08,
+        decay_tau_hours: float = 0.05,
     ) -> Optional[ReplaySequence]:
         if self._g.number_of_nodes() == 0:
             return None
@@ -257,12 +263,99 @@ class MemoryGraph:
             total_weight += self._node_weight(current)
 
         dominant_emotion = self._dominant_emotion(path)
-        return ReplaySequence(
+        seq = ReplaySequence(
             id=str(uuid.uuid4()),
             node_ids=path,
             total_weight=total_weight,
             dominant_emotion=dominant_emotion,
         )
+
+        # Automatically apply replay pulse for downstream dynamics/visualization
+        try:
+            self.apply_replay_pulse(seq, pulse_height=pulse_height, propagation_delay_s=propagation_delay_s, decay_tau_hours=decay_tau_hours, current_time_hours=current_time_hours)
+        except Exception:
+            # Do not raise from sampling; ensure sampling remains robust
+            pass
+        return seq
+
+    def apply_replay_effect(self, replay: ReplaySequence, spike: float = 0.25) -> None:
+        """Apply an activation spike to nodes participating in a replay sequence.
+
+        This simulates the transient hippocampal activation caused by SWR events.
+        Nodes receive an additive activation boost (clipped to 1.0) and a small
+        salience reinforcement proportional to their activation.
+        """
+        if not replay or not replay.node_ids:
+            return
+        for nid in replay.node_ids:
+            if nid not in self._g:
+                continue
+            cur_act = float(self._g.nodes[nid].get("activation", 0.5))
+            new_act = min(1.0, cur_act + float(spike))
+            self._g.nodes[nid]["activation"] = new_act
+
+            # small salience bump to reflect consolidation
+            cur_sal = float(self._g.nodes[nid].get("salience", 0.5))
+            self._g.nodes[nid]["salience"] = min(1.0, cur_sal + 0.02 * float(spike))
+
+    def apply_replay_pulse(
+        self,
+        sequence: ReplaySequence,
+        pulse_height: float = 0.35,
+        propagation_delay_s: float = 0.08,
+        decay_tau_hours: float = 0.05,
+        current_time_hours: float = 0.0,
+    ) -> None:
+        """Apply a decaying pulse sequence across nodes and log the event.
+
+        Each subsequent node in the sequence receives a pulse reduced by a
+        factor (0.85 ** i) to simulate propagation attenuation.
+        """
+        if not sequence or not sequence.node_ids:
+            return
+
+        increments = []
+        for i, nid in enumerate(sequence.node_ids):
+            if nid not in self._g:
+                increments.append(0.0)
+                continue
+            cur_act = float(self._g.nodes[nid].get("activation", 0.5))
+            inc = float(pulse_height) * (0.85 ** i)
+            new_act = min(1.0, cur_act + inc)
+            self._g.nodes[nid]["activation"] = new_act
+            # store last pulse time for visualization hooks
+            self._g.nodes[nid]["last_pulse_time"] = float(current_time_hours)
+            # small salience bump
+            cur_sal = float(self._g.nodes[nid].get("salience", 0.5))
+            self._g.nodes[nid]["salience"] = min(1.0, cur_sal + 0.01 * inc)
+            increments.append(inc)
+
+        # record event for export/visualization
+        self.replay_event_log.append({
+            "id": sequence.id,
+            "time_hours": float(current_time_hours),
+            "node_ids": list(sequence.node_ids),
+            "increments": increments,
+            "pulse_height": float(pulse_height),
+            "dominant_emotion": sequence.dominant_emotion.value if hasattr(sequence.dominant_emotion, 'value') else str(sequence.dominant_emotion),
+            "total_weight": float(sequence.total_weight),
+        })
+
+    def decay_activations(self, dt_hours: float, decay_tau_hours: float = 0.05) -> None:
+        """Exponentially decay activations across all nodes.
+
+        Activation is decayed then clamped to [salience * 0.1, 1.0].
+        """
+        if dt_hours <= 0.0:
+            return
+        factor = math.exp(-float(dt_hours) / float(decay_tau_hours))
+        for node_id, data in list(self._g.nodes(data=True)):
+            act = float(data.get("activation", 0.0))
+            sal = float(data.get("salience", 0.0))
+            new_act = act * factor
+            floor = sal * 0.1
+            new_act = max(floor, min(1.0, new_act))
+            self._g.nodes[node_id]["activation"] = new_act
 
     def _dominant_emotion(self, node_ids: Iterable[str]) -> EmotionLabel:
         counts = {label: 0.0 for label in EmotionLabel}
@@ -293,4 +386,5 @@ class MemoryGraph:
             edge_item.update(data)
             edges.append(edge_item)
 
-        return {"nodes": nodes, "edges": edges}
+        return {"nodes": nodes, "edges": edges, "replay_events": list(self.replay_event_log)}
+        
