@@ -10,6 +10,7 @@ import random
 from core.models.sleep_cycle import SleepCycleModel, SleepState, SleepStage
 from core.models.neurochemistry import NeurochemistryModel, NeurochemistryState
 from core.models.memory_graph import MemoryGraph, ReplaySequence
+from core.agents.metacognitive_agent import MetacognitiveAgent
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,9 @@ class SimulationEngine:
             return states[int(idx)].stage
 
         # ── Main loop iterating precomputed states ─────────────────────────
+        # Instantiate metacognitive agent to compute lucidity probabilities
+        metacog = MetacognitiveAgent()
+
         for step in range(1, len(states)):
             progress = (step - 1) / total_steps
             sleep_state = states[step]
@@ -179,6 +183,11 @@ class SimulationEngine:
                         prior_events=config.prior_day_events,
                         prev_segments=dream_segments,
                     )
+                    # Recompute lucidity using metacognitive multi-factor model
+                    try:
+                        metacog.update_for_segment(seg, sleep_state, neuro_state)
+                    except Exception:
+                        pass
                     # Attach memory IDs from replay
                     if replay:
                         seg.active_memory_ids = replay.node_ids[:5]

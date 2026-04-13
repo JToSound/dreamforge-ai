@@ -252,6 +252,11 @@ else:
     n_rem = sum(1 for s in segments if s.get("stage") == "REM")
     avg_bizarre = np.mean([s.get("bizarreness", 0) for s in segments]) if segments else 0
 
+    # Unique simulation key to avoid Streamlit element ID collisions across runs
+    sim_id_val = result.get("id") or result.get("simulation_id") or int(time.time())
+    sim_ts = int(time.time())
+    sim_key = f"{sim_id_val}_{sim_ts}"
+
     # ── KPI row ───────────────────────────────────────────────────────────────
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Total Segments",    n_seg)
@@ -261,7 +266,7 @@ else:
 
     # Real-time animation controls
     anim_col, _, _ = st.columns([1, 0.2, 1])
-    animate_btn = anim_col.button("▶ Animate Night")
+    animate_btn = anim_col.button("▶ Animate Night", key=f"animate_{sim_key}")
 
     if animate_btn:
         runner = SimulationRunner(result)
@@ -345,7 +350,7 @@ else:
             else:
                 hyp_fig.update_traces(line=dict(color="#a78bfa", width=2))
 
-            left_ph.plotly_chart(hyp_fig, use_container_width=True)
+            left_ph.plotly_chart(hyp_fig, use_container_width=True, key=f"hypnogram_live_{sim_key}")
 
             # Update neurochemistry traces
             for idx, name in enumerate(neuro_traces):
@@ -364,7 +369,7 @@ else:
             else:
                 neuro_fig.data[0].marker = dict(size=0)
 
-            right_ph.plotly_chart(neuro_fig, use_container_width=True)
+            right_ph.plotly_chart(neuro_fig, use_container_width=True, key=f"neurochemistry_live_{sim_key}")
 
             # Memory graph: update node sizes from mem activation snapshots if provided
             mem_activation_series = result.get("memory_activation_series") or []
@@ -387,7 +392,7 @@ else:
             # update mem_fig markers
             if mem_fig.data:
                 mem_fig.data[0].marker.size = sizes
-                mem_ph.plotly_chart(mem_fig, use_container_width=True)
+                mem_ph.plotly_chart(mem_fig, use_container_width=True, key=f"memory_graph_live_{sim_key}")
 
             # Narrative: chunked typewriter (few chars per tick)
             if typewriter_state["active"]:
@@ -441,6 +446,7 @@ else:
             data=json_str,
             file_name=f"dreamforge-sim-{sim_id}.json",
             mime="application/json",
+            key=f"download_json_{sim_key}",
         )
 
         # Plaintext narrative summary
@@ -473,6 +479,7 @@ else:
             data=text_blob,
             file_name=f"dreamforge-sim-{sim_id}.txt",
             mime="text/plain",
+            key=f"download_txt_{sim_key}",
         )
 
         # ZIP with CSVs for analysis
@@ -566,6 +573,7 @@ else:
             data=zip_buf.getvalue(),
             file_name=f"dreamforge-sim-{sim_id}.zip",
             mime="application/zip",
+            key=f"download_zip_{sim_key}",
         )
 
     # ── Tab layout ───────────────────────────────────────────────────────────
@@ -607,7 +615,7 @@ else:
                 paper_bgcolor="#0d0d14",
                 plot_bgcolor="#12121e",
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key=f"hypnogram_tab_{sim_key}")
         else:
             st.info("No segment data to display.")
 
@@ -638,7 +646,7 @@ else:
                 paper_bgcolor="#0d0d14",
                 plot_bgcolor="#12121e",
             )
-            st.plotly_chart(fig2, use_container_width=True)
+            st.plotly_chart(fig2, use_container_width=True, key=f"neuro_tab_{sim_key}")
         else:
             st.info("No neurochemistry data returned.")
 
@@ -691,14 +699,14 @@ else:
                 xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
                 yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
             )
-            st.plotly_chart(fig3, use_container_width=True)
+            st.plotly_chart(fig3, use_container_width=True, key=f"memory_tab_{sim_key}")
         else:
             st.info("No memory graph data returned.")
 
         # Memory activation heatmap (if available)
         mem_activation = result.get("memory_activation_series") or result.get("memory_activation") or []
         if mem_activation:
-            if st.button("🔬 Generate Memory Activation Heatmap", key="gen_mem_heatmap"):
+            if st.button("🔬 Generate Memory Activation Heatmap", key=f"gen_mem_heatmap_{sim_key}"):
                 outdir = os.path.join('reports', 'plots')
                 os.makedirs(outdir, exist_ok=True)
                 sim_id = result.get("id") or result.get("simulation_id") or int(time.time())
