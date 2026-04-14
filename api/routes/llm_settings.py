@@ -16,7 +16,8 @@ class LLMSettingsUpdate(BaseModel):
     base_url: str = "http://host.docker.internal:1234/v1"
     model: str = "qwen/qwen3.5-9b"
     api_key: str = "lm-studio"
-    max_tokens: int = 512
+    # Source: Qwen3.5 docs (reasoning-token budget requires >=2048 output tokens)
+    max_tokens: int = 2048
     temperature: float = 0.85
 
 

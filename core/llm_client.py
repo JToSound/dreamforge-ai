@@ -26,7 +26,8 @@ class LLMConfig:
     model: str = "qwen/qwen3.5-9b"
     api_key: str = "lm-studio"
     timeout: int = 120
-    max_tokens: int = 512
+    # Source: Qwen3.5 docs (reasoning-token budget requires >=2048 output tokens)
+    max_tokens: int = 2048
     temperature: float = 0.85
     # Resilience knobs
     retries: int = 3
@@ -73,7 +74,10 @@ class LLMClient:
             "model": self.config.model,
             "messages": [
                 {"role": "system", "content": system},
-                {"role": "user", "content": user},
+                {
+                    "role": "user",
+                    "content": f"/no_think\n\n{user}",
+                },
             ],
             "max_tokens": self.config.max_tokens,
             "temperature": self.config.temperature,
@@ -82,16 +86,24 @@ class LLMClient:
         last_exc = None
         for attempt in range(1, max(1, int(self.config.retries)) + 1):
             try:
-                resp = await self._client.post("/chat/completions", json=payload)
+                resp = await asyncio.wait_for(
+                    self._client.post("/chat/completions", json=payload),
+                    timeout=float(self.config.timeout),
+                )
                 resp.raise_for_status()
                 data = resp.json()
                 # support multiple response shapes; be defensive
                 try:
                     return data["choices"][0]["message"]["content"].strip()
-                except Exception:
+                except (KeyError, IndexError, TypeError, ValueError):
                     # fallback: try common alternative
                     return str(data.get("choices", [data])[0])
-            except Exception as exc:  # broad catch to retry transient problems
+            except (
+                asyncio.TimeoutError,
+                httpx.HTTPError,
+                ValueError,
+                RuntimeError,
+            ) as exc:
                 last_exc = exc
                 logger.warning(
                     "LLM call attempt %d/%d failed: %s",

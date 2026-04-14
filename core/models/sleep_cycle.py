@@ -140,6 +140,11 @@ class TwoProcessParameters(BaseModel):
         "Represents accumulated homeostatic pressure after ~16 h wake.",
     )
 
+    @property
+    def n3_threshold(self) -> float:
+        """Alias for backward-compatible parameter naming."""
+        return self.n3_s_threshold
+
 
 # ---------------------------------------------------------------------------
 # State dataclass
@@ -173,34 +178,57 @@ class SleepState:
     """Elapsed time in the current cycle (minutes)."""
 
 
+# Source: Carskadon & Dement 2011, Principles and Practice of Sleep Medicine.
+N3_DURATION_BY_CYCLE: dict[int, float] = {
+    0: 30.0,
+    1: 25.0,
+    2: 15.0,
+    3: 8.0,
+    4: 3.0,
+    5: 0.0,
+}
+
+
 CYCLE_TEMPLATES: dict[int, list[tuple[SleepStage, float]]] = {
     1: [
         (SleepStage.N1, 5.0),
         (SleepStage.N2, 20.0),
-        (SleepStage.N3, 40.0),
+        (SleepStage.N3, N3_DURATION_BY_CYCLE[0]),
         (SleepStage.N2, 10.0),
-        (SleepStage.REM, 10.0),
+        (SleepStage.REM, 13.0),
     ],
     2: [
         (SleepStage.N1, 3.0),
         (SleepStage.N2, 20.0),
-        (SleepStage.N3, 25.0),
+        (SleepStage.N3, N3_DURATION_BY_CYCLE[1]),
         (SleepStage.N2, 10.0),
-        (SleepStage.REM, 14.0),
+        (SleepStage.REM, 17.0),
     ],
     3: [
         (SleepStage.N1, 2.0),
         (SleepStage.N2, 20.0),
-        (SleepStage.N3, 10.0),
+        (SleepStage.N3, N3_DURATION_BY_CYCLE[2]),
         (SleepStage.N2, 10.0),
-        (SleepStage.REM, 18.0),
+        (SleepStage.REM, 21.0),
     ],
     4: [
         (SleepStage.N1, 2.0),
-        (SleepStage.N2, 25.0),
-        (SleepStage.N3, 5.0),
+        (SleepStage.N2, 22.0),
+        (SleepStage.N3, N3_DURATION_BY_CYCLE[3]),
         (SleepStage.N2, 10.0),
-        (SleepStage.REM, 20.0),
+        (SleepStage.REM, 24.0),
+    ],
+    5: [
+        (SleepStage.N1, 2.0),
+        (SleepStage.N2, 23.0),
+        (SleepStage.N3, N3_DURATION_BY_CYCLE[4]),
+        (SleepStage.N2, 8.0),
+        (SleepStage.REM, 28.0),
+    ],
+    6: [
+        (SleepStage.N1, 2.0),
+        (SleepStage.N2, 26.0),
+        (SleepStage.REM, 30.0),
     ],
 }
 

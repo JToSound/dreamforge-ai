@@ -2,12 +2,14 @@
 import json
 import math
 from collections import defaultdict, Counter
+from pathlib import Path
 
 from core.models.sleep_cycle import SleepCycleModel
 from core.models.neurochemistry import NeurochemistryModel
 from core.models.memory_graph import MemoryGraph
 from core.agents.dream_constructor_agent import DreamConstructorAgent
 from core.simulation.engine import SimulationEngine, SimulationConfig
+from core.simulation.runner import export_neurochemistry_csv
 
 
 def main():
@@ -33,6 +35,11 @@ def main():
     fname = "out_sim.json"
     with open(fname, "w", encoding="utf-8") as f:
         json.dump(out, f, default=str, indent=2)
+
+    try:
+        export_neurochemistry_csv(out, Path("neurochemistry.csv"))
+    except (KeyError, TypeError, ValueError) as exc:
+        print(f"Warning: neurochemistry CSV export skipped: {exc}")
 
     # Basic diagnostics
     hypnogram = out.get("hypnogram", [])

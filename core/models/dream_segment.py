@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import uuid
-from typing import List, Optional
+from enum import Enum
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field
 
 from core.models.memory_graph import EmotionLabel
 from core.models.sleep_cycle import SleepStage
+
+
+class GenerationMode(str, Enum):
+    """Narrative generation mode for segment-level provenance auditing."""
+
+    LLM = "LLM"
+    TEMPLATE = "TEMPLATE"
+    LLM_FALLBACK = "LLM_FALLBACK"
 
 
 class DreamSegment(BaseModel):
@@ -27,8 +36,9 @@ class DreamSegment(BaseModel):
 
     bizarreness_score: float = Field(0.0, ge=0.0, le=1.0)
     lucidity_probability: float = Field(0.0, ge=0.0, le=1.0)
+    generation_mode: GenerationMode = GenerationMode.TEMPLATE
 
-    metadata: dict = Field(
+    metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="Free-form metadata for analysis/visualization.",
     )
@@ -39,9 +49,9 @@ class DreamNight(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     segments: List[DreamSegment]
-    config: dict = Field(default_factory=dict)
+    config: dict[str, Any] = Field(default_factory=dict)
     notes: Optional[str] = None
-    metadata: dict = Field(
+    metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="Arbitrary metadata such as summary statistics.",
     )

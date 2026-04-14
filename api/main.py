@@ -25,7 +25,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import math
 import os
 import random
 import re
@@ -37,6 +36,8 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from core.models.sleep_cycle import SleepCycleModel
+from core.simulation.llm_client import parse_narrative_response
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -65,7 +66,8 @@ except ImportError:
         model: str = "qwen/qwen3.5-9b"
         api_key: str = "lm-studio"
         timeout: int = 120
-        max_tokens: int = 512
+        # Source: Qwen3.5 docs (reasoning-token budget requires >=2048 output tokens)
+        max_tokens: int = 2048
         temperature: float = 0.85
 
         @classmethod
@@ -78,7 +80,8 @@ except ImportError:
                 model=os.getenv("LLM_MODEL", "qwen/qwen3.5-9b"),
                 api_key=os.getenv("LLM_API_KEY", "lm-studio"),
                 timeout=int(os.getenv("LLM_TIMEOUT", "120")),
-                max_tokens=int(os.getenv("LLM_MAX_TOKENS", "512")),
+                # Source: Qwen3.5 docs (reasoning-token budget requires >=2048 output tokens)
+                max_tokens=int(os.getenv("LLM_MAX_TOKENS", "2048")),
                 temperature=float(os.getenv("LLM_TEMPERATURE", "0.85")),
             )
 
@@ -203,6 +206,7 @@ class DreamSegmentResponse(BaseModel):
     lucidity_probability: float
     neurochemistry: Optional[Dict[str, float]] = None
     active_memory_ids: List[str] = []
+    generation_mode: str = "TEMPLATE"
 
 
 class SimulationResponse(BaseModel):
@@ -210,6 +214,11 @@ class SimulationResponse(BaseModel):
     config: SimulationConfig
     segments: List[DreamSegmentResponse]
     summary: Dict[str, Any] = {}
+    neurochemistry_ticks: List[Dict[str, Any]] = Field(default_factory=list)
+    neurochemistry_series: List[Dict[str, Any]] = Field(default_factory=list)
+    memory_activations: List[Dict[str, Any]] = Field(default_factory=list)
+    memory_activation_series: List[Dict[str, Any]] = Field(default_factory=list)
+    memory_graph: Dict[str, Any] = Field(default_factory=dict)
     llm_used: bool = False
     llm_model: Optional[str] = None
 
@@ -284,12 +293,14 @@ def _simulate_night_physics(config: SimulationConfig) -> List[dict]:
     """
     dt_h = config.dt_minutes / 60.0
     n_steps = int(config.duration_hours / dt_h)
-    tau_sleep = 4.5
-    s_max = 1.0
-    s = 0.9  # start with high sleep pressure
+    sleep_model = SleepCycleModel()
+    sleep_states, _ = sleep_model.simulate_night(
+        duration_hours=config.duration_hours,
+        dt_minutes=config.dt_minutes,
+        sleep_start_clock_time=config.sleep_start_hour,
+    )
 
     segments = []
-    cycle_len_h = 1.5
 
     # Simple neurochemistry baselines by stage
     neuro_by_stage = {
@@ -319,26 +330,8 @@ def _simulate_night_physics(config: SimulationConfig) -> List[dict]:
 
     for i in range(n_steps):
         t = i * dt_h
-        # Process S decay during sleep
-        s = s * math.exp(-dt_h / tau_sleep)
-        s = max(0.05, min(s, s_max))
-
-        # Circadian component
-        c = 0.5 * math.sin(2 * math.pi * (config.sleep_start_hour + t - 18.0) / 24.2)
-
-        # Stage determination
-        cycle_phase = (t % cycle_len_h) / cycle_len_h
-        cycle_idx = int(t // cycle_len_h)
-
-        if cycle_phase < 0.15:
-            stage = "N1"
-        elif cycle_phase < 0.35:
-            stage = "N3" if (s > 0.6 and cycle_idx <= 2) else "N2"
-        elif cycle_phase < 0.65:
-            stage = "N2"
-        else:
-            rem_prob = 0.3 + 0.12 * cycle_idx + max(0, c) * 0.3
-            stage = "REM" if random.random() < rem_prob else "N2"
+        state_idx = min(i + 1, len(sleep_states) - 1)
+        stage = sleep_states[state_idx].stage.value
 
         # Neurochemistry with noise + SSRI modulation
         neuro = dict(neuro_by_stage[stage])
@@ -392,6 +385,82 @@ def _simulate_night_physics(config: SimulationConfig) -> List[dict]:
         )
 
     return segments
+
+
+def _build_neurochemistry_ticks(segments: List[dict]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for seg in segments:
+        neuro = seg.get("neurochemistry") or {}
+        rows.append(
+            {
+                "time_hours": seg.get("start_time_hours"),
+                "stage": seg.get("stage"),
+                "ach": neuro.get("ach"),
+                "serotonin": neuro.get("serotonin"),
+                "ne": neuro.get("ne"),
+                "cortisol": neuro.get("cortisol"),
+            }
+        )
+    return rows
+
+
+def _build_memory_outputs(
+    segments: List[dict], prior_day_events: List[str]
+) -> tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    node_map: Dict[str, Dict[str, Any]] = {}
+    edge_weights: Dict[tuple[str, str], float] = {}
+    snapshots: List[Dict[str, Any]] = []
+    prev_node_id: Optional[str] = None
+
+    for event in prior_day_events:
+        label = event.strip()[:80]
+        if not label:
+            continue
+        node_id = f"event::{label.lower()}"
+        node_map[node_id] = {
+            "id": node_id,
+            "label": label,
+            "emotion": "neutral",
+            "activation": 0.25,
+            "salience": 0.45,
+        }
+
+    for seg in segments:
+        emotion = str(seg.get("dominant_emotion") or "neutral")
+        node_id = f"emotion::{emotion}"
+        if node_id not in node_map:
+            node_map[node_id] = {
+                "id": node_id,
+                "label": emotion,
+                "emotion": emotion,
+                "activation": 0.35,
+                "salience": 0.50,
+            }
+
+        if prev_node_id and prev_node_id != node_id:
+            edge = (prev_node_id, node_id)
+            edge_weights[edge] = edge_weights.get(edge, 0.0) + 1.0
+        prev_node_id = node_id
+
+        if seg.get("stage") == "REM":
+            biz = float(seg.get("bizarreness_score") or 0.0)
+            activation = round(min(1.0, max(0.05, 0.2 + 0.8 * biz)), 4)
+            snapshots.append(
+                {
+                    "time_hours": seg.get("start_time_hours"),
+                    "stage": "REM",
+                    "activations": [
+                        {"id": node_id, "label": emotion, "activation": activation}
+                    ],
+                }
+            )
+
+    nodes = list(node_map.values())
+    edges = [
+        {"source": src, "target": dst, "weight": round(weight, 3)}
+        for (src, dst), weight in edge_weights.items()
+    ]
+    return {"nodes": nodes, "edges": edges}, snapshots
 
 
 def _template_narrative(seg: dict, config: SimulationConfig) -> tuple[str, str]:
@@ -453,7 +522,7 @@ async def _generate_llm_narrative(
     )
 
     user_prompt = (
-        f"Sleep stage: {seg['stage']}\n"
+        f"/no_think\n\nSleep stage: {seg['stage']}\n"
         f"Dominant emotion: {seg['dominant_emotion']}\n"
         f"Bizarreness score: {seg['bizarreness_score']:.2f} (0=mundane, 1=extremely bizarre)\n"
         f"Lucidity probability: {seg['lucidity_probability']:.2f}\n"
@@ -467,18 +536,12 @@ async def _generate_llm_narrative(
     )
 
     raw = await client.chat(system=system_prompt, user=user_prompt)
-    raw = _strip_thinking_tags(raw)
-
-    # Parse JSON response robustly
-    try:
-        # Strip markdown code fences if present
-        cleaned = re.sub(r"```(?:json)?", "", raw).strip().rstrip("`").strip()
-        parsed = json.loads(cleaned)
-        narrative = parsed.get("narrative", raw)
-        scene = parsed.get("scene", "")
-    except (json.JSONDecodeError, ValueError):
-        # Fallback: use raw text as narrative
-        narrative = raw
+    parsed = parse_narrative_response(raw)
+    narrative = parsed.get("narrative", "")
+    scene = parsed.get("scene_description", "")
+    if not narrative:
+        narrative = _strip_thinking_tags(raw)
+    if not scene:
         scene = f"A {seg['dominant_emotion']} dreamscape at {seg['stage']} depth."
 
     return narrative, scene
@@ -633,14 +696,16 @@ async def simulate_night(config: SimulationConfig):
     if config.use_llm:
         if config.llm_segments_only:
             llm_indices = [i for i, s in enumerate(raw_segments) if s["stage"] == "REM"]
-            # Sample at most 20 REM segments for speed
-            if len(llm_indices) > 20:
-                step = len(llm_indices) // 20
-                llm_indices = llm_indices[::step][:20]
+            # Source: DreamForge architecture spec v4.0 (target ~15–30 LLM calls / 8h)
+            target_calls = max(10, min(50, int(config.duration_hours * 3)))
+            if len(llm_indices) > target_calls:
+                step = max(1, len(llm_indices) // target_calls)
+                llm_indices = llm_indices[::step][:target_calls]
         else:
-            # Sample 1 segment per cycle (every ~90 min / dt steps)
-            cycle_steps = int(90 / config.dt_minutes)
-            llm_indices = list(range(0, len(raw_segments), cycle_steps))[:15]
+            # Source: DreamForge architecture spec v4.0 (target ~15–30 LLM calls / 8h)
+            target_calls = max(10, min(50, int(config.duration_hours * 3)))
+            sample_step = max(1, len(raw_segments) // target_calls)
+            llm_indices = list(range(0, len(raw_segments), sample_step))[:target_calls]
     else:
         llm_indices = []
 
@@ -654,9 +719,11 @@ async def simulate_night(config: SimulationConfig):
             try:
                 narrative, scene = await _generate_llm_narrative(seg, config, client)
                 llm_used = True
+                raw_segments[idx]["generation_mode"] = "LLM"
             except Exception as exc:
                 logger.error("LLM narrative failed for segment %d: %s", idx, exc)
                 narrative, scene = _template_narrative(seg, config)
+                raw_segments[idx]["generation_mode"] = "LLM_FALLBACK"
         raw_segments[idx]["narrative"] = narrative
         raw_segments[idx]["scene_description"] = scene
 
@@ -665,6 +732,7 @@ async def simulate_night(config: SimulationConfig):
 
     # Fill remaining segments with templates
     for i, seg in enumerate(raw_segments):
+        seg.setdefault("generation_mode", "TEMPLATE")
         if not seg["narrative"]:
             n, s = _template_narrative(seg, config)
             seg["narrative"] = n
@@ -672,6 +740,10 @@ async def simulate_night(config: SimulationConfig):
 
     # Step 3: build response
     segments_out = [DreamSegmentResponse(**seg) for seg in raw_segments]
+    neuro_ticks = _build_neurochemistry_ticks(raw_segments)
+    memory_graph, memory_activations = _build_memory_outputs(
+        raw_segments, config.prior_day_events
+    )
 
     # Summary statistics
     stages = [s.stage for s in segments_out]
@@ -700,6 +772,11 @@ async def simulate_night(config: SimulationConfig):
         config=config,
         segments=segments_out,
         summary=summary,
+        neurochemistry_ticks=neuro_ticks,
+        neurochemistry_series=neuro_ticks,
+        memory_activations=memory_activations,
+        memory_activation_series=memory_activations,
+        memory_graph=memory_graph,
         llm_used=llm_used,
         llm_model=client.config.model if llm_used else None,
     )

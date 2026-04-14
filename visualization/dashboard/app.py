@@ -547,7 +547,11 @@ else:
             )
 
             # Memory graph: update node sizes from mem activation snapshots if provided
-            mem_activation_series = result.get("memory_activation_series") or []
+            mem_activation_series = (
+                result.get("memory_activation_series")
+                or result.get("memory_activations")
+                or []
+            )
             sizes = [10 for _ in node_ids]
             if mem_activation_series:
                 # try to find frame for this tick time
@@ -706,7 +710,19 @@ else:
         neuro = (
             result.get("neurochemistry")
             or result.get("neurochemistry_series")
-            or result.get("neurochemistry_series", [])
+            or result.get("neurochemistry_ticks")
+            or [
+                {
+                    "time_hours": s.get("start_time_hours"),
+                    "stage": s.get("stage"),
+                    "ach": (s.get("neurochemistry") or {}).get("ach"),
+                    "serotonin": (s.get("neurochemistry") or {}).get("serotonin"),
+                    "ne": (s.get("neurochemistry") or {}).get("ne"),
+                    "cortisol": (s.get("neurochemistry") or {}).get("cortisol"),
+                }
+                for s in segs
+                if s.get("neurochemistry") is not None
+            ]
         )
 
         # Memory graph
@@ -753,6 +769,7 @@ else:
                 "dominant_emotion",
                 "bizarreness_score",
                 "lucidity_probability",
+                "generation_mode",
                 "narrative",
                 "scene_description",
                 "active_memory_ids",
@@ -770,6 +787,7 @@ else:
                         s.get("dominant_emotion") or s.get("emotion") or "",
                         s.get("bizarreness_score") or s.get("bizarreness") or "",
                         s.get("lucidity_probability") or s.get("lucidity_score") or "",
+                        s.get("generation_mode") or "TEMPLATE",
                         (
                             s.get("narrative")
                             or s.get("narrative_text")
@@ -986,6 +1004,7 @@ else:
         # Memory activation heatmap (if available)
         mem_activation = (
             result.get("memory_activation_series")
+            or result.get("memory_activations")
             or result.get("memory_activation")
             or []
         )

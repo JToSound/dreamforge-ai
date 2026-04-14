@@ -25,7 +25,8 @@ class LLMConfig(BaseModel):
         default=None, description="Override base URL (e.g. for Ollama)."
     )
     temperature: float = Field(default=0.9, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=512, ge=64, le=4096)
+    # Source: Qwen3.5 docs (reasoning-token budget requires >=2048 output tokens)
+    max_tokens: int = Field(default=2048, ge=64, le=4096)
 
 
 # ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from core.config import load_runtime_config
 from core.models.memory_graph import ReplaySequence
 from core.models.neurochemistry import NeurochemistryState
 from core.models.sleep_cycle import SleepState
@@ -15,6 +16,7 @@ from core.simulation.llm_trigger import LLMTriggerDetector, LLMTriggerType
 from core.simulation.narrative_cache import NarrativeCache
 
 logger = logging.getLogger(__name__)
+_RUNTIME_CONFIG = load_runtime_config()
 
 
 def strip_thinking_tags(response: str) -> str:
@@ -25,9 +27,9 @@ def strip_thinking_tags(response: str) -> str:
 
 
 class GenerationMode(str, Enum):
-    LLM = "llm"
-    TEMPLATE = "template"
-    LLM_FALLBACK = "llm_fallback"
+    LLM = "LLM"
+    TEMPLATE = "TEMPLATE"
+    LLM_FALLBACK = "LLM_FALLBACK"
 
 
 class DreamSegment(BaseModel):
@@ -57,7 +59,10 @@ class DreamConstructorAgent:
         self._provider = self.llm_config.get("provider", "openai")
         self._model = self.llm_config.get("model", "gpt-4o")
         self._temperature = float(self.llm_config.get("temperature", 0.9))
-        self._max_tokens = int(self.llm_config.get("max_tokens", 512))
+        # Source: Qwen3.5 docs (reasoning-token budget requires >=2048 output tokens)
+        self._max_tokens = int(
+            self.llm_config.get("max_tokens", _RUNTIME_CONFIG.llm_max_tokens)
+        )
         self._api_key = self.llm_config.get("api_key")
         self._base_url = self.llm_config.get("base_url")
 
@@ -136,11 +141,10 @@ class DreamConstructorAgent:
             if ctx:
                 prev_text = "Previous context:\n" + "\n".join(f"- {c}" for c in ctx)
 
-        no_think_suffix = " /no_think" if "qwen" in str(self._model).lower() else ""
         system_msg = (
             "You are DreamForge AI's Dream Constructor. "
             "Output ONLY valid JSON with keys: narrative, dominant_emotion, "
-            "bizarreness_score, lucidity_probability." + no_think_suffix
+            "bizarreness_score, lucidity_probability."
         )
         user_msg = (
             f"Trigger={trigger_type.value}\n"
@@ -153,6 +157,7 @@ class DreamConstructorAgent:
             f"{prev_text}\n"
             "Return JSON now."
         )
+        user_msg = f"/no_think\n\n{user_msg}"
         return system_msg, user_msg
 
     @staticmethod

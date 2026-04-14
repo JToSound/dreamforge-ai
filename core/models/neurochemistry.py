@@ -18,6 +18,33 @@ class Neurotransmitter(str, Enum):
     CORTISOL = "CORTISOL"
 
 
+def cortisol_profile(time_hours: float, sleep_onset_hour: float = 0.0) -> float:
+    """Asymmetric cortisol profile over a typical overnight sleep window.
+
+    Models a low overnight nadir and steep morning rise (CAR-like profile).
+    Returns a normalized level in [0.05, 1.0].
+    """
+    clock_hour = (float(sleep_onset_hour) + float(time_hours)) % 24.0
+
+    NADIR_HOUR = 2.5  # Source: Czeisler et al. 1997
+    PEAK_HOUR = 7.5  # Source: Pruessner et al. 1997
+    RISE_STEEPNESS = 2.2  # Source: calibrated sigmoid steepness (CAR slope)
+
+    rise_window = PEAK_HOUR - NADIR_HOUR
+    hours_from_nadir = (clock_hour - NADIR_HOUR) % 24.0
+
+    if hours_from_nadir <= rise_window:
+        t_norm = (clock_hour - NADIR_HOUR) / rise_window
+        sig = 1.0 / (1.0 + np.exp(-RISE_STEEPNESS * (t_norm * 2.0 - 1.0)))
+        sig_peak = 1.0 / (1.0 + np.exp(-RISE_STEEPNESS))
+        level = sig / sig_peak
+    else:
+        decay_fraction = (clock_hour - PEAK_HOUR) / (24.0 - PEAK_HOUR + NADIR_HOUR)
+        level = 1.0 - 0.6 * decay_fraction
+
+    return float(np.clip(level, 0.05, 1.0))
+
+
 class NeurochemistryParameters(BaseModel):
     """Parameters controlling neuromodulator and cortisol dynamics.
 
@@ -81,7 +108,7 @@ class NeurochemistryParameters(BaseModel):
 
     # Asymmetric sigmoid-based cortisol rise parameters
     cortisol_rise_time: float = Field(
-        5.5,
+        7.5,
         description=(
             "Hour (since sleep onset) of the cortisol peak in the asymmetric "
             "sigmoid profile."
@@ -152,33 +179,19 @@ class NeurochemistryModel:
             return p.r_ach_wake, p.r_5ht_wake, p.r_ne_wake
 
     def _cortisol_drive(self, time_hours: float) -> float:
-        """Asymmetric sigmoid cortisol profile with a fixed peak time.
-
-        The curve is piecewise:
-        - Before peak: a rising sigmoid normalized to reach 1.0 at peak.
-        - After peak: a decaying sigmoid normalized to start at 1.0 at peak.
-
-        This guarantees the maximum occurs at `cortisol_rise_time` while allowing
-        independently tunable rise/fall steepness.
-        """
+        """Asymmetric cortisol drive aligned to the configured peak hour."""
         p = self.params
-        peak = float(p.cortisol_rise_time)
-        t = float(time_hours)
+        # Shift the canonical nadir/peak profile so custom rise_time remains respected.
+        # Source: Czeisler et al. 1997 (nadir timing), Pruessner et al. 1997 (peak timing)
+        reference_peak = 7.5
+        shifted_time = float(time_hours) + (
+            reference_peak - float(p.cortisol_rise_time)
+        )
+        profile = cortisol_profile(shifted_time, sleep_onset_hour=0.0)
 
-        if t <= peak:
-            z = -float(p.cortisol_k_rise) * (t - peak)
-        else:
-            z = float(p.cortisol_k_fall) * (t - peak)
-
-        if z > 700:
-            raw_sig = 0.0
-        elif z < -700:
-            raw_sig = 1.0
-        else:
-            raw_sig = 1.0 / (1.0 + np.exp(z))
-
-        sig = min(1.0, 2.0 * raw_sig)
-        return float(p.cortisol_baseline + p.cortisol_amplitude * sig)
+        low = max(0.05, float(p.cortisol_baseline) - 0.35 * float(p.cortisol_amplitude))
+        high = min(1.0, float(p.cortisol_baseline) + 0.65 * float(p.cortisol_amplitude))
+        return float(np.clip(low + (high - low) * profile, 0.05, 1.0))
 
     # ------------------------------------------------------------------
     # Staged integrator

@@ -24,7 +24,7 @@ class SimulationConfig:
     prior_day_events: list[str] = field(default_factory=list)
     llm_every_n_segments: int = 12  # call LLM every N segments to control cost/latency
     # Memory activation recording (for diagnostics / heatmaps)
-    record_memory_activations: bool = False
+    record_memory_activations: bool = True
     memory_activation_every_n_steps: int = 12
     memory_activation_top_n: int = 50
     # Bizarreness computation parameters (alpha * ACh + beta * replay_strength + noise)
@@ -139,29 +139,6 @@ class SimulationEngine:
             if step % 12 == 0:
                 self.memory_graph.decay_salience(dt_hours=dt_h * 12)
 
-            # Optional: record memory activation snapshots for diagnostics/heatmaps
-            if config.record_memory_activations and (
-                step % config.memory_activation_every_n_steps == 0
-            ):
-                try:
-                    G = self.memory_graph.to_networkx()
-                    activations = []
-                    for nid, data in G.nodes(data=True):
-                        activations.append(
-                            {
-                                "id": nid,
-                                "activation": float(data.get("activation", 0.0)),
-                                "label": data.get("label", nid),
-                            }
-                        )
-                    memory_activation_series.append(
-                        {"time_hours": round(t_now, 4), "activations": activations}
-                    )
-                except Exception as exc:
-                    logger.debug(
-                        "memory activation record failed at step %d: %s", step, exc
-                    )
-
             # 5. Generate dream segment at LLM cadence (REM / N2 preferred)
             is_dream_stage = sleep_state.stage in (SleepStage.REM, SleepStage.N2)
             if step % config.llm_every_n_segments == 0 and is_dream_stage:
@@ -169,6 +146,7 @@ class SimulationEngine:
                     self.memory_graph.sample_replay_sequence(
                         max_length=10,
                         start_bias_tags=config.prior_day_events[:3],
+                        current_time_hours=t_now,
                     )
                 )
 
@@ -273,6 +251,30 @@ class SimulationEngine:
                     None,
                 )
 
+            # Record memory activations on REM ticks after replay pulse + decay.
+            if config.record_memory_activations and sleep_state.stage == SleepStage.REM:
+                self.memory_graph.decay_activations(dt_hours=dt_h)
+                snapshot = self.memory_graph.capture_memory_snapshot(
+                    time_hours=t_now,
+                    stage=sleep_state.stage.value,
+                )
+                graph_view = self.memory_graph.to_networkx()
+                activations = [
+                    {
+                        "id": node_id,
+                        "label": graph_view.nodes[node_id].get("label", node_id),
+                        "activation": value,
+                    }
+                    for node_id, value in snapshot.activations.items()
+                ]
+                memory_activation_series.append(
+                    {
+                        "time_hours": round(snapshot.time_hours, 4),
+                        "stage": snapshot.stage,
+                        "activations": activations,
+                    }
+                )
+
         # ── Build summary ─────────────────────────────────────────────────
         mean_biz = (
             float(np.mean([s.bizarreness_score for s in dream_segments]))
@@ -291,14 +293,18 @@ class SimulationEngine:
         )
         llm_calls_total = int(getattr(self.dream_constructor, "llm_calls_total", 0))
 
+        dream_segments_payload = [s.model_dump() for s in dream_segments]
         return {
             "duration_hours": config.duration_hours,
             "total_segments": len(dream_segments),
             "hypnogram": hypnogram,
             "neurochemistry_series": neuro_series,
-            "dream_segments": [s.model_dump() for s in dream_segments],
+            "neurochemistry_ticks": neuro_series,
+            "dream_segments": dream_segments_payload,
+            "segments": dream_segments_payload,
             "memory_graph": self.memory_graph.to_json_serializable(),
             "memory_activation_series": memory_activation_series,
+            "memory_activations": memory_activation_series,
             "summary_narrative": summary,
             "mean_bizarreness": round(mean_biz, 3),
             "dominant_emotion": dominant_emotion,

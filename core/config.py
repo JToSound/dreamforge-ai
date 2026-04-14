@@ -34,7 +34,8 @@ class RuntimeConfig:
     llm_model: str = "qwen/qwen3.5-9b"
     llm_api_key: str = "lm-studio"
     llm_timeout: int = 120
-    llm_max_tokens: int = 512
+    # Source: Qwen3.5 docs (reasoning models can exhaust a 512-token cap)
+    llm_max_tokens: int = 2048
     llm_temperature: float = 0.85
     llm_ollama_base_url: str = "http://localhost:11434"
     llm_lmstudio_base_url: str = "http://localhost:1234/v1"
@@ -54,7 +55,8 @@ def load_runtime_config() -> RuntimeConfig:
         llm_model=os.getenv("LLM_MODEL", "qwen/qwen3.5-9b"),
         llm_api_key=os.getenv("LLM_API_KEY", "lm-studio"),
         llm_timeout=_env_int("LLM_TIMEOUT", 120),
-        llm_max_tokens=_env_int("LLM_MAX_TOKENS", 512),
+        # Source: Qwen3.5 docs (reasoning models can exhaust a 512-token cap)
+        llm_max_tokens=_env_int("LLM_MAX_TOKENS", 2048),
         llm_temperature=_env_float("LLM_TEMPERATURE", 0.85),
         llm_ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
         llm_lmstudio_base_url=os.getenv(

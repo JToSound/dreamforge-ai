@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+### Post-run diagnostic fixes (session `ec094636`)
+- Added Fix 5 (`generation_mode` provenance):
+  - normalized `GenerationMode` enum values to `LLM | TEMPLATE | LLM_FALLBACK`,
+  - added `generation_mode` to `core/models/dream_segment.py`,
+  - added `export_segments_csv()` in `core/simulation/runner.py`,
+  - added `generation_mode` column to dashboard ZIP `segments.csv`.
+- Added Fix 6 (LLM token exhaustion hardening):
+  - prepended `/no_think` to user-side LLM prompts,
+  - raised default token budget to `LLM_MAX_TOKENS=2048` in runtime config and API schema defaults,
+  - added `.env.example` with `LLM_MAX_TOKENS=2048`,
+  - added robust `parse_narrative_response()` in `core/simulation/llm_client.py`,
+  - added prompt helper module `core/simulation/llm_prompts.py` and simulation config constant module `core/simulation/config.py`.
+- Added `core/simulation/runner.py::build_neurochemistry_ticks()` and `export_neurochemistry_csv()` to reliably export per-segment neurochemistry (`time_hours, stage, ach, serotonin, ne, cortisol`) for dashboard CSV consumers.
+- Wired `tools/run_and_analyze_sim.py` to emit `neurochemistry.csv` immediately after simulation output is produced.
+- Added memory activation snapshot support in `core/models/memory_graph.py` via immutable `MemoryActivationSnapshot` and `capture_memory_snapshot()`.
+- Updated `core/simulation/engine.py` to:
+  - record REM-linked activation snapshots after replay/decay,
+  - expose top-level compatibility keys required by downstream consumers:
+    - `segments`
+    - `neurochemistry_ticks`
+    - `memory_activations`
+    - `memory_graph`
+- Calibrated sleep-cycle templates in `core/models/sleep_cycle.py` with explicit `N3_DURATION_BY_CYCLE` (30→0 min across cycles) while preserving calibrated `tau_sleep=3.5` and `n3_s_threshold=0.65`.
+- Added physiology-focused cortisol function `cortisol_profile()` in `core/models/neurochemistry.py` and aligned `_cortisol_drive()` to an asymmetric nadir-to-morning-rise profile (nadir ~02:30, peak ~07:30 by default).
+- Updated API simulation output in `api/main.py` to include invariant payload keys (`neurochemistry_ticks`, `memory_activations`, `memory_graph`) and switched stage generation to `SleepCycleModel` so N3/N1 proportions remain physiological in API runs.
+- Updated dashboard export/render fallbacks in `visualization/dashboard/app.py` to consume:
+  - `neurochemistry_ticks` or segment-derived neurochemistry when top-level series is absent,
+  - `memory_activations` as an alias for `memory_activation_series`.
+- Added regression suite `tests/test_dreamforge_fixes.py` covering:
+  - neurochemistry CSV export row/column invariants,
+  - memory key presence and non-empty activation snapshots,
+  - N3 (13–23%) and N1 (<=12%) stage proportion constraints,
+  - cortisol nadir/peak/monotonic rise checks.
+
 ### Quality gates
 - Ran full backend test suite (`python -m pytest tests/ -v --tb=short`) and resolved lint blockers.
 - Resolved Ruff violations across the repository and applied Black formatting so `ruff check .` and `black . --check` pass.

@@ -118,6 +118,15 @@ class ReplaySequence:
     dominant_emotion: EmotionLabel
 
 
+@dataclass(frozen=True)
+class MemoryActivationSnapshot:
+    """Immutable snapshot of graph activations at one simulation timestamp."""
+
+    time_hours: float
+    stage: str
+    activations: dict[str, float]
+
+
 class MemoryGraph:
     """High-level wrapper around a NetworkX graph representing memory.
 
@@ -379,6 +388,22 @@ class MemoryGraph:
             floor = sal * 0.1
             new_act = max(floor, min(1.0, new_act))
             self._g.nodes[node_id]["activation"] = new_act
+
+    def capture_memory_snapshot(
+        self,
+        time_hours: float,
+        stage: str,
+    ) -> MemoryActivationSnapshot:
+        """Capture current node activations as an immutable snapshot."""
+        activations: dict[str, float] = {
+            str(node): float(data.get("activation", 0.0))
+            for node, data in self._g.nodes(data=True)
+        }
+        return MemoryActivationSnapshot(
+            time_hours=float(time_hours),
+            stage=str(stage),
+            activations=activations,
+        )
 
     def _dominant_emotion(self, node_ids: Iterable[str]) -> EmotionLabel:
         counts = {label: 0.0 for label in EmotionLabel}

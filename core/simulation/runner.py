@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
+import pandas as pd
 from core.models.sleep_cycle import SleepStage
 
 
@@ -10,7 +12,7 @@ from core.models.sleep_cycle import SleepStage
 class SimulationTick:
     time_hours: float
     segment_index: int
-    stage: SleepStage
+    stage: SleepStage | str
     ach: float
     serotonin: float
     ne: float
@@ -19,6 +21,125 @@ class SimulationTick:
     active_memory_ids: List[str]
     narrative: str
     replay_events: List[Dict[str, Any]]
+
+
+def _segment_to_dict(segment: Any) -> Dict[str, Any]:
+    """Normalize a segment object into a dictionary."""
+    if hasattr(segment, "model_dump"):
+        dumped = segment.model_dump()
+        if isinstance(dumped, dict):
+            return dumped
+    if isinstance(segment, dict):
+        return segment
+    return {}
+
+
+def build_neurochemistry_ticks(result: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Build per-segment neurochemistry rows for CSV/export consumers.
+
+    Args:
+        result: Full simulation result dict containing a `segments` list.
+
+    Returns:
+        A list of row dicts with time/stage/neurochemistry columns.
+
+    Raises:
+        KeyError: If `segments` key is missing.
+        ValueError: If `segments` exists but is empty.
+    """
+    if "segments" not in result:
+        raise KeyError("build_neurochemistry_ticks: result['segments'] is missing")
+
+    segments_obj = result["segments"]
+    if not isinstance(segments_obj, list):
+        raise TypeError("build_neurochemistry_ticks: result['segments'] must be a list")
+    if not segments_obj:
+        raise ValueError("build_neurochemistry_ticks: result['segments'] is empty")
+
+    rows: List[Dict[str, Any]] = []
+    for seg in segments_obj:
+        seg_dict = _segment_to_dict(seg)
+        if not seg_dict:
+            continue
+        neuro = seg_dict.get("neurochemistry") or {}
+        rows.append(
+            {
+                "time_hours": seg_dict.get(
+                    "start_time_hours", seg_dict.get("time_hours")
+                ),
+                "stage": seg_dict.get("stage"),
+                "ach": neuro.get("ach", float("nan")),
+                "serotonin": neuro.get("serotonin", float("nan")),
+                "ne": neuro.get("ne", float("nan")),
+                "cortisol": neuro.get("cortisol", float("nan")),
+            }
+        )
+
+    if not rows:
+        raise ValueError("build_neurochemistry_ticks: no valid segment rows produced")
+    return rows
+
+
+def export_neurochemistry_csv(result: Dict[str, Any], output_path: Path) -> None:
+    """Export per-tick neurochemistry to CSV for dashboard consumption.
+
+    Args:
+        result: Full simulation result dict containing `segments`.
+        output_path: Destination CSV path.
+
+    Raises:
+        KeyError: If required top-level keys are missing.
+        ValueError: If segments are empty or cannot produce rows.
+    """
+    rows = build_neurochemistry_ticks(result)
+    df = pd.DataFrame(rows)
+    df.to_csv(output_path, index=False)
+
+
+def export_segments_csv(result: Dict[str, Any], output_path: Path) -> None:
+    """Export dream segments to CSV including generation-mode provenance.
+
+    Args:
+        result: Simulation result payload containing a `segments` list.
+        output_path: Destination CSV path.
+
+    Raises:
+        ValueError: If no segments are available for export.
+    """
+    segments_obj = result.get("segments", [])
+    if not isinstance(segments_obj, list) or not segments_obj:
+        raise ValueError("export_segments_csv: result['segments'] is empty")
+
+    rows: List[Dict[str, Any]] = []
+    for seg in segments_obj:
+        seg_dict = _segment_to_dict(seg)
+        if not seg_dict:
+            continue
+        active_ids = seg_dict.get("active_memory_ids", [])
+        if isinstance(active_ids, list):
+            active_ids_text = ",".join(str(item) for item in active_ids)
+        else:
+            active_ids_text = str(active_ids or "")
+
+        rows.append(
+            {
+                "id": seg_dict.get("id"),
+                "start_time_hours": seg_dict.get("start_time_hours"),
+                "end_time_hours": seg_dict.get("end_time_hours"),
+                "stage": seg_dict.get("stage"),
+                "dominant_emotion": seg_dict.get("dominant_emotion"),
+                "bizarreness_score": seg_dict.get("bizarreness_score"),
+                "lucidity_probability": seg_dict.get("lucidity_probability"),
+                "generation_mode": seg_dict.get("generation_mode", "TEMPLATE"),
+                "narrative": seg_dict.get("narrative", ""),
+                "scene_description": seg_dict.get("scene_description", ""),
+                "active_memory_ids": active_ids_text,
+            }
+        )
+
+    if not rows:
+        raise ValueError("export_segments_csv: no valid segment rows produced")
+    pd.DataFrame(rows).to_csv(output_path, index=False)
 
 
 class SimulationRunner:
@@ -37,7 +158,7 @@ class SimulationRunner:
             or self.sim.get("neurochemistry_series")
             or []
         )
-        self.mem_events = []
+        self.mem_events: List[Dict[str, Any]] = []
         mg = self.sim.get("memory_graph") or {}
         # Replay events may be exported under different keys
         self.mem_events = (
