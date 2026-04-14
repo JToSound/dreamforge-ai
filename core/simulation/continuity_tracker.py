@@ -61,7 +61,9 @@ class CrossNightContinuityTracker:
         return usage
 
     @staticmethod
-    def compute_recurring_memory_stats(nights: List[DreamNight], min_nights: int = 2) -> Dict[str, dict]:
+    def compute_recurring_memory_stats(
+        nights: List[DreamNight], min_nights: int = 2
+    ) -> Dict[str, dict]:
         """Compute basic statistics for recurring memory fragments.
 
         Returns a dict mapping memory_id -> {"nights": [...], "count": int} for
@@ -98,7 +100,10 @@ class CrossNightContinuityTracker:
 
         num_nights = len(nights)
         if num_nights == 0:
-            return {"nodes": {"labels": []}, "links": {"source": [], "target": [], "value": []}}
+            return {
+                "nodes": {"labels": []},
+                "links": {"source": [], "target": [], "value": []},
+            }
 
         usage = CrossNightContinuityTracker._memory_usage_by_night(nights)
 

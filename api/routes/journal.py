@@ -10,10 +10,20 @@ router = APIRouter(prefix="/memory", tags=["memory"])
 
 
 class JournalEntryRequest(BaseModel):
-    text: str = Field(..., description="Free-text journal entry describing daytime experience.")
-    emotion: str = Field("neutral", description="Dominant emotion label (joy, fear, sadness, anger, surprise, disgust, neutral).")
-    stress_level: float = Field(0.0, ge=0.0, le=1.0, description="Perceived stress level (0–1).")
-    tags: list[str] = Field(default_factory=list, description="Optional tags such as people, places, themes.")
+    text: str = Field(
+        ..., description="Free-text journal entry describing daytime experience."
+    )
+    emotion: str = Field(
+        "neutral",
+        description="Dominant emotion label (joy, fear, sadness, anger, surprise, disgust, neutral).",
+    )
+    stress_level: float = Field(
+        0.0, ge=0.0, le=1.0, description="Perceived stress level (0–1)."
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Optional tags such as people, places, themes.",
+    )
 
 
 @router.post("/encode-journal")

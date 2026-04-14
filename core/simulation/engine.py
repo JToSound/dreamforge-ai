@@ -7,8 +7,8 @@ from typing import Any, Callable, Optional
 import numpy as np
 import random
 
-from core.models.sleep_cycle import SleepCycleModel, SleepState, SleepStage
-from core.models.neurochemistry import NeurochemistryModel, NeurochemistryState
+from core.models.sleep_cycle import SleepCycleModel, SleepStage
+from core.models.neurochemistry import NeurochemistryModel
 from core.models.memory_graph import MemoryGraph, ReplaySequence
 from core.agents.metacognitive_agent import MetacognitiveAgent
 
@@ -22,7 +22,7 @@ class SimulationConfig:
     sleep_start_clock_time: float = 23.0
     stress_level: float = 0.5
     prior_day_events: list[str] = field(default_factory=list)
-    llm_every_n_segments: int = 12   # call LLM every N segments to control cost/latency
+    llm_every_n_segments: int = 12  # call LLM every N segments to control cost/latency
     # Memory activation recording (for diagnostics / heatmaps)
     record_memory_activations: bool = False
     memory_activation_every_n_steps: int = 12
@@ -117,45 +117,59 @@ class SimulationEngine:
                 logger.debug("neuro integrate error at step %d: %s", step, exc)
 
             # 3. Record hypnogram & neuro snapshot
-            hypnogram.append({
-                "time_hours": round(t_now, 4),
-                "stage": sleep_state.stage.value,
-                "process_s": round(sleep_state.process_s, 4),
-                "process_c": round(sleep_state.process_c, 4),
-            })
-            neuro_series.append({
-                "time_hours": round(t_now, 4),
-                "ach": round(neuro_state.ach, 4),
-                "serotonin": round(neuro_state.serotonin, 4),
-                "ne": round(neuro_state.ne, 4),
-                "cortisol": round(neuro_state.cortisol, 4),
-            })
+            hypnogram.append(
+                {
+                    "time_hours": round(t_now, 4),
+                    "stage": sleep_state.stage.value,
+                    "process_s": round(sleep_state.process_s, 4),
+                    "process_c": round(sleep_state.process_c, 4),
+                }
+            )
+            neuro_series.append(
+                {
+                    "time_hours": round(t_now, 4),
+                    "ach": round(neuro_state.ach, 4),
+                    "serotonin": round(neuro_state.serotonin, 4),
+                    "ne": round(neuro_state.ne, 4),
+                    "cortisol": round(neuro_state.cortisol, 4),
+                }
+            )
 
             # 4. Memory decay every ~6 minutes (12 ticks of 30s if dt_minutes=0.5)
             if step % 12 == 0:
                 self.memory_graph.decay_salience(dt_hours=dt_h * 12)
 
             # Optional: record memory activation snapshots for diagnostics/heatmaps
-            if config.record_memory_activations and (step % config.memory_activation_every_n_steps == 0):
+            if config.record_memory_activations and (
+                step % config.memory_activation_every_n_steps == 0
+            ):
                 try:
                     G = self.memory_graph.to_networkx()
                     activations = []
                     for nid, data in G.nodes(data=True):
-                        activations.append({
-                            "id": nid,
-                            "activation": float(data.get("activation", 0.0)),
-                            "label": data.get("label", nid),
-                        })
-                    memory_activation_series.append({"time_hours": round(t_now, 4), "activations": activations})
+                        activations.append(
+                            {
+                                "id": nid,
+                                "activation": float(data.get("activation", 0.0)),
+                                "label": data.get("label", nid),
+                            }
+                        )
+                    memory_activation_series.append(
+                        {"time_hours": round(t_now, 4), "activations": activations}
+                    )
                 except Exception as exc:
-                    logger.debug("memory activation record failed at step %d: %s", step, exc)
+                    logger.debug(
+                        "memory activation record failed at step %d: %s", step, exc
+                    )
 
             # 5. Generate dream segment at LLM cadence (REM / N2 preferred)
             is_dream_stage = sleep_state.stage in (SleepStage.REM, SleepStage.N2)
             if step % config.llm_every_n_segments == 0 and is_dream_stage:
-                replay: Optional[ReplaySequence] = self.memory_graph.sample_replay_sequence(
-                    max_length=10,
-                    start_bias_tags=config.prior_day_events[:3],
+                replay: Optional[ReplaySequence] = (
+                    self.memory_graph.sample_replay_sequence(
+                        max_length=10,
+                        start_bias_tags=config.prior_day_events[:3],
+                    )
                 )
 
                 # Apply immediate activation boost to replayed nodes so activation dynamics are visible
@@ -168,8 +182,14 @@ class SimulationEngine:
                             # increase activation heuristically
                             for nid in replay.node_ids:
                                 if nid in self.memory_graph.to_networkx().nodes:
-                                    cur = float(self.memory_graph.to_networkx().nodes[nid].get("activation", 0.5))
-                                    self.memory_graph.to_networkx().nodes[nid]["activation"] = min(1.0, cur + 0.25)
+                                    cur = float(
+                                        self.memory_graph.to_networkx()
+                                        .nodes[nid]
+                                        .get("activation", 0.5)
+                                    )
+                                    self.memory_graph.to_networkx().nodes[nid][
+                                        "activation"
+                                    ] = min(1.0, cur + 0.25)
                     except Exception:
                         pass
 
@@ -199,10 +219,14 @@ class SimulationEngine:
                     try:
                         ach_val = float(neuro_state.ach)
                         replay_strength = 0.0
-                        if replay and hasattr(replay, 'total_weight'):
+                        if replay and hasattr(replay, "total_weight"):
                             try:
-                                nodes_count = max(1, self.memory_graph.to_networkx().number_of_nodes())
-                                replay_strength = float(replay.total_weight) / float(nodes_count)
+                                nodes_count = max(
+                                    1, self.memory_graph.to_networkx().number_of_nodes()
+                                )
+                                replay_strength = float(replay.total_weight) / float(
+                                    nodes_count
+                                )
                                 replay_strength = min(1.0, replay_strength)
                             except Exception:
                                 replay_strength = min(1.0, float(replay.total_weight))
@@ -219,7 +243,7 @@ class SimulationEngine:
                         except Exception:
                             # If seg is a dict-like object, set key instead
                             try:
-                                seg['bizarreness_score'] = round(float(biz), 3)
+                                seg["bizarreness_score"] = round(float(biz), 3)
                             except Exception:
                                 pass
                     except Exception:
@@ -235,7 +259,12 @@ class SimulationEngine:
                 except Exception as exc:
                     logger.error("Dream generation failed at step %d: %s", step, exc)
                     if on_progress:
-                        on_progress(progress, sleep_state.stage.value, f"Segment error: {exc}", None)
+                        on_progress(
+                            progress,
+                            sleep_state.stage.value,
+                            f"Segment error: {exc}",
+                            None,
+                        )
             elif step % (config.llm_every_n_segments * 4) == 0 and on_progress:
                 on_progress(
                     progress,
@@ -245,8 +274,13 @@ class SimulationEngine:
                 )
 
         # ── Build summary ─────────────────────────────────────────────────
-        mean_biz = float(np.mean([s.bizarreness_score for s in dream_segments])) if dream_segments else 0.0
+        mean_biz = (
+            float(np.mean([s.bizarreness_score for s in dream_segments]))
+            if dream_segments
+            else 0.0
+        )
         from collections import Counter
+
         emo_counts = Counter(s.dominant_emotion for s in dream_segments)
         dominant_emotion = emo_counts.most_common(1)[0][0] if emo_counts else "neutral"
 
@@ -255,6 +289,7 @@ class SimulationEngine:
             f"{config.duration_hours:.1f} hours. Mean bizarreness: {mean_biz:.2f}. "
             f"Dominant emotion: {dominant_emotion}."
         )
+        llm_calls_total = int(getattr(self.dream_constructor, "llm_calls_total", 0))
 
         return {
             "duration_hours": config.duration_hours,
@@ -267,4 +302,5 @@ class SimulationEngine:
             "summary_narrative": summary,
             "mean_bizarreness": round(mean_biz, 3),
             "dominant_emotion": dominant_emotion,
+            "llm_calls_total": llm_calls_total,
         }

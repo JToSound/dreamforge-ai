@@ -2,19 +2,22 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Cache pip
         uses: actions/cache@v4
@@ -23,11 +26,22 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
           restore-keys: ${{ runner.os }}-pip-
 
-      - name: Install host dependencies and run tests
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements.dashboard.txt || true
+
+      - name: Lint with Ruff
+        run: |
+          ruff check .
+
+      - name: Format check with Black
+        run: |
+          black --check .
+
+      - name: Run tests
+        run: |
           python -m pytest -q
 
       - name: Set up Docker Buildx
@@ -50,40 +64,3 @@ jobs:
       - name: Run tests inside dashboard image (smoke)
         run: |
           docker run --rm dreamforge/dashboard:ci python -m pytest -q || true
-name: CI
-
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-
-jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Lint with Ruff
-        run: |
-          ruff check .
-
-      - name: Format check with Black
-        run: |
-          black --check .
-
-      - name: Run tests
-        run: |
-          pytest

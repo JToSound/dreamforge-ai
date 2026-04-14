@@ -23,7 +23,9 @@ def main():
         dream_constructor=dream_constructor,
     )
 
-    config = SimulationConfig(duration_hours=8.0, dt_minutes=0.5, llm_every_n_segments=12)
+    config = SimulationConfig(
+        duration_hours=8.0, dt_minutes=0.5, llm_every_n_segments=12
+    )
 
     print("Running simulation... this may take a little while")
     out = engine.run(config)
@@ -43,7 +45,9 @@ def main():
     stage_pct = {k: v / total for k, v in stage_counts.items()}
 
     # Neurochemistry stats by stage
-    vals_by_stage = defaultdict(lambda: {"ach": [], "serotonin": [], "ne": [], "cortisol": []})
+    vals_by_stage = defaultdict(
+        lambda: {"ach": [], "serotonin": [], "ne": [], "cortisol": []}
+    )
     for h, n in zip(hypnogram, neuro):
         stage = h.get("stage")
         vals_by_stage[stage]["ach"].append(n.get("ach"))
@@ -59,7 +63,11 @@ def main():
             if arr_clean:
                 mean = sum(arr_clean) / len(arr_clean)
                 var = sum((x - mean) ** 2 for x in arr_clean) / len(arr_clean)
-                neuro_stats[stage][k] = {"mean": mean, "std": math.sqrt(var), "count": len(arr_clean)}
+                neuro_stats[stage][k] = {
+                    "mean": mean,
+                    "std": math.sqrt(var),
+                    "count": len(arr_clean),
+                }
             else:
                 neuro_stats[stage][k] = {"mean": None, "std": None, "count": 0}
 

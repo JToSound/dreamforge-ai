@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Parametric bizarreness scorer grounded in Revonsuo & Salmivalli (1995).
 
 Provides a deterministic, low-variance mapping from sleep stage,
@@ -9,6 +7,9 @@ References:
 - Revonsuo A, Salmivalli C. (1995). A content analysis of bizarre elements
   in dreams. Dreaming 5(3):169–187.
 """
+
+from __future__ import annotations
+
 from typing import Tuple
 
 import numpy as np
@@ -29,7 +30,9 @@ class BizarrenessScore(BaseModel):
     discontinuity_score: float = Field(..., ge=0.0, le=1.0)
     incongruity_score: float = Field(..., ge=0.0, le=1.0)
     implausibility_score: float = Field(..., ge=0.0, le=1.0)
-    confidence_interval: Tuple[float, float] = Field(..., description="±1σ confidence interval")
+    confidence_interval: Tuple[float, float] = Field(
+        ..., description="±1σ confidence interval"
+    )
 
 
 def compute_bizarreness(
@@ -85,7 +88,9 @@ def compute_bizarreness(
     sigma = 0.025
     noise = float(np.random.normal(0.0, sigma))
 
-    raw_total = s_base + ach_contrib + ne_contrib + arousal_contrib + cycle_contrib + noise
+    raw_total = (
+        s_base + ach_contrib + ne_contrib + arousal_contrib + cycle_contrib + noise
+    )
 
     # Dampening scale to map raw additive score into perceptual 0-1 range.
     # Calibrated so typical REM combinations land in ~0.75-0.90 while NREM

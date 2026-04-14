@@ -2,8 +2,8 @@
 """Generate a demo GIF by automating the Streamlit dashboard with Playwright.
 
 This script requires Playwright and imageio-ffmpeg (or ffmpeg CLI) to assemble
-frames into a GIF. It runs the browser headless, captures a sequence of
-screenshots following the interaction plan described in scripts/README.md.
+frames into a GIF. It runs the browser headless and captures a guided sequence
+of screenshots while the Streamlit dashboard is running.
 """
 from __future__ import annotations
 
@@ -15,7 +15,9 @@ from typing import List
 try:
     from playwright.sync_api import sync_playwright
 except Exception as exc:
-    raise RuntimeError("playwright is required to run this script. Install with `pip install playwright` and run `playwright install`.") from exc
+    raise RuntimeError(
+        "playwright is required to run this script. Install with `pip install playwright` and run `playwright install`."
+    ) from exc
 
 try:
     import imageio
@@ -26,6 +28,7 @@ OUT_DIR = Path("reports/demo_frames")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 URL = os.getenv("DEMO_URL", "http://localhost:8501")
+
 
 def capture_sequence(output_gif: str = "demo.gif", duration_s: int = 30):
     frames: List[str] = []
@@ -86,7 +89,9 @@ def capture_sequence(output_gif: str = "demo.gif", duration_s: int = 30):
         print(f"Wrote GIF: {output_gif}")
     else:
         print("Captured frames to:", frames)
-        print("Install imageio and ffmpeg to assemble GIF, or use the included README for ffmpeg commands.")
+        print(
+            "Install imageio and ffmpeg to assemble GIF, or use the included README for ffmpeg commands."
+        )
 
 
 if __name__ == "__main__":

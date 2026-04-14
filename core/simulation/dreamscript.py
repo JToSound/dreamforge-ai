@@ -1,117 +1,231 @@
+"""Deterministic offline narrative engine used when no live LLM is available."""
+
 from __future__ import annotations
 
-"""Deterministic template-based offline dream narrative engine.
-
-The DreamScriptEngine provides an automatic fallback narrative generator that
-requires no external LLM. It is intentionally template-driven and parameter
-modulated by neurochemistry and bizarreness to produce plausible, varied
-segments suitable for demo mode and reproducible GIFs.
-"""
-from typing import List, Optional
 import random
 import re
+from typing import List, Optional, Sequence
 
 from core.models.memory_graph import MemoryNodeModel
-from core.utils.bizarreness_scorer import BizarrenessScore
 from core.models.sleep_cycle import SleepStage
+from core.utils.bizarreness_scorer import BizarrenessScore
 
 
 class DreamScriptEngine:
-    """Template-based dream generator for offline/demo mode.
+    """Template-driven narrative engine for demo and offline generation."""
 
-    The engine exposes `generate_narrative()` which selects and fills templates
-    from four banks (NREM_LIGHT, NREM_DEEP, REM_EARLY, REM_LATE). Templates
-    contain placeholders populated from `active_memories` tags and emotion.
-    """
+    _BIZARRE_VOCAB = (
+        "non-euclidean",
+        "kaleidoscopic",
+        "fractal",
+        "impossible",
+        "liquid",
+        "glitching",
+        "holographic",
+        "paradoxical",
+    )
+    _REALITY_FAILURE_PHRASES = (
+        "Nobody questions the contradiction, and neither do I.",
+        "I accept the impossible rule as if it has always been true.",
+        "The scene breaks continuity, yet it feels perfectly ordinary.",
+        "Causality slips, but my mind treats it as routine.",
+        "Time jumps forward and backward without warning, and I remain calm.",
+    )
+    _ANXIETY_PHRASES = (
+        "A background alarm keeps pulsing through the scene.",
+        "Everything carries a sharp edge of urgency.",
+        "My chest tightens as if I am late for something unnamed.",
+        "The atmosphere feels tense, watchful, and over-bright.",
+        "A low dread hums beneath every detail.",
+    )
 
     def __init__(self, seed: Optional[int] = None) -> None:
         if seed is not None:
             random.seed(seed)
-        # Minimal template banks; banks can be extended for production.
-        self.NREM_LIGHT = [
-            "I walked through {place}, carrying a small {object} that felt familiar.",
-            "A gentle conversation about {topic} unfolded, like a remembered tune.",
-            "The room smelled of {scent} and sunlight filtered through the curtains.",
-            "I searched for {person} but only found a doorway that led to a garden.",
-            "Someone handed me {object} and said it belonged to {person}.",
-            "I walked along {place} and noticed the clock had stopped at noon.",
-            "There was a quiet parade of people wearing {tag} on their sleeves.",
-            "A window opened onto {place}, and I stepped through without thinking.",
-        ]
+        self._carry_regex = re.compile(r'\b([A-Z][a-z]{2,})\b|"([^"]+)"')
 
-        self.NREM_DEEP = [
-            "The house collapsed into a corridor of doors; behind one was {place}.",
-            "I was digging for a memory of {person} and found a sealed box.",
-            "The floor turned to soft earth and I sank, but it felt comforting.",
-            "There was a hush, and the faces of strangers all looked like {person}.",
-            "I sat by a river of photographs and watched them float by in silence.",
-            "The walls whispered {topic} in a language I almost remembered.",
-            "An old melody guided me to a locked room with {object} on a table.",
-            "A child laughed and the sound rearranged the furniture into a map.",
-        ]
+        self.NREM_LIGHT = self._build_nrem_light_bank()
+        self.NREM_DEEP = self._build_nrem_deep_bank()
+        self.REM_EARLY = self._build_rem_early_bank()
+        self.REM_LATE = self._build_rem_late_bank()
 
-        self.REM_EARLY = [
-            "The street bent into an impossible spiral and {person} waved from above.",
-            "Clouds turned into letters spelling {topic}, and I read them aloud.",
-            "A mirror reflected a different city where {place} was underwater.",
-            "I grew wings made of {object} and flew over {place} as people cheered.",
-            "A telephone rang and the voice at the other end described tomorrow.",
-            "The sky stitched itself into a patchwork of {tag} and memory.",
-            "I walked into a painting of {place} and the colors rearranged my pockets.",
-            "The ground hummed with the name of {person} until it became a song.",
-        ]
+    def _compose_bank(
+        self,
+        openings: Sequence[str],
+        middles: Sequence[str],
+        endings: Sequence[str],
+        min_count: int = 32,
+    ) -> list[str]:
+        bank: list[str] = []
+        for opening in openings:
+            for middle in middles:
+                for ending in endings:
+                    bank.append(f"{opening} {middle} {ending}")
+                    if len(bank) >= min_count:
+                        return bank
+        return bank
 
-        self.REM_LATE = [
-            "Buildings folded like paper; inside, {person} handed me a key made of light.",
-            "The ocean whispered secrets about {topic} and I understood them all.",
-            "I tasted {object} and it turned into an entire afternoon I had lost.",
-            "Time bent, and the faces of everyone I knew spoke in chorus about {place}.",
-            "A door opened to an impossible sky and I remembered how to fly with {object}.",
-            "The city rearranged itself into a poem about {person} and rain.",
-            "A staircase led to the rooftop where I watched moons collide gently.",
-            "The world folded like a letter and I read the name {person} inside.",
-        ]
+    def _build_nrem_light_bank(self) -> list[str]:
+        openings = (
+            "I move slowly through {place}",
+            "I stand near a quiet window in {place}",
+            "I walk down a familiar corridor beside {place}",
+            "I follow soft footsteps into {place}",
+            "I sit at the edge of {place}",
+            "I drift through an ordinary morning inside {place}",
+            "I wait in a pale hallway that opens onto {place}",
+            "I cross a courtyard near {place}",
+        )
+        middles = (
+            "while holding a small {object}",
+            "while replaying a conversation about {topic}",
+            "as someone mentions {person} in passing",
+            "as the air fills with the scent of {scent}",
+            "while my sleeves brush against threads of {tag}",
+            "as a clock clicks softly in another room",
+            "while distant voices repeat one unfinished sentence",
+            "as a familiar melody loops in the background",
+        )
+        endings = (
+            "Nothing dramatic happens, but the moment feels meaningful.",
+            "The scene stays calm, as if memory is settling into place.",
+            "I keep expecting a turn, yet the dream remains gentle.",
+            "The details blur at the edges, then return with quiet clarity.",
+        )
+        return self._compose_bank(openings, middles, endings, min_count=32)
 
-        # Carryover regex for simple continuity (capitalize words / quoted phrases)
-        self._carry_regex = re.compile(r"\b([A-Z][a-z]{2,})\b|\"([^\"]+)\"")
+    def _build_nrem_deep_bank(self) -> list[str]:
+        openings = (
+            "I descend into a heavy landscape beneath {place}",
+            "I sink through dark water under {place}",
+            "I stand in a muted plain that borders {place}",
+            "I wait in a silent chamber below {place}",
+            "I move through dense fog around {place}",
+            "I drift across a dim field beyond {place}",
+            "I kneel in still earth near {place}",
+            "I rest in a cavern that echoes {place}",
+        )
+        middles = (
+            "while searching for {person}",
+            "while listening to distant echoes of {topic}",
+            "while tracing symbols carved into {object}",
+            "while a faint smell of {scent} rises and falls",
+            "while old memories gather around the word {tag}",
+            "while every step takes longer than expected",
+            "while the horizon pulses once and goes dark",
+            "while shapes emerge and vanish without sound",
+        )
+        endings = (
+            "The dream feels primitive, slow, and gravitational.",
+            "Everything is reduced to weight, temperature, and pulse.",
+            "I remain suspended in deep silence until the scene dissolves.",
+            "The world narrows to sensation, then fades to black.",
+        )
+        return self._compose_bank(openings, middles, endings, min_count=32)
 
-    def _select_template_bank(self, stage: SleepStage, biz: BizarrenessScore) -> List[str]:
-        # Choose bank based on stage and bizarreness magnitude
-        if stage in (SleepStage.N1,):
+    def _build_rem_early_bank(self) -> list[str]:
+        openings = (
+            "I step into a bright version of {place}",
+            "I run across rooftops above {place}",
+            "I float through a market that resembles {place}",
+            "I ride a train of light toward {place}",
+            "I enter a theater built from mirrors of {place}",
+            "I climb stairs that fold into {place}",
+            "I wake inside a painting of {place}",
+            "I sprint through a carnival orbiting {place}",
+        )
+        middles = (
+            "where {person} hands me {object}",
+            "while the crowd chants about {topic}",
+            "as banners made of {tag} sweep the sky",
+            "while the smell of {scent} turns electric",
+            "as gravity bends around my footsteps",
+            "while every doorway opens to a new timeline",
+            "as streetlights blink in impossible rhythms",
+            "while the horizon scrolls like a film reel",
+        )
+        endings = (
+            "I laugh at the impossibility and keep moving.",
+            "The scene remains vivid, coherent, and dreamlike.",
+            "Color saturates everything until edges start to shimmer.",
+            "The narrative accelerates, but I still feel oriented.",
+        )
+        return self._compose_bank(openings, middles, endings, min_count=32)
+
+    def _build_rem_late_bank(self) -> list[str]:
+        openings = (
+            "I awaken inside a vast city made from {tag}",
+            "I fly over {place} as sunrise fractures into prisms",
+            "I walk through a cathedral of moving equations near {place}",
+            "I stand on a shoreline where {place} floats in the sky",
+            "I drift between moons while watching {place} rotate below",
+            "I cross a bridge of glass memories above {place}",
+            "I enter a chamber where every wall predicts tomorrow",
+            "I follow a beam of light toward the center of {place}",
+        )
+        middles = (
+            "and {person} asks me to decode {object}",
+            "while voices debate the meaning of {topic}",
+            "as the wind writes notes in the scent of {scent}",
+            "while old and future versions of me trade places",
+            "as clocks melt into a map I can almost read",
+            "while language turns into color and then into motion",
+            "as the world folds and unfolds in repeating layers",
+            "while distant choirs pronounce one perfect sentence",
+        )
+        endings = (
+            "I feel lucid for a moment, then surrender to the surge.",
+            "The dream peaks in scale and symbolic intensity.",
+            "Everything converges into one luminous, unstable image.",
+            "I sense awakening nearby, but the dream keeps negotiating for time.",
+        )
+        return self._compose_bank(openings, middles, endings, min_count=32)
+
+    def _select_template_bank(
+        self, stage: SleepStage, biz: BizarrenessScore
+    ) -> List[str]:
+        if stage == SleepStage.N1:
             return self.NREM_LIGHT
         if stage in (SleepStage.N2, SleepStage.N3):
-            return self.NREM_DEEP
-        # REM: early vs late split by cycle index embedded in biz confidence (heuristic)
-        # If biz total_score is moderate, use early REM templates; extreme -> late
+            return self.NREM_DEEP if stage == SleepStage.N3 else self.NREM_LIGHT
         if stage == SleepStage.REM:
-            return self.REM_LATE if biz.total_score > 0.7 else self.REM_EARLY
+            return self.REM_LATE if biz.total_score >= 0.72 else self.REM_EARLY
         return self.NREM_LIGHT
 
     def _build_vocab(self, active_memories: List[MemoryNodeModel]) -> dict:
-        tags = []
-        people = []
-        places = []
-        objects = []
-        topics = []
-        scents = []
-        for m in active_memories:
-            tags.extend([t for t in m.tags if t])
-            label = (m.label or "").strip()
-            # heuristic extraction
-            if "," in label:
-                parts = [p.strip() for p in label.split(",")]
-                objects.extend(parts)
-            else:
-                objects.append(label)
-            if m.emotion:
-                topics.append(str(m.emotion))
-        # fallback vocabulary
-        tags = tags or ["blue", "quiet", "strange"]
-        people = people or ["Anna", "Marco", "Lina"]
-        places = places or ["the market", "the shore", "the old school"]
-        objects = [o for o in objects if o][:10] or ["book", "clock", "knife", "umbrella"]
-        topics = topics or ["home", "loss", "flight"]
-        scents = scents or ["coffee", "salt", "rain"]
+        tags: list[str] = []
+        people: list[str] = []
+        places: list[str] = []
+        objects: list[str] = []
+        topics: list[str] = []
+        scents: list[str] = []
+
+        for memory in active_memories:
+            label = (memory.label or "").strip()
+            if label:
+                objects.append(label[:48])
+            tags.extend([tag for tag in memory.tags if tag])
+            if getattr(memory, "emotion", None):
+                topics.append(str(memory.emotion))
+
+        tags = tags or ["thread", "silver", "echo", "paper", "glass"]
+        people = people or ["Anna", "Marco", "Lina", "Elias", "Noor"]
+        places = places or [
+            "the old station",
+            "a quiet harbor",
+            "the school atrium",
+            "a moonlit avenue",
+        ]
+        objects = [obj for obj in objects if obj][:12] or [
+            "book",
+            "clock",
+            "compass",
+            "key",
+            "notebook",
+        ]
+        topics = topics or ["home", "loss", "work", "departure", "return"]
+        scents = scents or ["rain", "coffee", "salt", "smoke", "pine"]
+
         return {
             "tag": random.choice(tags),
             "person": random.choice(people),
@@ -122,40 +236,34 @@ class DreamScriptEngine:
         }
 
     def _choose_template(self, bank: List[str], biz_score: float, ach: float) -> str:
-        # weighting: higher biz -> prefer templates with surreal tokens (we'll
-        # randomize selection while biasing by biz_score)
-        n = len(bank)
         weights = []
-        for i in range(n):
-            # bias later templates slightly for higher biz
-            w = 1.0 + biz_score * (i / max(1, n - 1))
-            # ACh further biases toward transformation templates
-            w *= 1.0 + max(0.0, (ach - 0.7)) * 1.5
+        n = len(bank)
+        for idx in range(n):
+            w = 1.0 + biz_score * (idx / max(1, n - 1))
+            w *= 1.0 + max(0.0, ach - 0.7) * 1.6
             weights.append(w)
-        # normalize
-        tot = sum(weights)
-        probs = [w / tot for w in weights]
-        return random.choices(bank, probs, k=1)[0]
+        return random.choices(bank, weights=weights, k=1)[0]
 
-    def _inject_modifiers(self, text: str, ach: float, ne: float, cortisol: float) -> str:
-        # Modify phrasing based on neurochemistry
+    def _inject_modifiers(
+        self, text: str, ach: float, ne: float, cortisol: float
+    ) -> str:
+        out = text
         if ach > 0.7:
-            # add surreal adjectives
-            text = text.replace("the ", "the shimmering ")
+            token = random.choice(self._BIZARRE_VOCAB)
+            out += f" The geometry turns {token}, and the scene behaves like a living riddle."
         if ne < 0.1:
-            # inject reality-failure phrase
-            text = text + " It felt natural, even though nothing made sense."
-        if cortisol > 0.8:
-            text = "Urgent: " + text
-        return text
+            out += " " + random.choice(self._REALITY_FAILURE_PHRASES)
+        if cortisol > 0.75:
+            out += " " + random.choice(self._ANXIETY_PHRASES)
+        return out
 
     def _extract_carry(self, prev_segment_text: Optional[str]) -> Optional[str]:
         if not prev_segment_text:
             return None
-        m = self._carry_regex.search(prev_segment_text)
-        if not m:
+        match = self._carry_regex.search(prev_segment_text)
+        if not match:
             return None
-        return (m.group(1) or m.group(2) or "").strip()
+        return (match.group(1) or match.group(2) or "").strip()
 
     def generate_narrative(
         self,
@@ -165,31 +273,29 @@ class DreamScriptEngine:
         bizarreness: BizarrenessScore,
         prev_segment_text: Optional[str] = None,
     ) -> str:
-        """Generate a single-segment narrative string.
-
-        Args:
-            stage: SleepStage label.
-            neurochemistry: object with fields `ach`, `ne`, `cortisol` expected.
-            active_memories: list of MemoryNodeModel used to seed vocabulary.
-            bizarreness: BizarrenessScore object from the scorer.
-            prev_segment_text: optional previous segment text to continue continuity.
-        """
         bank = self._select_template_bank(stage, bizarreness)
         vocab = self._build_vocab(active_memories)
-        template = self._choose_template(bank, bizarreness.total_score, getattr(neurochemistry, "ach", 0.5))
+        template = self._choose_template(
+            bank,
+            bizarreness.total_score,
+            float(getattr(neurochemistry, "ach", 0.5)),
+        )
 
-        # carry entity
         carry = self._extract_carry(prev_segment_text)
         if carry:
             vocab["person"] = carry
 
         narrative = template.format(**vocab)
-        narrative = self._inject_modifiers(narrative, getattr(neurochemistry, "ach", 0.5), getattr(neurochemistry, "ne", 0.5), getattr(neurochemistry, "cortisol", 0.5))
+        if carry and carry not in narrative:
+            narrative += f" {carry} keeps reappearing at the edge of the scene."
+        narrative = self._inject_modifiers(
+            narrative,
+            float(getattr(neurochemistry, "ach", 0.5)),
+            float(getattr(neurochemistry, "ne", 0.5)),
+            float(getattr(neurochemistry, "cortisol", 0.5)),
+        )
 
-        # make short rewrites for higher bizarreness
-        if bizarreness.total_score > 0.8:
-            narrative = narrative.replace("and", "— and then")
         if bizarreness.total_score > 0.9:
-            narrative = narrative.upper()
+            narrative = narrative.replace(".", "…")
 
         return narrative

@@ -1,10 +1,11 @@
-import math
-from core.models.neurochemistry import NeurochemistryModel, NeurochemistryState, NeurochemistryParameters
+from core.models.neurochemistry import NeurochemistryModel, NeurochemistryParameters
 from core.models.sleep_cycle import SleepStage
 
 
 def test_ach_saturation():
-    params = NeurochemistryParameters(ach_max=0.8, ach_saturating=True, r_ach_rem=2.0, k_clear_ach=1.0)
+    params = NeurochemistryParameters(
+        ach_max=0.8, ach_saturating=True, r_ach_rem=2.0, k_clear_ach=1.0
+    )
     model = NeurochemistryModel(params=params)
     state = model.initial_state(time_hours=0.0, ach=0.7)
 
@@ -20,7 +21,9 @@ def test_ach_saturation():
 
 def test_cortisol_asymmetry():
     # Use sigmoid-based cortisol rise centered at hour 6.0 with moderate steepness
-    params = NeurochemistryParameters(cortisol_rise_time=6.0, cortisol_k_rise=6.0, cortisol_k_fall=1.0)
+    params = NeurochemistryParameters(
+        cortisol_rise_time=6.0, cortisol_k_rise=6.0, cortisol_k_fall=1.0
+    )
     model = NeurochemistryModel(params=params)
     p = params.cortisol_rise_time
 

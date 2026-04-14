@@ -34,15 +34,21 @@ class NeurochemistryParameters(BaseModel):
     r_ach_nrem: float = Field(0.5, description="Basal ACh production rate during NREM.")
     r_ach_rem: float = Field(1.5, description="Basal ACh production rate during REM.")
     # REM-specific scaling factor (easy tuning knob to reduce REM ACh magnitude)
-    ach_rem_scale: float = Field(0.75, description="Multiplier applied to REM ACh production.")
+    ach_rem_scale: float = Field(
+        0.75, description="Multiplier applied to REM ACh production."
+    )
 
     r_5ht_wake: float = Field(1.0, description="Basal 5-HT production during wake.")
     r_5ht_nrem: float = Field(0.3, description="Basal 5-HT production during NREM.")
-    r_5ht_rem: float = Field(0.05, description="Basal 5-HT production during REM (near silent).")
+    r_5ht_rem: float = Field(
+        0.05, description="Basal 5-HT production during REM (near silent)."
+    )
 
     r_ne_wake: float = Field(1.0, description="Basal NE production during wake.")
     r_ne_nrem: float = Field(0.3, description="Basal NE production during NREM.")
-    r_ne_rem: float = Field(0.05, description="Basal NE production during REM (near silent).")
+    r_ne_rem: float = Field(
+        0.05, description="Basal NE production during REM (near silent)."
+    )
 
     # Clearance constants (per hour)
     k_clear_ach: float = Field(1.2, description="Clearance rate for ACh.")
@@ -51,26 +57,34 @@ class NeurochemistryParameters(BaseModel):
 
     # ACh saturation / upper bound (prevents runaway ACh during long REM)
     ach_max: float = Field(1.0, description="Upper bound for ACh level (saturation).")
-    ach_saturating: bool = Field(True, description="Whether to use saturating production for ACh.")
+    ach_saturating: bool = Field(
+        True, description="Whether to use saturating production for ACh."
+    )
 
     # Cortisol circadian-like parameters (simplified)
     cortisol_baseline: float = Field(0.5, description="Baseline cortisol level.")
-    cortisol_amplitude: float = Field(0.9, description="Amplitude of circadian cortisol oscillation.")
+    cortisol_amplitude: float = Field(
+        0.9, description="Amplitude of circadian cortisol oscillation."
+    )
     cortisol_phase: float = Field(
         6.0,
         description="(Deprecated) Legacy cortisol phase; use cortisol_rise_time + cortisol_k for asymmetric rise.",
     )
     cortisol_clear: float = Field(0.3, description="Clearance rate for cortisol.")
     # Asymmetric cortisol shape controls (sigma for rise vs fall)
-    cortisol_rise_sigma: float = Field(0.7, description="Width of cortisol rise (hours).")
-    cortisol_fall_sigma: float = Field(3.0, description="Width of cortisol fall (hours).")
+    cortisol_rise_sigma: float = Field(
+        0.7, description="Width of cortisol rise (hours)."
+    )
+    cortisol_fall_sigma: float = Field(
+        3.0, description="Width of cortisol fall (hours)."
+    )
 
     # Asymmetric sigmoid-based cortisol rise parameters
     cortisol_rise_time: float = Field(
-        7.5,
+        5.5,
         description=(
-            "Approximate hour (since sleep onset) of cortisol rise midpoint; "
-            "default chosen to place peak near typical pre-awakening time."
+            "Hour (since sleep onset) of the cortisol peak in the asymmetric "
+            "sigmoid profile."
         ),
     )
     # Separate steepness parameters for the rising and falling limbs to allow
@@ -96,7 +110,9 @@ class NeurochemistryParameters(BaseModel):
     )
 
     # Noise level to simulate biological variability
-    noise_std: float = Field(0.05, ge=0.0, description="Std of Gaussian noise added to derivatives.")
+    noise_std: float = Field(
+        0.05, ge=0.0, description="Std of Gaussian noise added to derivatives."
+    )
 
 
 @dataclass
@@ -136,34 +152,32 @@ class NeurochemistryModel:
             return p.r_ach_wake, p.r_5ht_wake, p.r_ne_wake
 
     def _cortisol_drive(self, time_hours: float) -> float:
-        """Asymmetric cortisol drive using a sigmoid-shaped morning rise.
+        """Asymmetric sigmoid cortisol profile with a fixed peak time.
 
-        This replaces the previous symmetric Gaussian with a biologically-plausible
-        steep morning increase that is near-zero overnight and rises prior to wake.
+        The curve is piecewise:
+        - Before peak: a rising sigmoid normalized to reach 1.0 at peak.
+        - After peak: a decaying sigmoid normalized to start at 1.0 at peak.
 
-        Formula:
-            cortisol(t) = baseline + amplitude * sigmoid(k * (t - t_rise))
-
-        where `t` and `t_rise` are hours since sleep onset. The sigmoid midpoint
-        `t_rise` and steepness `k` are tunable parameters.
-
-        Sources: circadian cortisol profiles and modeling heuristics.
+        This guarantees the maximum occurs at `cortisol_rise_time` while allowing
+        independently tunable rise/fall steepness.
         """
         p = self.params
-        # Use sigmoid centered at cortisol_rise_time (hours since sleep onset)
-        x = float(time_hours) - float(p.cortisol_rise_time)
-        # Numerically-stable sigmoid
-        # Use different steepness for rise vs fall to create asymmetry
-        k = float(p.cortisol_k_rise) if x < 0 else float(p.cortisol_k_fall)
-        # Numerically-stable sigmoid
-        # Clip exponent to avoid overflow
-        z = -k * x
-        if z > 700:
-            sig = 0.0
-        elif z < -700:
-            sig = 1.0
+        peak = float(p.cortisol_rise_time)
+        t = float(time_hours)
+
+        if t <= peak:
+            z = -float(p.cortisol_k_rise) * (t - peak)
         else:
-            sig = 1.0 / (1.0 + np.exp(-k * x))
+            z = float(p.cortisol_k_fall) * (t - peak)
+
+        if z > 700:
+            raw_sig = 0.0
+        elif z < -700:
+            raw_sig = 1.0
+        else:
+            raw_sig = 1.0 / (1.0 + np.exp(z))
+
+        sig = min(1.0, 2.0 * raw_sig)
         return float(p.cortisol_baseline + p.cortisol_amplitude * sig)
 
     # ------------------------------------------------------------------
@@ -199,7 +213,9 @@ class NeurochemistryModel:
         """
         trajectory: List[NeurochemistryState] = []
         current_time = float(state.time_hours)
-        y_current = np.array([state.ach, state.serotonin, state.ne, state.cortisol], dtype=float)
+        y_current = np.array(
+            [state.ach, state.serotonin, state.ne, state.cortisol], dtype=float
+        )
 
         # small epsilon for time comparisons
         eps = 1e-9
@@ -207,8 +223,10 @@ class NeurochemistryModel:
         for stage, duration in stage_durations:
             t0 = current_time
             t1 = t0 + float(duration)
+
             # constant stage function for this segment
-            const_stage_fn = lambda t, s=stage: s
+            def const_stage_fn(_t: float, s: SleepStage = stage) -> SleepStage:
+                return s
 
             sol = solve_ivp(
                 fun=lambda t, y: self._ode_system(t, y, stage_fn=const_stage_fn),
@@ -219,7 +237,9 @@ class NeurochemistryModel:
             )
 
             if not sol.success:
-                raise RuntimeError(f"ODE solver failed for stage {stage} from {t0} to {t1}: {sol.message}")
+                raise RuntimeError(
+                    f"ODE solver failed for stage {stage} from {t0} to {t1}: {sol.message}"
+                )
 
             t_samples = sol.t
             y_samples = sol.y.T
@@ -313,7 +333,9 @@ class NeurochemistryModel:
             stage_fn: Function mapping time -> sleep stage.
             max_step: Max integration step (hours), e.g. 1/60 for 1 minute.
         """
-        y0 = np.array([state.ach, state.serotonin, state.ne, state.cortisol], dtype=float)
+        y0 = np.array(
+            [state.ach, state.serotonin, state.ne, state.cortisol], dtype=float
+        )
 
         sol = solve_ivp(
             fun=lambda t, y: self._ode_system(t, y, stage_fn=stage_fn),

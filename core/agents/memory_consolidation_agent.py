@@ -42,7 +42,9 @@ class MemoryConsolidationAgent:
         self.graph.decay_salience(dt_hours=dt_hours)
         self.graph.prune_low_salience()
 
-    def _emit_replay_event(self, seq: ReplaySequence, current_time_hours: float) -> None:
+    def _emit_replay_event(
+        self, seq: ReplaySequence, current_time_hours: float
+    ) -> None:
         event = Event(
             type=EventType.MEMORY_REPLAY_EVENT,
             payload={

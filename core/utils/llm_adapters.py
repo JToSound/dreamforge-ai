@@ -8,14 +8,22 @@ from core.models.memory_graph import EmotionLabel, MemoryGraph
 LLMCallable = Callable[[str], str]
 
 
-def _load_openai_client(base_url: Optional[str] = None, api_key_env: str = "OPENAI_API_KEY"):
+def _load_openai_client(
+    base_url: Optional[str] = None, api_key_env: str = "OPENAI_API_KEY"
+):
     try:
         from openai import OpenAI  # type: ignore
     except Exception as exc:  # pragma: no cover - optional dependency
-        raise RuntimeError("openai package is not installed; cannot use OpenAI/LM Studio backend") from exc
+        raise RuntimeError(
+            "openai package is not installed; cannot use OpenAI/LM Studio backend"
+        ) from exc
 
     api_key = os.getenv(api_key_env, "not-set")
-    client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
+    client = (
+        OpenAI(api_key=api_key, base_url=base_url)
+        if base_url
+        else OpenAI(api_key=api_key)
+    )
     return client
 
 
@@ -23,12 +31,16 @@ def _load_ollama_client():
     try:
         import ollama  # type: ignore
     except Exception as exc:  # pragma: no cover - optional dependency
-        raise RuntimeError("ollama package is not installed; cannot use Ollama backend") from exc
+        raise RuntimeError(
+            "ollama package is not installed; cannot use Ollama backend"
+        ) from exc
 
     return ollama
 
 
-def create_llm_callable(provider: Optional[str], model: Optional[str]) -> Optional[LLMCallable]:
+def create_llm_callable(
+    provider: Optional[str], model: Optional[str]
+) -> Optional[LLMCallable]:
     """Create an LLMCallable based on provider/model configuration.
 
     Supported providers:
@@ -71,7 +83,9 @@ def create_llm_callable(provider: Optional[str], model: Optional[str]) -> Option
         ollama = _load_ollama_client()
 
         def _call(prompt: str) -> str:
-            resp = ollama.chat(model=model, messages=[{"role": "user", "content": prompt}])
+            resp = ollama.chat(
+                model=model, messages=[{"role": "user", "content": prompt}]
+            )
             return resp.get("message", {}).get("content", "")
 
         return _call
@@ -96,4 +110,6 @@ def populate_memory_from_journal(graph: MemoryGraph) -> None:
         except Exception:
             emotion = EmotionLabel.NEUTRAL
         tags = entry.get("tags", [])
-        graph.encode_from_user_input(text=entry["text"], emotion=emotion, tags=tags, is_episodic=True)
+        graph.encode_from_user_input(
+            text=entry["text"], emotion=emotion, tags=tags, is_episodic=True
+        )

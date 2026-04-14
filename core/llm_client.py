@@ -5,6 +5,7 @@ simple `chat(system, user)` coroutine. The client retries transient
 errors and logs failures; it returns a clear sentinel string on
 permanent failure so callers can fallback to template generators.
 """
+
 from __future__ import annotations
 import asyncio
 import logging
@@ -12,6 +13,8 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 import httpx
+
+from core.config import load_runtime_config
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +34,17 @@ class LLMConfig:
 
     @classmethod
     def from_env(cls) -> "LLMConfig":
+        runtime = load_runtime_config()
         return cls(
-            provider=os.getenv("LLM_PROVIDER", "lmstudio"),
-            base_url=os.getenv("LLM_BASE_URL", "http://host.docker.internal:1234/v1"),
-            model=os.getenv("LLM_MODEL", "qwen/qwen3.5-9b"),
-            api_key=os.getenv("LLM_API_KEY", "lm-studio"),
-            timeout=int(os.getenv("LLM_TIMEOUT", "120")),
-            max_tokens=int(os.getenv("LLM_MAX_TOKENS", "512")),
-            temperature=float(os.getenv("LLM_TEMPERATURE", "0.85")),
+            provider=os.getenv("LLM_PROVIDER", runtime.llm_provider),
+            base_url=os.getenv("LLM_BASE_URL", runtime.llm_base_url),
+            model=os.getenv("LLM_MODEL", runtime.llm_model),
+            api_key=os.getenv("LLM_API_KEY", runtime.llm_api_key),
+            timeout=int(os.getenv("LLM_TIMEOUT", str(runtime.llm_timeout))),
+            max_tokens=int(os.getenv("LLM_MAX_TOKENS", str(runtime.llm_max_tokens))),
+            temperature=float(
+                os.getenv("LLM_TEMPERATURE", str(runtime.llm_temperature))
+            ),
             retries=int(os.getenv("LLM_RETRIES", "3")),
             backoff_base=float(os.getenv("LLM_BACKOFF_BASE", "0.5")),
         )
@@ -50,7 +56,10 @@ class LLMClient:
         # Keep a long-lived AsyncClient for connection reuse
         self._client = httpx.AsyncClient(
             base_url=self.config.base_url,
-            headers={"Authorization": f"Bearer {self.config.api_key}", "Content-Type": "application/json"},
+            headers={
+                "Authorization": f"Bearer {self.config.api_key}",
+                "Content-Type": "application/json",
+            },
             timeout=self.config.timeout,
         )
 
@@ -62,7 +71,10 @@ class LLMClient:
         """
         payload = {
             "model": self.config.model,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
             "max_tokens": self.config.max_tokens,
             "temperature": self.config.temperature,
         }
@@ -81,12 +93,19 @@ class LLMClient:
                     return str(data.get("choices", [data])[0])
             except Exception as exc:  # broad catch to retry transient problems
                 last_exc = exc
-                logger.warning("LLM call attempt %d/%d failed: %s", attempt, self.config.retries, exc)
+                logger.warning(
+                    "LLM call attempt %d/%d failed: %s",
+                    attempt,
+                    self.config.retries,
+                    exc,
+                )
                 if attempt < self.config.retries:
                     backoff = float(self.config.backoff_base) * (2 ** (attempt - 1))
                     await asyncio.sleep(backoff)
 
-        logger.error("LLM call failed after %d attempts: %s", int(self.config.retries), last_exc)
+        logger.error(
+            "LLM call failed after %d attempts: %s", int(self.config.retries), last_exc
+        )
         return f"[LLM unavailable: {last_exc}]"
 
     async def check_health(self) -> dict:

@@ -7,9 +7,10 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from core.models.sleep_cycle import SleepCycleModel, SleepStage
 
 def run_validation():
+    from core.models.sleep_cycle import SleepCycleModel, SleepStage
+
     m = SleepCycleModel()
     states, stages = m.simulate_night(duration_hours=8.0, dt_minutes=0.5)
     total = len(stages)
@@ -29,5 +30,6 @@ def run_validation():
     assert 0.18 <= rem_frac <= 0.28, f"REM fraction out of range: {rem_frac}"
     print("Validation passed: N3/N1/REM within target ranges.")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     run_validation()

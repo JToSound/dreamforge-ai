@@ -33,7 +33,11 @@ class MetacognitiveAgent:
     exposed to the lucidity model as `reality_check_failures_recent`.
     """
 
-    def __init__(self, event_bus: Optional[EventBus] = None, config: Optional[MetacognitiveConfig] = None) -> None:
+    def __init__(
+        self,
+        event_bus: Optional[EventBus] = None,
+        config: Optional[MetacognitiveConfig] = None,
+    ) -> None:
         self.event_bus = event_bus or EventBus()
         self.config = config or MetacognitiveConfig()
 
@@ -100,7 +104,11 @@ class MetacognitiveAgent:
         base = 0.06 + 0.03 * min(1.0, time_in_night_hours / 6.0)
 
         # Combine factors, using neuro_scale to avoid hard suppression when neurochemistry is moderate
-        raw = (base + bizarreness_trigger + rc_factor + training_factor) * temporal_factor * neuro_scale
+        raw = (
+            (base + bizarreness_trigger + rc_factor + training_factor)
+            * temporal_factor
+            * neuro_scale
+        )
 
         # Time-dependent stochastic bursts (more likely late-night)
         burst_prob = 0.06 + 0.14 * min(1.0, time_in_night_hours / 6.0)
@@ -124,7 +132,11 @@ class MetacognitiveAgent:
 
         # Compute lucidity
         try:
-            time_hours = float(getattr(segment, "time_hours", getattr(segment, "start_time_hours", 0.0)))
+            time_hours = float(
+                getattr(
+                    segment, "time_hours", getattr(segment, "start_time_hours", 0.0)
+                )
+            )
         except Exception:
             time_hours = 0.0
 
@@ -150,7 +162,11 @@ class MetacognitiveAgent:
         # Reality-check failure detection: increment if high biz + REM without lucidity
         high_biz = float(getattr(segment, "bizarreness_score", 0.0)) > 0.85
         lucidity_threshold = 0.35
-        failure = (sleep_state.stage == SleepStage.REM) and high_biz and (lucidity < lucidity_threshold)
+        failure = (
+            (sleep_state.stage == SleepStage.REM)
+            and high_biz
+            and (lucidity < lucidity_threshold)
+        )
 
         if failure:
             self.consecutive_rc_failures += 1
@@ -163,11 +179,13 @@ class MetacognitiveAgent:
         # Publish event
         event = Event(
             type=EventType.LUCIDITY_UPDATED,
-            payload={"segment_id": getattr(segment, "id", None), "lucidity_probability": float(lucidity)},
+            payload={
+                "segment_id": getattr(segment, "id", None),
+                "lucidity_probability": float(lucidity),
+            },
             timestamp_hours=time_hours,
         )
         try:
             self.event_bus.publish(event)
         except Exception:
             pass
-

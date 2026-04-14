@@ -37,9 +37,13 @@ class MemoryNodeModel(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique node identifier.")
+    id: str = Field(
+        default_factory=lambda: str(uuid.uuid4()), description="Unique node identifier."
+    )
     label: str = Field(..., description="Human-readable label or short description.")
-    memory_type: MemoryType = Field(..., description="Type of memory (episodic/semantic/schema).")
+    memory_type: MemoryType = Field(
+        ..., description="Type of memory (episodic/semantic/schema)."
+    )
 
     activation: float = Field(
         default=0.5,
@@ -54,7 +58,9 @@ class MemoryNodeModel(BaseModel):
         description="Importance weighting; affects replay probability.",
     )
 
-    emotion: EmotionLabel = Field(default=EmotionLabel.NEUTRAL, description="Dominant emotion label.")
+    emotion: EmotionLabel = Field(
+        default=EmotionLabel.NEUTRAL, description="Dominant emotion label."
+    )
     arousal: float = Field(
         default=0.5,
         ge=0.0,
@@ -68,7 +74,10 @@ class MemoryNodeModel(BaseModel):
         description="Time since encoding (hours). Used for recency-based replay/forgetting.",
     )
 
-    tags: list[str] = Field(default_factory=list, description="Arbitrary tags (people, places, themes, etc.).")
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Arbitrary tags (people, places, themes, etc.).",
+    )
 
 
 class MemoryEdgeModel(BaseModel):
@@ -189,7 +198,9 @@ class MemoryGraph:
 
             effective_decay = base_decay_rate * (1.0 - emotion_protection * arousal)
             salience_new = max(0.0, salience * math.exp(-effective_decay * dt_hours))
-            activation_new = max(0.0, activation * math.exp(-effective_decay * dt_hours))
+            activation_new = max(
+                0.0, activation * math.exp(-effective_decay * dt_hours)
+            )
 
             self._g.nodes[node_id]["salience"] = salience_new
             self._g.nodes[node_id]["activation"] = activation_new
@@ -232,7 +243,7 @@ class MemoryGraph:
             if start_bias_tags:
                 tags = self._g.nodes[nid].get("tags", [])
                 overlap = len(set(start_bias_tags) & set(tags))
-                w *= (1.0 + 0.5 * overlap)
+                w *= 1.0 + 0.5 * overlap
             weights.append(w)
 
         weights_arr = np.array(weights, dtype=float)
@@ -272,7 +283,13 @@ class MemoryGraph:
 
         # Automatically apply replay pulse for downstream dynamics/visualization
         try:
-            self.apply_replay_pulse(seq, pulse_height=pulse_height, propagation_delay_s=propagation_delay_s, decay_tau_hours=decay_tau_hours, current_time_hours=current_time_hours)
+            self.apply_replay_pulse(
+                seq,
+                pulse_height=pulse_height,
+                propagation_delay_s=propagation_delay_s,
+                decay_tau_hours=decay_tau_hours,
+                current_time_hours=current_time_hours,
+            )
         except Exception:
             # Do not raise from sampling; ensure sampling remains robust
             pass
@@ -320,7 +337,7 @@ class MemoryGraph:
                 increments.append(0.0)
                 continue
             cur_act = float(self._g.nodes[nid].get("activation", 0.5))
-            inc = float(pulse_height) * (0.85 ** i)
+            inc = float(pulse_height) * (0.85**i)
             new_act = min(1.0, cur_act + inc)
             self._g.nodes[nid]["activation"] = new_act
             # store last pulse time for visualization hooks
@@ -331,15 +348,21 @@ class MemoryGraph:
             increments.append(inc)
 
         # record event for export/visualization
-        self.replay_event_log.append({
-            "id": sequence.id,
-            "time_hours": float(current_time_hours),
-            "node_ids": list(sequence.node_ids),
-            "increments": increments,
-            "pulse_height": float(pulse_height),
-            "dominant_emotion": sequence.dominant_emotion.value if hasattr(sequence.dominant_emotion, 'value') else str(sequence.dominant_emotion),
-            "total_weight": float(sequence.total_weight),
-        })
+        self.replay_event_log.append(
+            {
+                "id": sequence.id,
+                "time_hours": float(current_time_hours),
+                "node_ids": list(sequence.node_ids),
+                "increments": increments,
+                "pulse_height": float(pulse_height),
+                "dominant_emotion": (
+                    sequence.dominant_emotion.value
+                    if hasattr(sequence.dominant_emotion, "value")
+                    else str(sequence.dominant_emotion)
+                ),
+                "total_weight": float(sequence.total_weight),
+            }
+        )
 
     def decay_activations(self, dt_hours: float, decay_tau_hours: float = 0.05) -> None:
         """Exponentially decay activations across all nodes.
@@ -386,5 +409,8 @@ class MemoryGraph:
             edge_item.update(data)
             edges.append(edge_item)
 
-        return {"nodes": nodes, "edges": edges, "replay_events": list(self.replay_event_log)}
-        
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "replay_events": list(self.replay_event_log),
+        }

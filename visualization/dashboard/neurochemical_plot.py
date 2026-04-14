@@ -20,10 +20,26 @@ def render_neurochemical_flux(states: List[NeurochemistryState]) -> None:
     cortisol = [s.cortisol for s in states]
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=time, y=ach, mode="lines", name="ACh", line=dict(color="#22d3ee")))
-    fig.add_trace(go.Scatter(x=time, y=serotonin, mode="lines", name="5-HT", line=dict(color="#a855f7")))
-    fig.add_trace(go.Scatter(x=time, y=ne, mode="lines", name="NE", line=dict(color="#f97316")))
-    fig.add_trace(go.Scatter(x=time, y=cortisol, mode="lines", name="Cortisol", line=dict(color="#fb7185")))
+    fig.add_trace(
+        go.Scatter(x=time, y=ach, mode="lines", name="ACh", line=dict(color="#22d3ee"))
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=time, y=serotonin, mode="lines", name="5-HT", line=dict(color="#a855f7")
+        )
+    )
+    fig.add_trace(
+        go.Scatter(x=time, y=ne, mode="lines", name="NE", line=dict(color="#f97316"))
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=time,
+            y=cortisol,
+            mode="lines",
+            name="Cortisol",
+            line=dict(color="#fb7185"),
+        )
+    )
 
     fig.update_xaxes(title="Time (hours)")
     fig.update_yaxes(title="Relative level")

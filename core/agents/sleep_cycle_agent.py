@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from core.models.sleep_cycle import SleepCycleModel, SleepState, SleepStage
+from core.models.sleep_cycle import SleepCycleModel, SleepState
 from core.simulation.event_bus import EventBus, Event, EventType
 
 

@@ -29,8 +29,8 @@ async def simulate_night(body: DreamSimulationRequest) -> DreamNightSchema:
         llm_api_key=body.llm_api_key or None,
     )
     engine = SimulationEngine(config=config)
-    engine.simulate_night()          # timeseries stored on orchestrator
-    night = engine.build_night()     # embeds sleep/neuro/memory into metadata
+    engine.simulate_night()  # timeseries stored on orchestrator
+    night = engine.build_night()  # embeds sleep/neuro/memory into metadata
     night.config = {
         "duration_hours": body.duration_hours,
         "dt_minutes": body.dt_minutes,

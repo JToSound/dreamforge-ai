@@ -17,7 +17,9 @@ class DreamSegment(BaseModel):
     end_time_hours: float
     stage: SleepStage
 
-    narrative: str = Field("", description="First-person description of the dream segment.")
+    narrative: str = Field(
+        "", description="First-person description of the dream segment."
+    )
     scene_description: str = Field("", description="Short, third-person scene summary.")
 
     active_memory_ids: List[str] = Field(default_factory=list)
@@ -26,7 +28,10 @@ class DreamSegment(BaseModel):
     bizarreness_score: float = Field(0.0, ge=0.0, le=1.0)
     lucidity_probability: float = Field(0.0, ge=0.0, le=1.0)
 
-    metadata: dict = Field(default_factory=dict, description="Free-form metadata for analysis/visualization.")
+    metadata: dict = Field(
+        default_factory=dict,
+        description="Free-form metadata for analysis/visualization.",
+    )
 
 
 class DreamNight(BaseModel):
@@ -36,4 +41,7 @@ class DreamNight(BaseModel):
     segments: List[DreamSegment]
     config: dict = Field(default_factory=dict)
     notes: Optional[str] = None
-    metadata: dict = Field(default_factory=dict, description="Arbitrary metadata such as summary statistics.")
+    metadata: dict = Field(
+        default_factory=dict,
+        description="Arbitrary metadata such as summary statistics.",
+    )

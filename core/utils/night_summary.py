@@ -54,7 +54,7 @@ def _bizarreness_stats(segments: List[DreamSegment]) -> Dict[str, object]:
     n = float(len(scores))
     mean = sum(scores) / n
     var = sum((x - mean) ** 2 for x in scores) / n
-    std = var ** 0.5
+    std = var**0.5
 
     top = sorted(segments, key=lambda s: s.bizarreness_score, reverse=True)[:5]
     top_info = [
@@ -71,7 +71,9 @@ def _bizarreness_stats(segments: List[DreamSegment]) -> Dict[str, object]:
     return {"mean": mean, "std": std, "top_segments": top_info}
 
 
-def _top_memory_nodes(segments: List[DreamSegment], memory_graph: MemoryGraph, k: int = 5) -> List[Dict[str, object]]:
+def _top_memory_nodes(
+    segments: List[DreamSegment], memory_graph: MemoryGraph, k: int = 5
+) -> List[Dict[str, object]]:
     g = memory_graph.to_networkx()
     if g.number_of_nodes() == 0:
         return []

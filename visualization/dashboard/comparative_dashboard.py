@@ -9,10 +9,14 @@ from core.utils.pharmacology import PharmacologyProfile
 from core.models.dream_segment import DreamSegment
 
 
-def _run_sim(duration_hours: float, ssri_strength: float, stress_level: float) -> List[DreamSegment]:
+def _run_sim(
+    duration_hours: float, ssri_strength: float, stress_level: float
+) -> List[DreamSegment]:
     config = OrchestratorConfig(
         night_duration_hours=duration_hours,
-        pharmacology=PharmacologyProfile(ssri_strength=ssri_strength, stress_level=stress_level),
+        pharmacology=PharmacologyProfile(
+            ssri_strength=ssri_strength, stress_level=stress_level
+        ),
     )
     engine = SimulationEngine(config=config)
     engine.simulate_night()

@@ -1,37 +1,57 @@
-from __future__ import annotations
-
 """Unified LLM backend with provider auto-detection and demo-mode DreamScript.
 
 Provides a lightweight abstraction for generating text from OpenAI/Anthropic/
 Ollama or the offline DreamScript engine when no provider is available.
 """
+
+from __future__ import annotations
+
 import os
 import time
+import re
 from enum import Enum
-from dataclasses import dataclass
 from typing import Optional, Iterator
 
 import httpx
 from pydantic import BaseModel, Field
 
+from core.config import load_runtime_config
 from core.simulation.dreamscript import DreamScriptEngine
 from core.utils.llm_adapters import create_llm_callable
+
+_RUNTIME_CONFIG = load_runtime_config()
 
 
 class Providers(str, Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     OLLAMA = "ollama"
+    LMSTUDIO = "lmstudio"
     DREAMSCRIPT = "dreamscript"
 
 
 class LLMConfig(BaseModel):
     provider: Providers = Field(Providers.DREAMSCRIPT)
-    model_name: str = Field("gpt-4o")
-    api_key: Optional[str] = None
-    ollama_base_url: str = Field("http://localhost:11434")
-    temperature: float = Field(0.85)
-    max_tokens: int = Field(200)
+    model_name: str = Field(default_factory=lambda: _RUNTIME_CONFIG.llm_model)
+    api_key: Optional[str] = Field(default_factory=lambda: _RUNTIME_CONFIG.llm_api_key)
+    ollama_base_url: str = Field(
+        default_factory=lambda: _RUNTIME_CONFIG.llm_ollama_base_url
+    )
+    lmstudio_base_url: str = Field(
+        default_factory=lambda: _RUNTIME_CONFIG.llm_lmstudio_base_url
+    )
+    temperature: float = Field(default_factory=lambda: _RUNTIME_CONFIG.llm_temperature)
+    max_tokens: int = Field(default_factory=lambda: _RUNTIME_CONFIG.llm_max_tokens)
+    demo_mode: bool = Field(
+        default_factory=lambda: os.getenv("DEMO_MODE", "1").strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+
+
+def strip_thinking_tags(response: str) -> str:
+    if not response:
+        return ""
+    return re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
 
 
 class LLMBackend:
@@ -51,6 +71,13 @@ class LLMBackend:
         self._detect_provider()
 
     def _detect_provider(self) -> None:
+        if self.config.demo_mode and not (
+            os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+        ):
+            self.config.provider = Providers.DREAMSCRIPT
+            self._callable = None
+            return
+
         # 1) Environment keys
         if os.getenv("OPENAI_API_KEY"):
             self.config.provider = Providers.OPENAI
@@ -65,15 +92,29 @@ class LLMBackend:
                     r = client.get(f"{self.config.ollama_base_url}/api/tags")
                     if r.status_code == 200:
                         self.config.provider = Providers.OLLAMA
+                    else:
+                        m = client.get(f"{self.config.lmstudio_base_url}/models")
+                        if m.status_code == 200:
+                            self.config.provider = Providers.LMSTUDIO
             except Exception:
-                # default to DREAMSCRIPT
-                self.config.provider = Providers.DREAMSCRIPT
+                try:
+                    with httpx.Client(timeout=2.0) as client:
+                        m = client.get(f"{self.config.lmstudio_base_url}/models")
+                        if m.status_code == 200:
+                            self.config.provider = Providers.LMSTUDIO
+                        else:
+                            self.config.provider = Providers.DREAMSCRIPT
+                except Exception:
+                    # default to DREAMSCRIPT
+                    self.config.provider = Providers.DREAMSCRIPT
 
         # Instantiate callable if not DreamsScript
         if self.config.provider != Providers.DREAMSCRIPT:
             # try to create an adapter callable (may raise if libs missing)
             try:
-                self._callable = create_llm_callable(self.config.provider, self.config.model_name)
+                self._callable = create_llm_callable(
+                    self.config.provider, self.config.model_name
+                )
             except Exception:
                 self._callable = None
                 self.config.provider = Providers.DREAMSCRIPT
@@ -91,8 +132,8 @@ class LLMBackend:
         for attempt in range(max_retries):
             try:
                 # callable is expected to be synchronous
-                return self._callable(prompt)
-            except Exception as exc:
+                return strip_thinking_tags(self._callable(prompt))
+            except Exception:
                 if attempt + 1 == max_retries:
                     raise
                 time.sleep(backoff)
@@ -134,7 +175,12 @@ class LLMBackend:
                 v = v.strip()
                 if k == "stage":
                     try:
-                        stage = Stage = getattr(__import__("core.models.sleep_cycle", fromlist=["SleepStage"]), "SleepStage")(v)
+                        stage = getattr(
+                            __import__(
+                                "core.models.sleep_cycle", fromlist=["SleepStage"]
+                            ),
+                            "SleepStage",
+                        )(v)
                     except Exception:
                         stage = None
                 elif k == "ach":
@@ -150,6 +196,22 @@ class LLMBackend:
 
         if stage is None:
             # default to REM-like or inferred from biz
-            stage = getattr(__import__("core.models.sleep_cycle", fromlist=["SleepStage"]), "SleepStage").REM if getattr(biz, "total_score", 0.5) > 0.6 else getattr(__import__("core.models.sleep_cycle", fromlist=["SleepStage"]), "SleepStage").N2
+            stage = (
+                getattr(
+                    __import__("core.models.sleep_cycle", fromlist=["SleepStage"]),
+                    "SleepStage",
+                ).REM
+                if getattr(biz, "total_score", 0.5) > 0.6
+                else getattr(
+                    __import__("core.models.sleep_cycle", fromlist=["SleepStage"]),
+                    "SleepStage",
+                ).N2
+            )
 
-        return self._dreamscript.generate_narrative(stage=stage, neurochemistry=neuro, active_memories=active_memories, bizarreness=biz, prev_segment_text=None)
+        return self._dreamscript.generate_narrative(
+            stage=stage,
+            neurochemistry=neuro,
+            active_memories=active_memories,
+            bizarreness=biz,
+            prev_segment_text=None,
+        )

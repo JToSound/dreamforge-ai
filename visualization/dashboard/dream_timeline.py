@@ -16,7 +16,10 @@ def render_dream_timeline(segments: List[DreamSegment]) -> None:
     x_start = [s.start_time_hours for s in segments]
     x_end = [s.end_time_hours for s in segments]
     durations = [e - s for s, e in zip(x_start, x_end)]
-    texts = [f"{seg.stage.value} | {seg.dominant_emotion.value} | B={seg.bizarreness_score:.2f}" for seg in segments]
+    texts = [
+        f"{seg.stage.value} | {seg.dominant_emotion.value} | B={seg.bizarreness_score:.2f}"
+        for seg in segments
+    ]
 
     colors = ["#38bdf8" if seg.stage.value == "REM" else "#4ade80" for seg in segments]
 

@@ -15,6 +15,7 @@ Scientific references
 - Achermann, P. & Borbély, A.A. (2003). Mathematical models of sleep regulation.
   Frontiers in Bioscience, 8, s683–693.
 """
+
 from __future__ import annotations
 
 import math
@@ -22,12 +23,14 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Tuple
 
+import numpy as np
 from pydantic import BaseModel, Field, ConfigDict
 
 
 # ---------------------------------------------------------------------------
 # Enumerations
 # ---------------------------------------------------------------------------
+
 
 class SleepStage(str, Enum):
     """Standard polysomnography sleep stages.
@@ -37,15 +40,16 @@ class SleepStage(str, Enum):
     """
 
     WAKE = "WAKE"
-    N1   = "N1"
-    N2   = "N2"
-    N3   = "N3"
-    REM  = "REM"
+    N1 = "N1"
+    N2 = "N2"
+    N3 = "N3"
+    REM = "REM"
 
 
 # ---------------------------------------------------------------------------
 # Parameter model
 # ---------------------------------------------------------------------------
+
 
 class TwoProcessParameters(BaseModel):
     """Parameters for Borbély’s two-process model (Process S and Process C).
@@ -69,20 +73,23 @@ class TwoProcessParameters(BaseModel):
 
     # --- Process S (hours) ---------------------------------------------------
     tau_wake: float = Field(
-        default=18.0, gt=0.0,
+        default=18.0,
+        gt=0.0,
         description="Time constant for S increase during wake (hours). "
-                    "Borbély 1982 estimate: ~18 h.",
+        "Borbély 1982 estimate: ~18 h.",
     )
     tau_sleep: float = Field(
         # Reduced from 4.2 -> 3.5 to slow S decay slightly and increase
         # time spent at high homeostatic pressure (promotes more N3/SWS).
         # Source: Achermann & Borbély (2003), Journal of Sleep Research 12:37–46
-        default=3.5, gt=0.0,
+        default=3.5,
+        gt=0.0,
         description="Time constant for S decay during sleep (hours). "
-                    "Adjusted per Achermann & Borbély (2003) to increase SWS proportion.",
+        "Adjusted per Achermann & Borbély (2003) to increase SWS proportion.",
     )
     s_max: float = Field(
-        default=1.0, gt=0.0,
+        default=1.0,
+        gt=0.0,
         description="Upper asymptote for Process S (normalised).",
     )
     s_min: float = Field(
@@ -92,17 +99,19 @@ class TwoProcessParameters(BaseModel):
 
     # --- Process C -----------------------------------------------------------
     circadian_period: float = Field(
-        default=24.2, gt=0.0,
+        default=24.2,
+        gt=0.0,
         description="Intrinsic circadian period (hours). Human average ~24.2 h.",
     )
     circadian_amplitude: float = Field(
-        default=0.50, gt=0.0,
+        default=0.50,
+        gt=0.0,
         description="Amplitude of the circadian oscillation (normalised).",
     )
     circadian_phase: float = Field(
         default=18.0,
         description="Clock time (hours, 0–24) of the circadian *maximum* "
-                    "(approximately early evening alerting peak).",
+        "(approximately early evening alerting peak).",
     )
 
     # --- Stage thresholds / heuristics --------------------------------------
@@ -111,30 +120,31 @@ class TwoProcessParameters(BaseModel):
         # Source: Borbély (1982), Human Neurobiology 1:195–204
         default=0.65,
         description="Process-S value above which N3 (SWS) is preferentially "
-                    "generated in early-night cycles. Lowered to promote realistic SWS fraction.",
+        "generated in early-night cycles. Lowered to promote realistic SWS fraction.",
     )
     rem_c_threshold: float = Field(
         default=0.15,
         description="Circadian component below which REM transitions are "
-                    "suppressed (morning-bias heuristic).",
+        "suppressed (morning-bias heuristic).",
     )
     rem_cycle_bias: float = Field(
         default=0.18,
         description="Per-cycle additive probability increment for REM onset, "
-                    "reflecting the empirical lengthening of REM toward morning.",
+        "reflecting the empirical lengthening of REM toward morning.",
     )
 
     # --- Simulation defaults ------------------------------------------------
     initial_s_fraction: float = Field(
         default=0.90,
         description="Initial Process S as a fraction of s_max at sleep onset. "
-                    "Represents accumulated homeostatic pressure after ~16 h wake.",
+        "Represents accumulated homeostatic pressure after ~16 h wake.",
     )
 
 
 # ---------------------------------------------------------------------------
 # State dataclass
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class SleepState:
@@ -163,9 +173,102 @@ class SleepState:
     """Elapsed time in the current cycle (minutes)."""
 
 
+CYCLE_TEMPLATES: dict[int, list[tuple[SleepStage, float]]] = {
+    1: [
+        (SleepStage.N1, 5.0),
+        (SleepStage.N2, 20.0),
+        (SleepStage.N3, 40.0),
+        (SleepStage.N2, 10.0),
+        (SleepStage.REM, 10.0),
+    ],
+    2: [
+        (SleepStage.N1, 3.0),
+        (SleepStage.N2, 20.0),
+        (SleepStage.N3, 25.0),
+        (SleepStage.N2, 10.0),
+        (SleepStage.REM, 14.0),
+    ],
+    3: [
+        (SleepStage.N1, 2.0),
+        (SleepStage.N2, 20.0),
+        (SleepStage.N3, 10.0),
+        (SleepStage.N2, 10.0),
+        (SleepStage.REM, 18.0),
+    ],
+    4: [
+        (SleepStage.N1, 2.0),
+        (SleepStage.N2, 25.0),
+        (SleepStage.N3, 5.0),
+        (SleepStage.N2, 10.0),
+        (SleepStage.REM, 20.0),
+    ],
+}
+
+DEFAULT_CYCLE_TEMPLATE: list[tuple[SleepStage, float]] = [
+    (SleepStage.N1, 2.0),
+    (SleepStage.N2, 30.0),
+    (SleepStage.REM, 15.0),
+]
+
+
+class CycleStateMachine:
+    """Build staged ultradian-cycle schedules from empirical templates."""
+
+    def __init__(
+        self,
+        templates: Optional[dict[int, list[tuple[SleepStage, float]]]] = None,
+        default_template: Optional[list[tuple[SleepStage, float]]] = None,
+        jitter_std: float = 0.2,
+        jitter_min: float = 0.8,
+        jitter_max: float = 1.2,
+    ) -> None:
+        self.templates = templates or CYCLE_TEMPLATES
+        self.default_template = default_template or DEFAULT_CYCLE_TEMPLATE
+        self.jitter_std = jitter_std
+        self.jitter_min = jitter_min
+        self.jitter_max = jitter_max
+
+    def _jitter_duration(self, base_minutes: float) -> float:
+        mult = float(np.random.normal(1.0, self.jitter_std))
+        mult = max(self.jitter_min, min(self.jitter_max, mult))
+        return max(1.0, base_minutes * mult)
+
+    def build_schedule(self, total_minutes: int) -> list[dict]:
+        schedule: list[dict] = []
+        cursor = 0.0
+        cycle_idx = 0
+
+        while cursor < total_minutes:
+            cycle_idx += 1
+            template = self.templates.get(cycle_idx, self.default_template)
+            cycle_start_min = cursor
+
+            for stage, base_min in template:
+                dur = self._jitter_duration(base_min)
+                start_min = cursor
+                end_min = min(total_minutes, cursor + dur)
+
+                schedule.append(
+                    {
+                        "cycle_index": cycle_idx - 1,
+                        "stage": stage,
+                        "start_min": start_min,
+                        "end_min": end_min,
+                        "cycle_cycle_start_min": cycle_start_min,
+                    }
+                )
+
+                cursor = end_min
+                if cursor >= total_minutes:
+                    break
+
+        return schedule
+
+
 # ---------------------------------------------------------------------------
 # Model
 # ---------------------------------------------------------------------------
+
 
 class SleepCycleModel:
     """Implements Borbély’s two-process model with empirical stage dynamics.
@@ -187,6 +290,7 @@ class SleepCycleModel:
 
     def __init__(self, params: Optional[TwoProcessParameters] = None) -> None:
         self.params: TwoProcessParameters = params or TwoProcessParameters()
+        self.cycle_state_machine = CycleStateMachine()
 
     # ------------------------------------------------------------------
     # Process S dynamics
@@ -256,9 +360,7 @@ class SleepCycleModel:
         """
         p = self.params
         phase_rad = (
-            2.0 * math.pi
-            * (global_time_hours - p.circadian_phase)
-            / p.circadian_period
+            2.0 * math.pi * (global_time_hours - p.circadian_phase) / p.circadian_period
         )
         return float(p.circadian_amplitude * math.sin(phase_rad))
 
@@ -391,9 +493,7 @@ class SleepCycleModel:
         )
 
         time_in_stage = (
-            state.time_in_stage_hours + dt_hours
-            if new_stage == state.stage
-            else 0.0
+            state.time_in_stage_hours + dt_hours if new_stage == state.stage else 0.0
         )
 
         return SleepState(
@@ -464,7 +564,6 @@ class SleepCycleModel:
         # helper: find active segment index by minute using incremental pointer
         seg_idx = 0
         seg_start = schedule[0]["start_min"]
-        seg_end = schedule[0]["end_min"]
 
         state = self.initial_state(sleep_start_clock_time=sleep_start_clock_time)
         states: list[SleepState] = [state]
@@ -474,10 +573,12 @@ class SleepCycleModel:
             current_min = step * dt_minutes
 
             # advance segment pointer if needed
-            while seg_idx + 1 < len(schedule) and current_min >= schedule[seg_idx]["end_min"]:
+            while (
+                seg_idx + 1 < len(schedule)
+                and current_min >= schedule[seg_idx]["end_min"]
+            ):
                 seg_idx += 1
                 seg_start = schedule[seg_idx]["start_min"]
-                seg_end = schedule[seg_idx]["end_min"]
 
             seg = schedule[seg_idx]
             current_stage = seg["stage"]
@@ -520,51 +621,7 @@ class SleepCycleModel:
         Durations follow empirical templates per cycle (see Task 2 spec) with
         ±20% jitter (clipped) applied to each stage duration.
         """
-        import numpy as _np
-
-        # Empirically-informed per-cycle templates. Reduced REM durations
-        # compared to earlier defaults to target realistic REM fraction (~20%).
-        # These values reflect typical REM lengthening across cycles while
-        # keeping total REM within expected adult ranges for an 8h night.
-        templates = {
-            1: [(SleepStage.N1, 5), (SleepStage.N2, 20), (SleepStage.N3, 40), (SleepStage.N2, 10), (SleepStage.REM, 10)],
-            2: [(SleepStage.N1, 3), (SleepStage.N2, 20), (SleepStage.N3, 25), (SleepStage.N2, 10), (SleepStage.REM, 14)],
-            3: [(SleepStage.N1, 2), (SleepStage.N2, 20), (SleepStage.N3, 10), (SleepStage.N2, 10), (SleepStage.REM, 18)],
-            4: [(SleepStage.N1, 2), (SleepStage.N2, 25), (SleepStage.N3, 5),  (SleepStage.N2, 10), (SleepStage.REM, 20)],
-        }
-        default_template = [(SleepStage.N1, 2), (SleepStage.N2, 30), (SleepStage.REM, 15)]
-
-        schedule: list[dict] = []
-        cursor = 0.0
-        cycle_idx = 0
-
-        while cursor < total_minutes:
-            cycle_idx += 1
-            templ = templates.get(cycle_idx, default_template)
-            cycle_start_min = cursor
-
-            for stage, base_min in templ:
-                # jitter multiplier ~ N(1, 0.2), clipped to [0.8, 1.2]
-                mult = float(_np.random.normal(1.0, 0.2))
-                mult = max(0.8, min(1.2, mult))
-                dur = max(1.0, base_min * mult)
-
-                start_min = cursor
-                end_min = min(total_minutes, cursor + dur)
-
-                schedule.append({
-                    "cycle_index": cycle_idx - 1,
-                    "stage": stage,
-                    "start_min": start_min,
-                    "end_min": end_min,
-                    "cycle_cycle_start_min": cycle_start_min,
-                })
-
-                cursor = end_min
-                if cursor >= total_minutes:
-                    break
-
-        return schedule
+        return self.cycle_state_machine.build_schedule(total_minutes=total_minutes)
 
     def process_s_curve(
         self,

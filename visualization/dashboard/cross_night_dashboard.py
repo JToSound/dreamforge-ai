@@ -10,10 +10,14 @@ from core.models.dream_segment import DreamNight
 from core.simulation.continuity_tracker import CrossNightContinuityTracker
 
 
-def _simulate_night(duration_hours: float, ssri_strength: float, stress_level: float) -> DreamNight:
+def _simulate_night(
+    duration_hours: float, ssri_strength: float, stress_level: float
+) -> DreamNight:
     config = OrchestratorConfig(
         night_duration_hours=duration_hours,
-        pharmacology=PharmacologyProfile(ssri_strength=ssri_strength, stress_level=stress_level),
+        pharmacology=PharmacologyProfile(
+            ssri_strength=ssri_strength, stress_level=stress_level
+        ),
     )
     engine = SimulationEngine(config=config)
     engine.simulate_night()
@@ -50,7 +54,9 @@ def _render_recurring_sankey(nights: List[DreamNight]) -> None:
     value = data["links"]["value"]
 
     if not value:
-        st.info("No recurring memory fragments across nights (increase number of nights or adjust parameters).")
+        st.info(
+            "No recurring memory fragments across nights (increase number of nights or adjust parameters)."
+        )
         return
 
     fig = go.Figure(
@@ -62,12 +68,16 @@ def _render_recurring_sankey(nights: List[DreamNight]) -> None:
         ]
     )
 
-    fig.update_layout(title_text="Recurring Memory Fragments Across Nights", font_size=12)
+    fig.update_layout(
+        title_text="Recurring Memory Fragments Across Nights", font_size=12
+    )
     st.plotly_chart(fig, use_container_width=True)
 
 
 def _render_recurring_table(nights: List[DreamNight]) -> None:
-    stats = CrossNightContinuityTracker.compute_recurring_memory_stats(nights, min_nights=2)
+    stats = CrossNightContinuityTracker.compute_recurring_memory_stats(
+        nights, min_nights=2
+    )
     if not stats:
         st.info("No recurring memory fragments found.")
         return
@@ -99,11 +109,15 @@ def main() -> None:
         run_button = st.button("Run multi-night simulation")
 
     if not run_button:
-        st.info("Configure parameters in the sidebar and click 'Run multi-night simulation'.")
+        st.info(
+            "Configure parameters in the sidebar and click 'Run multi-night simulation'."
+        )
         return
 
     with st.spinner("Simulating nights..."):
-        nights = _run_multi_night(num_nights, duration_hours, ssri_strength, stress_level)
+        nights = _run_multi_night(
+            num_nights, duration_hours, ssri_strength, stress_level
+        )
 
     st.subheader("Recurring memory fragments (Sankey view)")
     _render_recurring_sankey(nights)

@@ -23,7 +23,9 @@ def _ensure_dir() -> None:
     _JOURNAL_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
-def append_journal_entry(text: str, emotion: str, stress_level: float, tags: List[str]) -> None:
+def append_journal_entry(
+    text: str, emotion: str, stress_level: float, tags: List[str]
+) -> None:
     _ensure_dir()
     entry = JournalEntry(
         text=text.strip(),

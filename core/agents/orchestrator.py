@@ -5,7 +5,13 @@ import uuid
 from typing import Any, Callable, Optional
 
 from core.agents.dream_constructor_agent import DreamConstructorAgent, DreamSegment
-from core.models.memory_graph import MemoryGraph, MemoryNodeModel, MemoryEdgeModel, MemoryType, EmotionLabel
+from core.models.memory_graph import (
+    MemoryGraph,
+    MemoryNodeModel,
+    MemoryEdgeModel,
+    MemoryType,
+    EmotionLabel,
+)
 from core.models.neurochemistry import NeurochemistryModel, NeurochemistryParameters
 from core.models.sleep_cycle import SleepCycleModel, TwoProcessParameters
 from core.simulation.engine import SimulationEngine, SimulationConfig
@@ -81,7 +87,7 @@ class OrchestratorAgent:
         stress_level: float = 0.5,
     ) -> None:
         """Encode prior-day events into the memory graph before simulation."""
-        from core.models.memory_graph import MemoryNodeModel, MemoryType, EmotionLabel
+        from core.models.memory_graph import EmotionLabel
         import random
 
         emotion_map = {
@@ -148,7 +154,9 @@ class OrchestratorAgent:
             llm_every_n_segments=llm_every_n_segments,
         )
 
-        def _internal_progress(progress: float, stage: str, message: str, segment: Optional[DreamSegment]):
+        def _internal_progress(
+            progress: float, stage: str, message: str, segment: Optional[DreamSegment]
+        ):
             self._emit_progress(progress, stage, message, segment)
 
         result = self.engine.run(

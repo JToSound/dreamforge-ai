@@ -148,6 +148,16 @@ pip install -e .
 streamlit run visualization/dashboard/app.py --server.port=8501 --server.address=0.0.0.0
 ```
 
+## Configuration
+
+Runtime defaults are centralized in `core/config.py` and can be overridden via
+environment variables. The most useful overrides are:
+
+- `API_BASE_URL`
+- `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`
+- `OLLAMA_BASE_URL`, `LMSTUDIO_BASE_URL`
+- `SIM_DURATION_HOURS`, `SIM_DT_MINUTES`, `SIM_STRESS_LEVEL`, `SIM_SLEEP_START_HOUR`
+
 ## Docker (development)
 
 We provide a cache-friendly dashboard Dockerfile and compose setup. For local development use the editable install build (default DEV=1 in `docker-compose.yml`). Build with BuildKit enabled for best caching:
@@ -162,6 +172,19 @@ docker compose up dashboard
 ## CI
 
 The GitHub Actions workflow uses Buildx with the GHA cache (`cache-from` / `cache-to`) to persist Docker build cache between runs, speeding up subsequent builds.
+
+## Demo GIF capture
+
+With API + dashboard running locally, generate a short demo GIF:
+
+```bash
+pip install playwright imageio
+playwright install
+python scripts/generate_demo_gif.py
+```
+
+By default, frames are captured from `http://localhost:8501` and assembled into
+`demo.gif` (override URL with `DEMO_URL`).
 
 ## Roadmap
 
