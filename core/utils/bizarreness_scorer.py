@@ -47,11 +47,11 @@ def compute_bizarreness(
     This implementation follows the component weighting specified in the
     Phase 2 production upgrade prompt (Revonsuo & Salmivalli 1995 citation):
 
-      - Stage base:  N1=0.10, N2=0.18, N3=0.08, REM=0.52, WAKE=0.04
-      - ACh boost:   +0.22 * ach_level
-      - NE suppress: +0.18 * (1 - ne_level)
-      - Arousal:     +0.12 * memory_arousal
-      - Cycle bonus: +0.03 * min(cycle_index, 4)
+      - Stage base:  N1=0.10, N2=0.18, N3=0.08, REM=0.40, WAKE=0.04
+      - ACh boost:   +0.25 * ach_level
+      - NE suppress: +0.20 * (1 - ne_level)
+      - Arousal:     +0.10 * memory_arousal
+      - Cycle bonus: +0.03 * min(cycle_index, 3)
 
     A small Gaussian noise (sigma=0.025) is added and the result is clipped
     to [0, 1]. Component scores are derived deterministically from the
@@ -73,16 +73,16 @@ def compute_bizarreness(
         SleepStage.N1: 0.10,
         SleepStage.N2: 0.18,
         SleepStage.N3: 0.08,
-        SleepStage.REM: 0.52,
+        SleepStage.REM: 0.40,
         SleepStage.WAKE: 0.04,
     }
 
     s_base = float(stage_base_map.get(stage, 0.1))
 
-    ach_contrib = 0.22 * float(np.clip(ach_level, 0.0, 1.0))
-    ne_contrib = 0.18 * (1.0 - float(np.clip(ne_level, 0.0, 1.0)))
-    arousal_contrib = 0.12 * float(np.clip(memory_arousal, 0.0, 1.0))
-    cycle_contrib = 0.03 * float(min(int(cycle_index), 4))
+    ach_contrib = 0.25 * float(np.clip(ach_level, 0.0, 1.0))
+    ne_contrib = 0.20 * (1.0 - float(np.clip(ne_level, 0.0, 1.0)))
+    arousal_contrib = 0.10 * float(np.clip(memory_arousal, 0.0, 1.0))
+    cycle_contrib = 0.03 * float(min(int(cycle_index), 3))
 
     # Small Gaussian noise
     sigma = 0.025

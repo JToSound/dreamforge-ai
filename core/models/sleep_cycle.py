@@ -79,13 +79,11 @@ class TwoProcessParameters(BaseModel):
         "Borbély 1982 estimate: ~18 h.",
     )
     tau_sleep: float = Field(
-        # Reduced from 4.2 -> 3.5 to slow S decay slightly and increase
-        # time spent at high homeostatic pressure (promotes more N3/SWS).
-        # Source: Achermann & Borbély (2003), Journal of Sleep Research 12:37–46
-        default=3.5,
+        # Source: Borbély (1982), Human Neurobiology 1:195–204
+        default=4.2,
         gt=0.0,
         description="Time constant for S decay during sleep (hours). "
-        "Adjusted per Achermann & Borbély (2003) to increase SWS proportion.",
+        "Calibrated to reduce early-night REM overshoot in 8h simulations.",
     )
     s_max: float = Field(
         default=1.0,
@@ -194,41 +192,41 @@ CYCLE_TEMPLATES: dict[int, list[tuple[SleepStage, float]]] = {
         (SleepStage.N1, 5.0),
         (SleepStage.N2, 20.0),
         (SleepStage.N3, N3_DURATION_BY_CYCLE[0]),
-        (SleepStage.N2, 10.0),
-        (SleepStage.REM, 13.0),
+        (SleepStage.N2, 25.0),
+        (SleepStage.REM, 10.0),
     ],
     2: [
         (SleepStage.N1, 3.0),
         (SleepStage.N2, 20.0),
         (SleepStage.N3, N3_DURATION_BY_CYCLE[1]),
-        (SleepStage.N2, 10.0),
-        (SleepStage.REM, 17.0),
+        (SleepStage.N2, 28.0),
+        (SleepStage.REM, 14.0),
     ],
     3: [
         (SleepStage.N1, 2.0),
-        (SleepStage.N2, 20.0),
+        (SleepStage.N2, 25.0),
         (SleepStage.N3, N3_DURATION_BY_CYCLE[2]),
-        (SleepStage.N2, 10.0),
-        (SleepStage.REM, 21.0),
+        (SleepStage.N2, 28.0),
+        (SleepStage.REM, 20.0),
     ],
     4: [
         (SleepStage.N1, 2.0),
-        (SleepStage.N2, 22.0),
+        (SleepStage.N2, 30.0),
         (SleepStage.N3, N3_DURATION_BY_CYCLE[3]),
-        (SleepStage.N2, 10.0),
-        (SleepStage.REM, 24.0),
+        (SleepStage.N2, 25.0),
+        (SleepStage.REM, 25.0),
     ],
     5: [
         (SleepStage.N1, 2.0),
-        (SleepStage.N2, 23.0),
+        (SleepStage.N2, 35.0),
         (SleepStage.N3, N3_DURATION_BY_CYCLE[4]),
-        (SleepStage.N2, 8.0),
-        (SleepStage.REM, 28.0),
+        (SleepStage.N2, 20.0),
+        (SleepStage.REM, 30.0),
     ],
     6: [
         (SleepStage.N1, 2.0),
-        (SleepStage.N2, 26.0),
-        (SleepStage.REM, 30.0),
+        (SleepStage.N2, 53.0),
+        (SleepStage.REM, 35.0),
     ],
 }
 

@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### v5 physiology and dashboard calibrations
+- Recalibrated sleep architecture in `core/models/sleep_cycle.py`:
+  - `tau_sleep` default set to `4.2`
+  - cycle REM durations reduced and N3 early-night weighting preserved for physiological REM/N3 ratios.
+- Reworked cortisol dynamics in `core/models/neurochemistry.py` to a delayed nadir + steep morning rise profile (nadir ~02:30, onset ~05:30, peak ~07:30).
+- Updated API simulation physiology in `api/main.py`:
+  - reduced REM bizarreness saturation by lowering REM stage prior and reweighting ACh/NE/arousal/cycle terms,
+  - enforced REM-only lucidity output with softer ACh sigmoid gating centered at `0.60`.
+- Hardened dashboard rendering in `visualization/dashboard/app.py`:
+  - neurochemistry fallback chain now supports `neurochemistry`, `neurochemistry_series`, `neurochemistry_ticks`, and segment-derived reconstruction,
+  - dream narrative tab now prefers `narrative` first (with additional fallbacks) and supports stage/mode filtering.
+- Added regression coverage in `tests/test_fixes_v5.py` for:
+  - sleep parameter/cycle proportion targets,
+  - cortisol shape constraints,
+  - bizarreness and lucidity calibration checks,
+  - API physics output behavior,
+  - dashboard fallback key presence.
+
 ### Post-run diagnostic fixes (session `ec094636`)
 - Added Fix 5 (`generation_mode` provenance):
   - normalized `GenerationMode` enum values to `LLM | TEMPLATE | LLM_FALLBACK`,

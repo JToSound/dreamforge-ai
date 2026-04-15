@@ -77,12 +77,13 @@ class MetacognitiveAgent:
         - Stage gating & lucidity: Voss et al. (2009), Sleep 32(9):1191–1200
         - ACh dependency: Hobson (2009), Nature Reviews Neuroscience 10:803–813
         """
-        # Stage gate — low baseline outside REM (small chance)
+        # Stage gate — lucidity is modelled as REM-only in this simulator.
         if stage != SleepStage.REM:
-            return float(np.clip(0.04 * random.gauss(1.0, 0.20), 0.0, 1.0))
+            return 0.0
 
         # Neurochemical gate (keep as a soft influence rather than hard multiplier)
-        ach_gate = self._sigmoid((ach_level - 0.65) * 10.0)
+        # Source: Hobson & Friston (2012), Voss et al. (2009)
+        ach_gate = self._sigmoid((ach_level - 0.60) * 5.0)
         cort_gate = 1.0 - abs(cortisol_level - 0.50) * 2.0
         neuro_factor = ach_gate * max(0.0, cort_gate)
         # map neuro_factor into a milder scaling range [0.6, 1.0]
@@ -161,7 +162,7 @@ class MetacognitiveAgent:
 
         # Reality-check failure detection: increment if high biz + REM without lucidity
         high_biz = float(getattr(segment, "bizarreness_score", 0.0)) > 0.85
-        lucidity_threshold = 0.35
+        lucidity_threshold = 0.60
         failure = (
             (sleep_state.stage == SleepStage.REM)
             and high_biz

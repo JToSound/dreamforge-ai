@@ -344,7 +344,25 @@ if result is None:
 else:
     # ── Unpack result ─────────────────────────────────────────────────────────
     segments = result.get("segments", [])
-    neuro_data = result.get("neurochemistry", [])
+    neuro_data = (
+        result.get("neurochemistry")
+        or result.get("neurochemistry_series")
+        or result.get("neurochemistry_ticks")
+        or [
+            {
+                "time_hours": s.get("start_time_hours", i / 120.0),
+                "stage": s.get("stage", "N2"),
+                "ach": float((s.get("neurochemistry") or {}).get("ach", 0.0)),
+                "serotonin": float(
+                    (s.get("neurochemistry") or {}).get("serotonin", 0.0)
+                ),
+                "ne": float((s.get("neurochemistry") or {}).get("ne", 0.0)),
+                "cortisol": float((s.get("neurochemistry") or {}).get("cortisol", 0.0)),
+            }
+            for i, s in enumerate(segments)
+            if s.get("neurochemistry")
+        ]
+    )
     mem_graph = result.get("memory_graph", {"nodes": [], "edges": []})
     metadata = result.get("metadata", {})
 
@@ -920,7 +938,9 @@ else:
             )
             st.plotly_chart(fig2, use_container_width=True, key=f"neuro_tab_{sim_key}")
         else:
-            st.info("No neurochemistry data returned.")
+            st.warning(
+                "⚠️ Neurochemistry data unavailable. Check result JSON or CSV export."
+            )
 
     # ── Memory Graph ──────────────────────────────────────────────────────────
     with tab_mem:
@@ -1041,28 +1061,93 @@ else:
     # ── Dream Narrative ───────────────────────────────────────────────────────
     with tab_dream:
         if segments:
+            extracted_segments = []
             for i, seg in enumerate(segments):
-                stage = seg.get("stage", "?")
-                biz = seg.get("bizarreness", 0)
-                emotion = seg.get("dominant_emotion", "neutral")
-                text = seg.get("narrative_text", "")
-                badge_color = stage_color.get(stage, "#888")
-
-                st.markdown(
-                    f"""
-                <div style="background:#1a1a2e; border-left:3px solid {badge_color};
-                     border-radius:8px; padding:0.8rem 1rem; margin-bottom:0.8rem;">
-                  <div style="font-size:0.75rem; color:#6060a0; margin-bottom:0.3rem;">
-                    Segment {i+1} · Stage: <b style="color:{badge_color}">{stage}</b>
-                    · Emotion: {emotion} · Bizarreness: {biz:.2f}
-                  </div>
-                  <div style="color:#c8c8e0; font-size:0.95rem; line-height:1.6;">
-                    {text if text else "<em style='color:#404060'>No narrative generated.</em>"}
-                  </div>
-                </div>
-                """,
-                    unsafe_allow_html=True,
+                narrative = (
+                    seg.get("narrative")
+                    or seg.get("narrative_text")
+                    or seg.get("dream_text")
+                    or seg.get("content")
+                    or seg.get("dream_narrative")
+                    or seg.get("scene_description")
                 )
+                if not narrative or not isinstance(narrative, str):
+                    continue
+                narrative = narrative.strip()
+                if not narrative:
+                    continue
+                extracted_segments.append(
+                    {
+                        "idx": i + 1,
+                        "stage": seg.get("stage", "N2"),
+                        "time": float(
+                            seg.get("start_time_hours", seg.get("time_hours", 0.0))
+                            or 0.0
+                        ),
+                        "emotion": seg.get("dominant_emotion", "neutral"),
+                        "biz": float(
+                            seg.get("bizarreness_score", seg.get("bizarreness", 0.0))
+                        ),
+                        "mode": seg.get("generation_mode", "TEMPLATE"),
+                        "narrative": narrative,
+                    }
+                )
+
+            if extracted_segments:
+                extracted_segments.sort(
+                    key=lambda s: (0 if s["mode"] == "LLM" else 1, -s["biz"])
+                )
+
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    filter_stage = st.selectbox(
+                        "Filter Stage",
+                        ["All", "REM", "N1", "N2", "N3", "WAKE"],
+                        key=f"narr_stage_filter_{sim_key}",
+                    )
+                with c2:
+                    filter_mode = st.selectbox(
+                        "Filter Mode",
+                        ["All", "LLM", "TEMPLATE", "LLM_FALLBACK"],
+                        key=f"narr_mode_filter_{sim_key}",
+                    )
+                with c3:
+                    n_display = st.slider(
+                        "Max segments",
+                        min_value=5,
+                        max_value=50,
+                        value=20,
+                        key=f"narr_count_filter_{sim_key}",
+                    )
+
+                filtered = [
+                    s
+                    for s in extracted_segments
+                    if (filter_stage == "All" or s["stage"] == filter_stage)
+                    and (filter_mode == "All" or s["mode"] == filter_mode)
+                ][:n_display]
+
+                for seg in filtered:
+                    stage = seg["stage"]
+                    badge_color = stage_color.get(stage, "#888")
+                    st.markdown(
+                        f"""
+                    <div style="background:#1a1a2e; border-left:3px solid {badge_color};
+                         border-radius:8px; padding:0.8rem 1rem; margin-bottom:0.8rem;">
+                      <div style="font-size:0.75rem; color:#6060a0; margin-bottom:0.3rem;">
+                        Segment {seg["idx"]} · Stage: <b style="color:{badge_color}">{stage}</b>
+                        · t={seg["time"]:.2f}h · Emotion: {seg["emotion"]}
+                        · Bizarreness: {seg["biz"]:.2f} · Mode: {seg["mode"]}
+                      </div>
+                      <div style="color:#c8c8e0; font-size:0.95rem; line-height:1.6;">
+                        {seg["narrative"]}
+                      </div>
+                    </div>
+                    """,
+                        unsafe_allow_html=True,
+                    )
+            else:
+                st.info("No narrative segments found in simulation result.")
         else:
             st.info("No dream segments returned.")
 

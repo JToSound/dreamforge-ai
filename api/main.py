@@ -37,6 +37,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from core.models.sleep_cycle import SleepCycleModel
+from core.models.neurochemistry import cortisol_profile
 from core.simulation.llm_client import parse_narrative_response
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -302,14 +303,18 @@ def _simulate_night_physics(config: SimulationConfig) -> List[dict]:
 
     segments = []
 
-    # Simple neurochemistry baselines by stage
+    # Simple neurochemistry baselines by stage (cortisol is computed from profile)
     neuro_by_stage = {
-        "N1": {"ach": 0.50, "serotonin": 0.30, "ne": 0.30, "cortisol": 0.40},
-        "N2": {"ach": 0.45, "serotonin": 0.28, "ne": 0.28, "cortisol": 0.38},
-        "N3": {"ach": 0.30, "serotonin": 0.20, "ne": 0.20, "cortisol": 0.35},
-        "REM": {"ach": 0.90, "serotonin": 0.05, "ne": 0.05, "cortisol": 0.50},
-        "WAKE": {"ach": 0.70, "serotonin": 0.80, "ne": 0.80, "cortisol": 0.60},
+        "N1": {"ach": 0.50, "serotonin": 0.30, "ne": 0.30},
+        "N2": {"ach": 0.45, "serotonin": 0.28, "ne": 0.28},
+        "N3": {"ach": 0.30, "serotonin": 0.20, "ne": 0.20},
+        "REM": {"ach": 0.90, "serotonin": 0.05, "ne": 0.05},
+        "WAKE": {"ach": 0.70, "serotonin": 0.80, "ne": 0.80},
     }
+
+    # Source: Revonsuo & Salmivalli (1995) with DreamForge v5.0 calibration.
+    stage_base = {"N1": 0.10, "N2": 0.18, "N3": 0.08, "REM": 0.40, "WAKE": 0.04}
+    stage_ceiling = {"N1": 0.50, "N2": 0.45, "N3": 0.30, "REM": 0.98, "WAKE": 0.20}
 
     emotions = [
         "neutral",
@@ -332,35 +337,50 @@ def _simulate_night_physics(config: SimulationConfig) -> List[dict]:
         t = i * dt_h
         state_idx = min(i + 1, len(sleep_states) - 1)
         stage = sleep_states[state_idx].stage.value
+        cycle_idx = int(t // 1.5)
 
         # Neurochemistry with noise + SSRI modulation
         neuro = dict(neuro_by_stage[stage])
         neuro["serotonin"] = min(1.0, neuro["serotonin"] * config.ssri_strength)
+        neuro["cortisol"] = cortisol_profile(t)
         neuro = {k: max(0.0, v + random.gauss(0, 0.02)) for k, v in neuro.items()}
 
-        # Bizarreness: primarily driven by ACh, with secondary contribution from
-        # suppressed monoamines and stress; add small noise for variability.
-        alpha = 0.6
-        mono_coeff = 0.25
-        ne_coeff = 0.1
-        stress_coeff = 0.05
-        noise_std = 0.03
-
+        # Parametric bizarreness with stage ceilings to keep NREM physiologically lower.
+        memory_arousal = float(np.clip(config.stress_level, 0.0, 1.0))
         biz_val = (
-            alpha * neuro["ach"]
-            + mono_coeff * (1.0 - neuro["serotonin"])
-            + ne_coeff * (1.0 - neuro["ne"])
-            + stress_coeff * config.stress_level
+            stage_base.get(stage, 0.18)
+            + 0.25 * neuro["ach"]
+            + 0.20 * (1.0 - neuro["ne"])
+            + 0.10 * memory_arousal
+            + 0.03 * min(cycle_idx, 3)
+            + random.gauss(0, 0.03)
         )
-        bizarreness = round(min(1.0, max(0.0, biz_val + random.gauss(0, noise_std))), 3)
+        bizarreness = round(
+            float(np.clip(biz_val, 0.0, stage_ceiling.get(stage, 0.95))),
+            3,
+        )
 
-        # Lucidity probability: highest during REM with lower stress
-        lucidity = (
-            0.05
-            if stage != "REM"
-            else max(0.0, 0.15 + neuro["ach"] * 0.10 - config.stress_level * 0.08)
-        )
-        lucidity = round(min(1.0, max(0.0, lucidity + random.gauss(0, 0.01))), 4)
+        # Multi-factor lucidity gate (REM-only).
+        if stage != "REM":
+            lucidity = 0.0
+        else:
+            # Source: Hobson & Friston (2012), Voss et al. (2009)
+            ach_gate = 1.0 / (1.0 + np.exp(-5.0 * (neuro["ach"] - 0.60)))
+            cortisol_gate = 1.0 - (
+                1.0 / (1.0 + np.exp(-8.0 * (neuro["cortisol"] - 0.65)))
+            )
+            temporal_bias = min(cycle_idx / 6.0, 0.4)
+            training_factor = 0.35
+            content_score = (
+                0.35 * bizarreness
+                + 0.20 * temporal_bias
+                + 0.05 * random.uniform(0.0, 1.0)
+                + training_factor
+            )
+            lucidity = float(
+                np.clip(ach_gate * cortisol_gate * content_score, 0.0, 1.0)
+            )
+        lucidity = round(lucidity, 4)
 
         # Dominant emotion
         dominant_emotion = random.choices(emotions, weights=emo_weights, k=1)[0]
