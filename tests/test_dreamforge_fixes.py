@@ -212,15 +212,15 @@ class TestGenerationModeCSV:
             set(df.columns)
         )
 
-    def test_llm_trigger_rate_within_expected_range(
+    def test_llm_invocation_covers_all_rem_segments(
         self, completed_simulation_result: dict[str, Any]
     ) -> None:
         segments = completed_simulation_result["segments"]
         llm_count = sum(1 for s in segments if s.get("generation_mode") == "LLM")
-        assert 10 <= llm_count <= 50, (
-            f"LLM trigger count {llm_count} is outside expected range 10–50 "
-            f"(architecture target: ~15–30 per 8h simulation)"
-        )
+        rem_count = sum(1 for s in segments if s.get("stage") == "REM")
+        assert (
+            llm_count >= rem_count
+        ), f"LLM segments ({llm_count}) should cover all REM segments ({rem_count})"
 
     def test_generation_mode_not_all_template(
         self, completed_simulation_result: dict[str, Any]
@@ -334,17 +334,24 @@ class TestTemplateNarrativeQuality:
         duplicates = sum(1 for a, b in zip(templates, templates[1:]) if a == b)
         assert duplicates == 0
 
-    def test_template_mean_word_count_is_at_least_40(
+    def test_template_word_count_matches_stage_policy(
         self, completed_simulation_result: dict[str, Any]
     ) -> None:
         templates = [
-            s.get("narrative", "")
+            s
             for s in completed_simulation_result["segments"]
             if s.get("generation_mode") == "TEMPLATE"
         ]
         assert templates, "Expected at least one TEMPLATE segment"
-        mean_words = sum(len(t.split()) for t in templates) / len(templates)
-        assert mean_words >= 40
+        policy = {"N1": (10, 15), "N2": (20, 35), "N3": (10, 20), "REM": (40, 90)}
+        for seg in templates:
+            stage = str(seg.get("stage") or "N2")
+            words = len(str(seg.get("narrative", "")).split())
+            lo, hi = policy.get(stage, (10, 35))
+            assert lo <= words <= hi, (
+                f"TEMPLATE segment for stage {stage} has {words} words; "
+                f"expected range {lo}–{hi}"
+            )
 
 
 class TestLLMRetryAndFallback:

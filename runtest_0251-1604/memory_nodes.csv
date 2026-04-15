@@ -1,0 +1,17 @@
+activation,category,id,label,salience,valence
+0.9934,episodic,mem::childhood_home,childhood_home,0.5362,-0.1
+0.9934,episodic,mem::school_corridor,school_corridor,0.5753,-0.2
+1.0,episodic,mem::familiar_face,familiar_face,0.7102,0.1
+0.0075,episodic,mem::recurring_journey,recurring_journey,0.7924,0.0
+0.9934,conceptual,mem::falling,falling,0.4494,-0.6
+0.9934,conceptual,mem::being_chased,being_chased,0.4196,-0.7
+1.0,conceptual,mem::flying,flying,0.355,0.6
+0.9934,conceptual,mem::being_late,being_late,0.3549,-0.4
+0.9934,conceptual,mem::teeth_loosening,teeth_loosening,0.3285,-0.5
+0.9934,sensory,mem::cold_water,cold_water,0.6209,-0.1
+1.0,sensory,mem::bright_light,bright_light,0.3083,0.2
+0.9934,sensory,mem::loud_crowd,loud_crowd,0.4097,-0.2
+0.9934,emotional,mem::grief,grief,0.4518,-0.8
+1.0,emotional,mem::joy,joy,0.6272,0.8
+0.9934,emotional,mem::dread,dread,0.5802,-0.9
+1.0,emotional,mem::wonder,wonder,0.7408,0.5

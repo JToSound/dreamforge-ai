@@ -190,6 +190,8 @@ def test_dashboard_segments_csv_preserves_zero_values() -> None:
     assert "def _first_non_none" in src
     assert "if value is not None" in src
     assert '"llm_fallback_reason"' in src
+    assert '"memory_activations.csv"' in src
+    assert 'artifact_prefix = f"dreamforge-sim-{sim_id}"' in src
 
 
 def test_memory_graph_exports_activation_snapshots() -> None:

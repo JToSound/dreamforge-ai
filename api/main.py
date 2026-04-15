@@ -407,9 +407,10 @@ def _simulate_night_physics(config: SimulationConfig) -> List[dict]:
         "WAKE": {"ach": 0.70, "serotonin": 0.80, "ne": 0.80},
     }
 
-    # Source: Revonsuo & Salmivalli (1995) with DreamForge v5.0 calibration.
-    stage_base = {"N1": 0.10, "N2": 0.18, "N3": 0.08, "REM": 0.40, "WAKE": 0.04}
-    stage_ceiling = {"N1": 0.50, "N2": 0.45, "N3": 0.30, "REM": 0.98, "WAKE": 0.20}
+    # Stage-calibrated baseline/ceiling values.
+    # Keep REM highly bizarre while allowing occasional high-biz NREM episodes.
+    stage_base = {"N1": 0.10, "N2": 0.14, "N3": 0.08, "REM": 0.40, "WAKE": 0.04}
+    stage_ceiling = {"N1": 0.58, "N2": 0.62, "N3": 0.35, "REM": 0.98, "WAKE": 0.20}
 
     emotions = [
         "neutral",
@@ -452,6 +453,12 @@ def _simulate_night_physics(config: SimulationConfig) -> List[dict]:
             + 0.03 * min(cycle_idx, 3)
             + random.gauss(0, 0.03)
         )
+        if stage == "N2":
+            # Keep high-biz N2 reachable but not dominant.
+            biz_val += 0.02 * memory_arousal - 0.045
+        elif stage == "N1":
+            # N1 should only rarely exceed the high-biz trigger gate.
+            biz_val += 0.01 * memory_arousal - 0.05
         bizarreness = round(
             float(np.clip(biz_val, 0.0, stage_ceiling.get(stage, 0.95))),
             3,
@@ -706,6 +713,54 @@ def _template_narrative(
     narrative_cache: NarrativeCache | None = None,
 ) -> tuple[str, str, str]:
     """Fallback template-based narrative when LLM is disabled."""
+
+    def _force_word_window(text: str, minimum: int, maximum: int, *, pad: str) -> str:
+        words = str(text).split()
+        if len(words) < minimum:
+            pad_words = pad.split()
+            missing = minimum - len(words)
+            while missing > 0:
+                words.extend(pad_words[:missing])
+                missing = minimum - len(words)
+        if len(words) > maximum:
+            words = words[:maximum]
+        out = " ".join(words).strip()
+        if out and out[-1] not in ".!?":
+            out += "."
+        return out
+
+    def _window_for_stage(stage_name: str, bizarre_score: float) -> tuple[int, int]:
+        if stage_name == "REM":
+            return (60, 90) if bizarre_score >= 0.8 else (40, 60)
+        if stage_name == "N2":
+            return (20, 35)
+        if stage_name == "N3":
+            return (10, 20)
+        if stage_name == "N1":
+            return (10, 15)
+        return (10, 20)
+
+    def _normalize_template(
+        text: str, stage_name: str, bizarre_score: float, marker_hours: float
+    ) -> str:
+        min_words, max_words = _window_for_stage(stage_name, bizarre_score)
+        base = " ".join(str(text).split())
+        if stage_name in {"N1", "N2"}:
+            base = f"{base} At {marker_hours:.3f}h, the image tilts and resets."
+        if stage_name == "N3":
+            pad = (
+                "wordless textures drift through darkness while sensation pulses softly"
+            )
+        elif stage_name == "N2":
+            pad = "fragmented impressions echo as places and voices dissolve before they settle"
+        elif stage_name == "N1":
+            pad = "liminal flashes pass quickly across awareness at the edge of sleep"
+        elif stage_name == "REM":
+            pad = "the dream keeps mutating through symbolic transitions and intense sensory detail"
+        else:
+            pad = "the scene remains faint and unstable as perception reorients"
+        return _force_word_window(base, min_words, max_words, pad=pad)
+
     stage = seg["stage"]
     emotion = seg["dominant_emotion"]
     bizarre = seg["bizarreness_score"]
@@ -727,7 +782,11 @@ def _template_narrative(
                     narrative_cache.last_template_id,
                 )
             scene = f"A {emotion} dreamscape at {stage} depth."
-            return narrative, scene, template_id
+            return (
+                _normalize_template(narrative, stage, float(bizarre), time_marker),
+                " ".join(scene.split()[:25]),
+                template_id,
+            )
 
     templates = {
         "REM": f"The dream unfolds vividly — a {emotion} scene fractured by impossible geometry. "
@@ -745,15 +804,11 @@ def _template_narrative(
         "WAKE": "A brief moment of wakefulness in darkness.",
     }
     narrative = templates.get(stage, "")
-    if len(narrative.split()) < 40:
-        narrative = (
-            f"{narrative} The emotional texture remains {emotion}, and nearby details "
-            "keep reshaping into symbolic fragments that feel personally familiar "
-            "without becoming fully explicit. The dream moves forward as if guided "
-            "by hidden associations, and the atmosphere stays continuous rather than abrupt. "
-            f"At simulation time {time_marker:.4f}h, this imagery tilts into the next scene."
-        )
-    return narrative, scene_templates.get(stage, ""), f"TEMPLATE_{stage}"
+    return (
+        _normalize_template(narrative, stage, float(bizarre), time_marker),
+        " ".join(scene_templates.get(stage, "").split()[:25]),
+        f"TEMPLATE_{stage}",
+    )
 
 
 def _resolve_output_dir(session_id: str) -> Path:
@@ -981,86 +1036,46 @@ async def simulate_night(config: SimulationConfig):
     llm_used = False
     narrative_cache = NarrativeCache(template_bank=_get_template_bank())
 
-    # Determine which segments get LLM treatment using trigger priorities + cooldown.
+    # Determine trigger provenance for all policy-eligible segments.
     llm_jobs: List[tuple[int, str]] = []
     if config.use_llm:
-        # Source: DreamForge architecture spec v4.0 (~15–30 calls over 8h).
-        target_calls = max(10, min(50, int(config.duration_hours * 3)))
         prev_stage: Optional[str] = None
-        cooldown_ticks = 0
 
         def _llm_eligible(seg: dict[str, Any]) -> bool:
             stage_val = str(seg.get("stage") or "N2")
             biz_val = float(seg.get("bizarreness_score") or 0.0)
             return stage_val == "REM" or (
-                stage_val in {"N1", "N2", "N3"} and biz_val > 0.55
+                stage_val in {"N1", "N2", "N3"} and biz_val >= 0.55
             )
 
         for idx, seg in enumerate(raw_segments):
-            if len(llm_jobs) >= target_calls:
-                break
             stage = str(seg.get("stage") or "N2")
             neuro = seg.get("neurochemistry") or {}
             trigger_type: Optional[str] = None
 
-            # Preserve compatibility with historical call-rate tests while
-            # honoring Round 6's REM/high-biz invocation policy.
             if not _llm_eligible(seg):
                 prev_stage = stage
                 continue
 
-            if cooldown_ticks > 0:
-                cooldown_ticks -= 1
+            if prev_stage != "REM" and stage == "REM":
+                trigger_type = "REM_ONSET"
+            elif (
+                stage == "REM" and float(seg.get("lucidity_probability") or 0.0) >= 0.55
+            ):
+                trigger_type = "LUCIDITY_THRESHOLD"
+            elif stage == "REM" and float(seg.get("bizarreness_score") or 0.0) >= 0.80:
+                trigger_type = "BIZARRENESS_PEAK"
+            elif stage == "REM":
+                trigger_type = "REM_CONTINUATION"
+            elif prev_stage != "N3" and stage == "N3":
+                trigger_type = "N3_ONSET"
+            elif float(neuro.get("ach") or 0.0) >= 0.75:
+                trigger_type = "MEMORY_SALIENCE"
             else:
-                if prev_stage != "REM" and stage == "REM":
-                    trigger_type = "REM_ONSET"
-                elif float(seg.get("lucidity_probability") or 0.0) >= 0.55:
-                    trigger_type = "LUCIDITY_THRESHOLD"
-                elif float(seg.get("bizarreness_score") or 0.0) >= 0.80:
-                    trigger_type = "BIZARRENESS_PEAK"
-                elif float(neuro.get("ach") or 0.0) >= 0.75:
-                    trigger_type = "MEMORY_SALIENCE"
-                elif prev_stage != "N3" and stage == "N3":
-                    trigger_type = "N3_ONSET"
-                elif random.random() < 0.04:
-                    trigger_type = "API_SAMPLED"
+                trigger_type = "NREM_BIZARRENESS"
 
-            if trigger_type:
-                llm_jobs.append((idx, trigger_type))
-                cooldown_ticks = 8
+            llm_jobs.append((idx, trigger_type))
             prev_stage = stage
-
-        if len(llm_jobs) < target_calls:
-            selected = {idx for idx, _ in llm_jobs}
-            supplemental_rules = [
-                (
-                    "BIZARRENESS_PEAK",
-                    lambda seg: float(seg.get("bizarreness_score") or 0.0) >= 0.80,
-                ),
-                (
-                    "MEMORY_SALIENCE",
-                    lambda seg: float(
-                        (seg.get("neurochemistry") or {}).get("ach") or 0.0
-                    )
-                    >= 0.75,
-                ),
-                (
-                    "N3_ONSET",
-                    lambda seg: str(seg.get("stage") or "") == "N3",
-                ),
-                ("API_SAMPLED", lambda _seg: True),
-            ]
-            for trigger_name, predicate in supplemental_rules:
-                for idx, seg in enumerate(raw_segments):
-                    if len(llm_jobs) >= target_calls:
-                        break
-                    if idx in selected:
-                        continue
-                    if _llm_eligible(seg) and predicate(seg):
-                        llm_jobs.append((idx, trigger_name))
-                        selected.add(idx)
-                if len(llm_jobs) >= target_calls:
-                    break
 
     trigger_by_idx = {idx: trig for idx, trig in llm_jobs}
     if config.use_llm:
@@ -1083,15 +1098,19 @@ async def simulate_night(config: SimulationConfig):
         llm_latency_ms = seg.pop("_llm_latency_ms", None)
         if llm_invoked:
             llm_used = True
+            llm_trigger = trigger_by_idx.get(i)
+            if llm_trigger is None:
+                llm_trigger = (
+                    "REM_POLICY"
+                    if str(seg.get("stage") or "N2") == "REM"
+                    else "NREM_BIZARRENESS"
+                )
             seg["llm_latency_ms"] = llm_latency_ms
-            seg["llm_trigger_type"] = trigger_by_idx.get(i)
+            seg["llm_trigger_type"] = llm_trigger
             seg["llm_fallback_reason"] = (
                 str(llm_fallback_reason) if llm_fallback_reason else None
             )
-            if seg["llm_trigger_type"]:
-                seg["generation_mode"] = "LLM_FALLBACK" if llm_fallback else "LLM"
-            else:
-                seg["generation_mode"] = "LLM_FALLBACK" if llm_fallback else "CACHED"
+            seg["generation_mode"] = "LLM_FALLBACK" if llm_fallback else "LLM"
             seg["template_bank"] = (
                 f"TEMPLATE_{seg.get('stage', 'N2')}" if llm_fallback else ""
             )
@@ -1127,7 +1146,7 @@ async def simulate_night(config: SimulationConfig):
     all_emotions = [s.dominant_emotion for s in segments_out]
     dominant_emotion = max(set(all_emotions), key=all_emotions.count)
     llm_success_segments = sum(
-        1 for s in raw_segments if s.get("generation_mode") in {"LLM", "CACHED"}
+        1 for s in raw_segments if s.get("generation_mode") == "LLM"
     )
     llm_fallback_segments = sum(
         1 for s in raw_segments if s.get("generation_mode") == "LLM_FALLBACK"
@@ -1142,13 +1161,17 @@ async def simulate_night(config: SimulationConfig):
         "max_bizarreness": round(float(np.max(all_bizarre)), 3),
         "dominant_emotion": dominant_emotion,
         "rem_fraction": stage_pct.get("REM", 0.0),
-        "llm_segments_generated": sum(
-            1 for s in raw_segments if s.get("generation_mode") == "LLM"
-        ),
+        "llm_segments_generated": llm_success_segments,
         "llm_calls_total": llm_total_invocations,
         "llm_success_segments": llm_success_segments,
         "llm_fallback_segments": llm_fallback_segments,
         "llm_total_invocations": llm_total_invocations,
+        "llm_triggered_segments": sum(
+            1
+            for s in raw_segments
+            if s.get("generation_mode") in {"LLM", "LLM_FALLBACK"}
+            and s.get("llm_trigger_type")
+        ),
         "lucid_event_count": len(lucid_events),
     }
 

@@ -779,11 +779,15 @@ else:
         )
         nodes = mg.get("nodes", [])
         edges = mg.get("edges", [])
+        memory_activations = result.get("memory_activation_series") or result.get(
+            "memory_activations", []
+        )
 
         # Build ZIP in-memory
         zip_buf = io.BytesIO()
+        artifact_prefix = f"dreamforge-sim-{sim_id}"
         with zipfile.ZipFile(zip_buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr("result.json", json_str)
+            zf.writestr(f"{artifact_prefix}.json", json_str)
 
             # hypnogram.csv
             sio = io.StringIO()
@@ -882,6 +886,31 @@ else:
                 )
             zf.writestr("segments.csv", sio.getvalue())
 
+            # memory_activations.csv
+            sio = io.StringIO()
+            writer = csv.writer(sio)
+            writer.writerow(["time_hours", "node_id", "node_label", "activation"])
+            if isinstance(memory_activations, list):
+                for snap in memory_activations:
+                    if not isinstance(snap, dict):
+                        continue
+                    t_val = snap.get("time_hours", "")
+                    activations = snap.get("activations", [])
+                    if not isinstance(activations, list):
+                        continue
+                    for node in activations:
+                        if not isinstance(node, dict):
+                            continue
+                        writer.writerow(
+                            [
+                                t_val,
+                                node.get("id", ""),
+                                node.get("label", ""),
+                                node.get("activation", ""),
+                            ]
+                        )
+            zf.writestr("memory_activations.csv", sio.getvalue())
+
             # memory nodes/edges
             sio = io.StringIO()
             if nodes:
@@ -902,7 +931,7 @@ else:
             zf.writestr("memory_edges.csv", sio.getvalue())
 
             # narrative.txt
-            zf.writestr("narrative.txt", text_blob)
+            zf.writestr(f"{artifact_prefix}.txt", text_blob)
 
         zip_buf.seek(0)
         st.download_button(

@@ -294,7 +294,7 @@ class CycleStateMachine:
         rem_threshold_hours: float = 2.4,
         rem_accum_rate_per_hour: float = 1.0,
         rem_discharge_rate_per_hour: float = 5.0,
-        n3_min_fraction: float = 0.10,
+        n3_min_fraction: float = 0.18,
         sws_debt_threshold: float = 0.90,
     ) -> None:
         self.templates = templates or CYCLE_TEMPLATES

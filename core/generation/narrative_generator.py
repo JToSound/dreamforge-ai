@@ -118,9 +118,9 @@ class NarrativeGenerator:
         segment["_llm_latency_ms"] = None
         stage = str(segment.get("stage", "N2"))
         bizarreness = float(segment.get("bizarreness_score", 0.0))
-        should_call_llm = stage in {"REM", "N3"} or (
+        should_call_llm = stage == "REM" or (
             stage in {"N1", "N2", "N3"}
-            and bizarreness > self.config.nrem_bizarreness_gate
+            and bizarreness >= self.config.nrem_bizarreness_gate
         )
         if not (self.config.llm_enabled and should_call_llm):
             return
