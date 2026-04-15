@@ -30,6 +30,23 @@ class _BadRequestLLM:
         )
 
 
+class _VerboseLLM:
+    async def chat(self, system: str, user: str) -> str:
+        if "Scene description generator" in system:
+            return "An intense shifting space."
+        return " ".join(["surreal"] * 180)
+
+
+class _DirtyOutputLLM:
+    async def chat(self, system: str, user: str) -> str:
+        if "Scene description generator" in system:
+            return "Scene: Scene description: /no_think A dark room with mirrored walls"
+        return (
+            "Narrative: <div>you run through active_memory_school_corridor while "
+            "a clock melts overhead and no_think echoes in the distance</div>"
+        )
+
+
 @pytest.mark.asyncio
 async def test_rem_narrative_word_count_gte_40() -> None:
     seg = {
@@ -150,3 +167,45 @@ async def test_400_bad_request_maps_to_provider_error_reason() -> None:
     await gen.generate_batch([seg])
     assert seg.get("_llm_fallback") is True
     assert seg.get("_llm_fallback_reason") == "provider_error"
+
+
+@pytest.mark.asyncio
+async def test_high_biz_rem_narrative_ceiling_is_90_words() -> None:
+    seg = {
+        "stage": "REM",
+        "dominant_emotion": "curious",
+        "bizarreness_score": 0.95,
+        "lucidity_probability": 0.4,
+        "active_memory_ids": ["m1"],
+        "start_time_hours": 6.25,
+        "narrative": "",
+    }
+    gen = NarrativeGenerator(
+        llm_client=_VerboseLLM(),
+        config=NarrativeGeneratorConfig(llm_enabled=True),
+    )
+    await gen.generate_batch([seg])
+    assert len(seg["narrative"].split()) <= 90
+
+
+@pytest.mark.asyncio
+async def test_narrative_and_scene_outputs_are_sanitized() -> None:
+    seg = {
+        "stage": "REM",
+        "dominant_emotion": "anxious",
+        "bizarreness_score": 0.9,
+        "lucidity_probability": 0.2,
+        "active_memory_ids": ["m1"],
+        "start_time_hours": 3.3,
+        "narrative": "",
+    }
+    gen = NarrativeGenerator(
+        llm_client=_DirtyOutputLLM(),
+        config=NarrativeGeneratorConfig(llm_enabled=True),
+    )
+    await gen.generate_batch([seg])
+    assert "<div" not in seg["narrative"].lower()
+    assert "active_memory_" not in seg["narrative"]
+    assert not seg["narrative"].lower().startswith("narrative:")
+    assert not seg["scene_description"].lower().startswith("scene:")
+    assert "no_think" not in seg["scene_description"].lower()

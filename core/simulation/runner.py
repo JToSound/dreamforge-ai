@@ -131,6 +131,7 @@ def export_segments_csv(result: Dict[str, Any], output_path: Path) -> None:
                 "dominant_emotion": seg_dict.get("dominant_emotion"),
                 "bizarreness_score": seg_dict.get("bizarreness_score"),
                 "lucidity_probability": seg_dict.get("lucidity_probability"),
+                "is_lucid": seg_dict.get("is_lucid", False),
                 "generation_mode": seg_dict.get("generation_mode", "TEMPLATE"),
                 "llm_trigger_type": seg_dict.get("llm_trigger_type", ""),
                 "llm_latency_ms": seg_dict.get("llm_latency_ms", ""),

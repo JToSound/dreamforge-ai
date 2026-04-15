@@ -741,12 +741,37 @@ def _template_narrative(
         return (10, 20)
 
     def _normalize_template(
-        text: str, stage_name: str, bizarre_score: float, marker_hours: float
+        text: str,
+        stage_name: str,
+        bizarre_score: float,
+        marker_hours: float,
+        seg_idx: int,
     ) -> str:
         min_words, max_words = _window_for_stage(stage_name, bizarre_score)
         base = " ".join(str(text).split())
-        if stage_name in {"N1", "N2"}:
-            base = f"{base} At {marker_hours:.3f}h, the image tilts and resets."
+        if stage_name in {"N1", "N2", "N3"}:
+            variation_bank = {
+                "N1": [
+                    "a faint edge of wakefulness keeps intruding",
+                    "small sensory flashes arrive and vanish quickly",
+                    "the scene blurs as attention slips in and out",
+                ],
+                "N2": [
+                    "familiar places merge into fragmented corridors",
+                    "voices and objects recombine before they settle",
+                    "memory fragments overlap in unstable sequences",
+                    "the environment shifts between partial storylines",
+                ],
+                "N3": [
+                    "wordless imagery pulses through heavy darkness",
+                    "slow symbolic flashes appear without clear sequence",
+                    "near-silent sensations drift and dissolve",
+                    "deep textures replace coherent plot structure",
+                ],
+            }
+            options = variation_bank.get(stage_name, ["the image tilts and resets"])
+            variation = options[seg_idx % len(options)]
+            base = f"At {marker_hours:.3f}h, {variation}. {base}"
         if stage_name == "N3":
             pad = (
                 "wordless textures drift through darkness while sensation pulses softly"
@@ -783,7 +808,13 @@ def _template_narrative(
                 )
             scene = f"A {emotion} dreamscape at {stage} depth."
             return (
-                _normalize_template(narrative, stage, float(bizarre), time_marker),
+                _normalize_template(
+                    narrative,
+                    stage,
+                    float(bizarre),
+                    time_marker,
+                    segment_index,
+                ),
                 " ".join(scene.split()[:25]),
                 template_id,
             )
@@ -805,7 +836,13 @@ def _template_narrative(
     }
     narrative = templates.get(stage, "")
     return (
-        _normalize_template(narrative, stage, float(bizarre), time_marker),
+        _normalize_template(
+            narrative,
+            stage,
+            float(bizarre),
+            time_marker,
+            segment_index,
+        ),
         " ".join(scene_templates.get(stage, "").split()[:25]),
         f"TEMPLATE_{stage}",
     )

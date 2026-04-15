@@ -208,9 +208,12 @@ class TestGenerationModeCSV:
         out = tmp_path / "segments.csv"
         export_segments_csv(mock_result_960, out)
         df = pd.read_csv(out)
-        assert {"llm_trigger_type", "llm_latency_ms", "template_bank"}.issubset(
-            set(df.columns)
-        )
+        assert {
+            "llm_trigger_type",
+            "llm_latency_ms",
+            "template_bank",
+            "is_lucid",
+        }.issubset(set(df.columns))
 
     def test_llm_invocation_covers_all_rem_segments(
         self, completed_simulation_result: dict[str, Any]

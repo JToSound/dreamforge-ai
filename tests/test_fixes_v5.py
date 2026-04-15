@@ -190,7 +190,10 @@ def test_dashboard_segments_csv_preserves_zero_values() -> None:
     assert "def _first_non_none" in src
     assert "if value is not None" in src
     assert '"llm_fallback_reason"' in src
+    assert '"is_lucid"' in src
     assert '"memory_activations.csv"' in src
+    assert "html.escape(" in src
+    assert "scene_prefix_pattern" in src
     assert 'artifact_prefix = f"dreamforge-sim-{sim_id}"' in src
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -165,7 +166,7 @@ class NarrativeGenerator:
                 segment=segment,
                 index=index,
             )
-            segment["scene_description"] = self._truncate_words(str(scene), 25)
+            segment["scene_description"] = self._normalize_scene(str(scene))
             segment["_llm_invoked"] = True
             segment["_llm_fallback"] = False
             segment["_llm_fallback_reason"] = None
@@ -197,9 +198,8 @@ class NarrativeGenerator:
             else:
                 reason = "provider_error"
             segment["narrative"] = fallback
-            segment["scene_description"] = self._truncate_words(
-                f"{stage} segment with {segment.get('dominant_emotion', 'neutral')} imagery.",
-                25,
+            segment["scene_description"] = self._normalize_scene(
+                f"{stage} segment with {segment.get('dominant_emotion', 'neutral')} imagery."
             )
             segment["_llm_invoked"] = True
             segment["_llm_fallback"] = True
@@ -219,7 +219,7 @@ class NarrativeGenerator:
     ) -> str:
         stage = str(segment.get("stage", "N2"))
         biz = float(segment.get("bizarreness_score", 0.0))
-        cleaned = " ".join(text.split())
+        cleaned = self._sanitize_narrative_text(text)
         if not cleaned:
             return self._fallback_text(segment=segment, index=index)
 
@@ -232,14 +232,19 @@ class NarrativeGenerator:
         if stage == "N2":
             return self._force_word_window(cleaned, minimum=20, maximum=35)
         if stage == "REM":
-            minimum = max(self.config.rem_min_words, 60 if biz >= 0.8 else 40)
-            enriched = self._force_word_window(cleaned, minimum=minimum, maximum=95)
+            if biz >= 0.8:
+                minimum = max(self.config.rem_min_words, 60)
+                maximum = 90
+            else:
+                minimum = max(self.config.rem_min_words, 40)
+                maximum = 60
             marker = f"At {float(segment.get('start_time_hours', index / 120.0)):.3f}h"
+            enriched = cleaned
             if marker not in enriched:
                 enriched = (
                     f"{enriched} {marker}, the dream shifts around remembered details."
                 )
-            return enriched
+            return self._force_word_window(enriched, minimum=minimum, maximum=maximum)
         return cleaned
 
     @staticmethod
@@ -255,8 +260,22 @@ class NarrativeGenerator:
                 words.extend(pad[:missing])
                 missing = minimum - len(words)
         if len(words) > maximum:
-            words = words[:maximum]
-        return " ".join(words)
+            clipped = words[:maximum]
+            last_punct_idx = max(
+                (
+                    i
+                    for i, token in enumerate(clipped)
+                    if token.endswith((".", "!", "?"))
+                ),
+                default=-1,
+            )
+            if last_punct_idx >= minimum - 1:
+                clipped = clipped[: last_punct_idx + 1]
+            words = clipped
+        out = " ".join(words).strip()
+        if out and out[-1] not in ".!?":
+            out = f"{out}."
+        return out
 
     @staticmethod
     def _ensure_terminal_punctuation(text: str) -> str:
@@ -280,6 +299,64 @@ class NarrativeGenerator:
             segment=segment,
             index=index,
         )
+
+    def _normalize_scene(self, text: str) -> str:
+        cleaned = self._sanitize_free_text(text)
+        cleaned = self._strip_leading_labels(
+            cleaned,
+            labels=[
+                "scene:",
+                "scene description:",
+                "scene text:",
+                "/no_think",
+                "no_think",
+            ],
+        )
+        cleaned = self._truncate_words(cleaned, 25)
+        cleaned = " ".join(cleaned.split()).strip()
+        if not cleaned:
+            return "A dream scene with shifting visual details."
+        if cleaned[-1] not in ".!?":
+            cleaned += "."
+        return cleaned
+
+    def _sanitize_narrative_text(self, text: str) -> str:
+        cleaned = self._sanitize_free_text(text)
+        cleaned = self._strip_leading_labels(
+            cleaned,
+            labels=[
+                "narrative:",
+                "dream narrative:",
+                "/no_think",
+                "no_think",
+            ],
+        )
+        cleaned = re.sub(r"\bactive_memory_([a-zA-Z0-9_]+)\b", r"\1", cleaned)
+        cleaned = re.sub(r"\bmem::([a-zA-Z0-9_]+)\b", r"\1", cleaned)
+        return cleaned
+
+    @staticmethod
+    def _sanitize_free_text(text: str) -> str:
+        cleaned = str(text or "")
+        cleaned = re.sub(r"(?is)<think>.*?</think>", " ", cleaned)
+        cleaned = re.sub(r"(?is)<[^>]+>", " ", cleaned)
+        cleaned = " ".join(cleaned.split()).strip()
+        return cleaned
+
+    @staticmethod
+    def _strip_leading_labels(text: str, labels: list[str]) -> str:
+        cleaned = str(text or "").strip()
+        for _ in range(6):
+            lowered = cleaned.lower()
+            removed = False
+            for label in labels:
+                if lowered.startswith(label):
+                    cleaned = cleaned[len(label) :].strip()
+                    removed = True
+                    break
+            if not removed:
+                break
+        return cleaned
 
     def _memory_summary(self, active_ids: Any) -> str:
         if not isinstance(active_ids, list) or not active_ids:

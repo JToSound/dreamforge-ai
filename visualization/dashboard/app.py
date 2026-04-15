@@ -5,6 +5,8 @@ Real-time dream simulation visualization with LLM configuration.
 
 import json
 import time
+import html
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Optional
@@ -821,6 +823,7 @@ else:
                 "dominant_emotion",
                 "bizarreness_score",
                 "lucidity_probability",
+                "is_lucid",
                 "generation_mode",
                 "llm_trigger_type",
                 "llm_latency_ms",
@@ -861,6 +864,7 @@ else:
                         _first_non_none(
                             s.get("lucidity_probability"), s.get("lucidity_score"), ""
                         ),
+                        bool(s.get("is_lucid", False)),
                         _first_non_none(s.get("generation_mode"), "TEMPLATE"),
                         _first_non_none(s.get("llm_trigger_type"), ""),
                         _first_non_none(s.get("llm_latency_ms"), ""),
@@ -1240,11 +1244,32 @@ else:
     with tab_dream:
         if segments:
             rem_segments = []
+            scene_prefix_pattern = re.compile(
+                r"^(scene:|scene description:|scene text:|/no_think|no_think)\s*",
+                re.IGNORECASE,
+            )
+
+            def _clean_scene(raw: str) -> str:
+                cleaned = " ".join(str(raw or "").split()).strip()
+                for _ in range(6):
+                    updated = scene_prefix_pattern.sub("", cleaned).strip()
+                    if updated == cleaned:
+                        break
+                    cleaned = updated
+                return cleaned
+
+            def _clean_narrative(raw: str) -> str:
+                cleaned = re.sub(r"(?is)<[^>]+>", " ", str(raw or ""))
+                cleaned = " ".join(cleaned.split()).strip()
+                if cleaned.lower().startswith("narrative:"):
+                    cleaned = cleaned[len("narrative:") :].strip()
+                return cleaned
+
             for i, seg in enumerate(segments):
                 if str(seg.get("stage", "")) != "REM":
                     continue
-                narrative = str(seg.get("narrative") or "").strip()
-                scene_text = str(seg.get("scene_description") or "")
+                narrative = _clean_narrative(str(seg.get("narrative") or ""))
+                scene_text = _clean_scene(str(seg.get("scene_description") or ""))
                 if not narrative:
                     continue
                 rem_segments.append(
@@ -1273,19 +1298,23 @@ else:
                 for seg in rem_segments:
                     border_color = "#d4af37" if seg["is_lucid"] else "#4c3f8f"
                     lucid_badge = " · [LUCID]" if seg["is_lucid"] else ""
+                    emotion_text = html.escape(seg["emotion"])
+                    mode_text = html.escape(seg["mode"])
+                    narrative_text = html.escape(seg["narrative"])
+                    scene_text = html.escape(seg["scene"])
                     cards.append(
                         f"""
                     <div style="background:#1a1a2e; border-left:4px solid {border_color};
                          border-radius:8px; padding:0.8rem 1rem; margin-bottom:0.8rem;">
                       <div style="font-size:0.75rem; color:#9090c0; margin-bottom:0.3rem;">
-                        REM Segment {seg["idx"]} · t={seg["time"]:.2f}h · Emotion: {seg["emotion"]}
-                        · Bizarreness: {seg["biz"]:.2f} · Mode: {seg["mode"]}{lucid_badge}
+                        REM Segment {seg["idx"]} · t={seg["time"]:.2f}h · Emotion: {emotion_text}
+                        · Bizarreness: {seg["biz"]:.2f} · Mode: {mode_text}{lucid_badge}
                       </div>
                       <div style="color:#d8d8ef; font-size:0.95rem; line-height:1.6; margin-bottom:0.35rem;">
-                        {seg["narrative"]}
+                        {narrative_text}
                       </div>
                       <div style="color:#aab0d8; font-size:0.82rem;">
-                        Scene: {seg["scene"]}
+                        Scene: {scene_text}
                       </div>
                     </div>
                     """
