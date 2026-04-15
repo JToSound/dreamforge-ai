@@ -4,9 +4,16 @@ import random
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 import api.main as api_main
 from core.agents.metacognitive_agent import MetacognitiveAgent
+from core.models.memory_graph import (
+    EmotionLabel,
+    MemoryGraph,
+    MemoryNodeModel,
+    MemoryType,
+)
 from core.models.neurochemistry import cortisol_profile
 from core.models.sleep_cycle import CYCLE_TEMPLATES, SleepStage, TwoProcessParameters
 from core.utils.bizarreness_scorer import compute_bizarreness
@@ -67,7 +74,13 @@ def test_bizarreness_rem_is_high_but_bounded() -> None:
     assert rem_score > n2_score
 
 
-def test_lucidity_model_is_rem_only_and_ach_gated() -> None:
+def test_lucidity_model_is_rem_only_and_ach_gated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("core.agents.metacognitive_agent.random.random", lambda: 1.0)
+    monkeypatch.setattr(
+        "core.agents.metacognitive_agent.random.gauss", lambda _mu, _sigma: 0.0
+    )
     agent = MetacognitiveAgent()
     non_rem = agent.compute_lucidity_probability(
         stage=SleepStage.N2,
@@ -129,4 +142,24 @@ def test_dashboard_uses_fallback_neuro_and_narrative_keys() -> None:
     assert 'result.get("neurochemistry_ticks")' in src
     assert 'seg.get("narrative")' in src
     assert 'seg.get("scene_description")' in src
+    assert '"llm_trigger_type"' in src
+    assert '"llm_latency_ms"' in src
+    assert '"template_bank"' in src
     assert "No narrative segments found in simulation result." in src
+
+
+def test_memory_graph_exports_activation_snapshots() -> None:
+    graph = MemoryGraph()
+    node_id = graph.add_memory(
+        MemoryNodeModel(
+            label="rainy street",
+            memory_type=MemoryType.EPISODIC,
+            emotion=EmotionLabel.NEUTRAL,
+        )
+    )
+    graph.to_networkx().nodes[node_id]["activation"] = 0.75
+    graph.capture_memory_snapshot(time_hours=1.0, stage="REM")
+    exported = graph.to_json_serializable()
+
+    assert "activation_snapshots" in exported
+    assert len(exported["activation_snapshots"]) == 1

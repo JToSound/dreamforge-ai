@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel
 
@@ -30,6 +31,7 @@ class GenerationMode(str, Enum):
     LLM = "LLM"
     TEMPLATE = "TEMPLATE"
     LLM_FALLBACK = "LLM_FALLBACK"
+    CACHED = "CACHED"
 
 
 class DreamSegment(BaseModel):
@@ -43,6 +45,9 @@ class DreamSegment(BaseModel):
     active_memory_ids: list[str]
     neurochemistry: dict[str, float]
     generation_mode: GenerationMode = GenerationMode.TEMPLATE
+    llm_trigger_type: Optional[str] = None
+    llm_latency_ms: Optional[float] = None
+    template_bank: Optional[str] = None
     llm_error: Optional[str] = None
 
 
@@ -70,7 +75,7 @@ class DreamConstructorAgent:
         self.narrative_cache = NarrativeCache()
         self.llm_calls_total = 0
 
-    def _get_client(self):
+    def _get_client(self) -> Any:
         if self._client is not None:
             return self._client
 
@@ -78,7 +83,7 @@ class DreamConstructorAgent:
             try:
                 from openai import OpenAI
 
-                kwargs: dict = {}
+                kwargs: dict[str, Any] = {}
                 if self._api_key:
                     kwargs["api_key"] = self._api_key
                 if self._base_url:
@@ -95,7 +100,7 @@ class DreamConstructorAgent:
             try:
                 import anthropic
 
-                kwargs: dict = {}
+                kwargs: dict[str, Any] = {}
                 if self._api_key:
                     kwargs["api_key"] = self._api_key
                 self._client = anthropic.Anthropic(**kwargs)
@@ -115,6 +120,8 @@ class DreamConstructorAgent:
         prior_events: list[str],
         segment_index: int,
         trigger_type: LLMTriggerType,
+        bizarreness_score: float,
+        lucidity_probability: float,
         prev_segments: Optional[list] = None,
     ) -> tuple[str, str]:
         ach = round(float(neuro_state.ach), 3)
@@ -141,6 +148,35 @@ class DreamConstructorAgent:
             if ctx:
                 prev_text = "Previous context:\n" + "\n".join(f"- {c}" for c in ctx)
 
+        ach_desc = (
+            "hyper-vivid and hallucinatory"
+            if ach > 0.80
+            else "moderately vivid and coherent" if ach > 0.55 else "hazy and diffuse"
+        )
+        ne_desc = (
+            "high threat salience and urgency"
+            if ne > 0.40
+            else (
+                "reduced reality resistance; absurd events feel normal"
+                if ne < 0.15
+                else "mild alertness"
+            )
+        )
+        cortisol_desc = (
+            "anxious, fragmented tone"
+            if cortisol > 0.75
+            else (
+                "stable but slightly tense tone"
+                if cortisol > 0.25
+                else "calm, generative tone"
+            )
+        )
+        serotonin_desc = (
+            "reality monitoring is strongly reduced"
+            if five_ht < 0.10
+            else "partial reality monitoring remains"
+        )
+
         system_msg = (
             "You are DreamForge AI's Dream Constructor. "
             "Output ONLY valid JSON with keys: narrative, dominant_emotion, "
@@ -151,10 +187,17 @@ class DreamConstructorAgent:
             f"Segment #{segment_index} at t={sleep_state.time_hours:.2f}h\n"
             f"Stage={stage}\n"
             f"ACh={ach} 5-HT={five_ht} NE={ne} Cortisol={cortisol}\n"
+            f"Bizarreness={bizarreness_score:.2f} Lucidity={lucidity_probability:.2f}\n"
+            "[NEUROCHEMICAL CONTEXT]\n"
+            f"- ACh texture: {ach_desc}\n"
+            f"- NE tone: {ne_desc}\n"
+            f"- Cortisol affect: {cortisol_desc}\n"
+            f"- Serotonin coherence: {serotonin_desc}\n"
             f"Stress={stress_level:.2f}\n"
             f"Events={events_str}\n"
             f"{replay_summary}\n"
             f"{prev_text}\n"
+            f"Memory nodes={(replay.node_ids[:6] if replay else [])}\n"
             "Return JSON now."
         )
         user_msg = f"/no_think\n\n{user_msg}"
@@ -171,12 +214,13 @@ class DreamConstructorAgent:
 
     def _call_llm(
         self, system_msg: str, user_msg: str
-    ) -> tuple[dict, Optional[str], bool]:
+    ) -> tuple[dict[str, Any], Optional[str], bool, Optional[float]]:
         client = self._get_client()
         if client is None:
-            return {}, "client_unavailable", False
+            return {}, "client_unavailable", False, None
 
         self.llm_calls_total += 1
+        t0 = time.perf_counter()
         try:
             if self._provider in ("openai", "ollama"):
                 resp = client.chat.completions.create(
@@ -192,7 +236,8 @@ class DreamConstructorAgent:
                 raw = strip_thinking_tags(resp.choices[0].message.content or "{}")
                 cleaned = re.sub(r"```(?:json)?", "", raw).strip().rstrip("`").strip()
                 parsed = json.loads(cleaned)
-                return parsed, None, True
+                latency_ms = (time.perf_counter() - t0) * 1000.0
+                return parsed, None, True, latency_ms
 
             if self._provider == "anthropic":
                 resp = client.messages.create(
@@ -207,13 +252,17 @@ class DreamConstructorAgent:
                 start = raw.find("{")
                 end = raw.rfind("}")
                 if start >= 0 and end > start:
-                    return json.loads(raw[start : end + 1]), None, True
-                return {}, "invalid_json_response", False
+                    latency_ms = (time.perf_counter() - t0) * 1000.0
+                    return json.loads(raw[start : end + 1]), None, True, latency_ms
+                latency_ms = (time.perf_counter() - t0) * 1000.0
+                return {}, "invalid_json_response", False, latency_ms
         except Exception as exc:
             logger.error("LLM call failed: %s", exc)
-            return {}, str(exc), False
+            latency_ms = (time.perf_counter() - t0) * 1000.0
+            return {}, str(exc), False, latency_ms
 
-        return {}, "provider_not_supported", False
+        latency_ms = (time.perf_counter() - t0) * 1000.0
+        return {}, "provider_not_supported", False, latency_ms
 
     def generate_segment(
         self,
@@ -264,8 +313,12 @@ class DreamConstructorAgent:
 
         mode = GenerationMode.TEMPLATE
         llm_error: Optional[str] = None
-        payload: dict
+        llm_trigger_type: Optional[str] = None
+        llm_latency_ms: Optional[float] = None
+        template_bank: Optional[str] = None
+        payload: dict[str, Any]
         if trigger:
+            llm_trigger_type = trigger.trigger_type.value
             system_msg, user_msg = self._build_prompt(
                 sleep_state=sleep_state,
                 neuro_state=neuro_state,
@@ -274,9 +327,13 @@ class DreamConstructorAgent:
                 prior_events=prior_events or [],
                 segment_index=segment_index,
                 trigger_type=trigger.trigger_type,
+                bizarreness_score=est_biz,
+                lucidity_probability=est_lucidity,
                 prev_segments=prev_segments,
             )
-            payload, llm_error, llm_used = self._call_llm(system_msg, user_msg)
+            payload, llm_error, llm_used, llm_latency_ms = self._call_llm(
+                system_msg, user_msg
+            )
             if llm_used:
                 mode = GenerationMode.LLM
                 self.narrative_cache.update_from_llm(trigger.trigger_type, payload)
@@ -290,6 +347,7 @@ class DreamConstructorAgent:
                 payload = self._fallback_payload(
                     stage_value, base_emotion, fallback_narrative
                 )
+                template_bank = f"TEMPLATE_{stage_value}"
             logger.info(
                 "dream-segment trigger=%s t=%.2f mode=%s llm_calls=%d",
                 trigger.trigger_type.value,
@@ -304,6 +362,12 @@ class DreamConstructorAgent:
                 stage=stage,
             )
             payload = self._fallback_payload(stage_value, base_emotion, narrative)
+            if stage_value == "REM" and self.narrative_cache.active_rem_blueprint:
+                mode = GenerationMode.CACHED
+                template_bank = "REM_BLUEPRINT_CACHE"
+            else:
+                mode = GenerationMode.TEMPLATE
+                template_bank = f"TEMPLATE_{stage_value}"
 
         return DreamSegment(
             segment_index=segment_index,
@@ -318,5 +382,8 @@ class DreamConstructorAgent:
             active_memory_ids=[],
             neurochemistry=neuro_snapshot,
             generation_mode=mode,
+            llm_trigger_type=llm_trigger_type,
+            llm_latency_ms=llm_latency_ms,
+            template_bank=template_bank,
             llm_error=llm_error,
         )

@@ -4,7 +4,7 @@ import math
 import uuid
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 import networkx as nx
 import numpy as np
@@ -141,6 +141,8 @@ class MemoryGraph:
         self._g: nx.MultiDiGraph = nx.MultiDiGraph()
         # Log of replay events for visualization and export
         self.replay_event_log: list[dict] = []
+        # Chronological activation snapshots captured during simulation.
+        self.activation_snapshots: list[MemoryActivationSnapshot] = []
 
     # ------------------------------------------------------------------
     # Node and edge management
@@ -399,11 +401,13 @@ class MemoryGraph:
             str(node): float(data.get("activation", 0.0))
             for node, data in self._g.nodes(data=True)
         }
-        return MemoryActivationSnapshot(
+        snapshot = MemoryActivationSnapshot(
             time_hours=float(time_hours),
             stage=str(stage),
             activations=activations,
         )
+        self.activation_snapshots.append(snapshot)
+        return snapshot
 
     def _dominant_emotion(self, node_ids: Iterable[str]) -> EmotionLabel:
         counts = {label: 0.0 for label in EmotionLabel}
@@ -421,7 +425,7 @@ class MemoryGraph:
     def to_networkx(self) -> nx.MultiDiGraph:
         return self._g
 
-    def to_json_serializable(self) -> dict:
+    def to_json_serializable(self) -> dict[str, Any]:
         nodes = []
         for node_id, data in self._g.nodes(data=True):
             item = {"id": node_id}
@@ -438,4 +442,12 @@ class MemoryGraph:
             "nodes": nodes,
             "edges": edges,
             "replay_events": list(self.replay_event_log),
+            "activation_snapshots": [
+                {
+                    "time_hours": s.time_hours,
+                    "stage": s.stage,
+                    "activations": s.activations,
+                }
+                for s in self.activation_snapshots
+            ],
         }

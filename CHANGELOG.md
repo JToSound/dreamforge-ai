@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Round 3 metadata + memory graph completion
+- Added segment-level provenance fields across simulation/export surfaces:
+  - `llm_trigger_type`, `llm_latency_ms`, `template_bank`
+  - expanded `generation_mode` to include `CACHED` in model/agent paths.
+- Added activation snapshot persistence to `MemoryGraph` and exported
+  `memory_graph.activation_snapshots` alongside existing replay events.
+- Enriched dream-constructor prompts with qualitative neurochemical context blocks
+  and memory-node hints for improved narrative conditioning.
+- Updated CSV exports (runner + dashboard ZIP) to include the new generation and
+  neurochemistry audit columns.
+- Added regression coverage for activation snapshots and new CSV columns.
+
 ### v5 physiology and dashboard calibrations
 - Recalibrated sleep architecture in `core/models/sleep_cycle.py`:
   - `tau_sleep` default set to `4.2`

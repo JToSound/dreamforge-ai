@@ -7,6 +7,7 @@ import os
 
 import json
 import time
+from collections import Counter
 from typing import Optional
 
 import httpx
@@ -383,6 +384,27 @@ else:
     k2.metric("REM Segments", n_rem)
     k3.metric("Avg Bizarreness", f"{avg_bizarre:.2f}")
     k4.metric("Night Span", f"{metadata.get('duration_hours', duration_hours):.1f} h")
+
+    mode_counts = Counter(
+        str(s.get("generation_mode") or "TEMPLATE").upper() for s in segments
+    )
+    g1, g2, g3, g4 = st.columns(4)
+    g1.metric("LLM", mode_counts.get("LLM", 0))
+    g2.metric("Template", mode_counts.get("TEMPLATE", 0))
+    g3.metric("Fallback", mode_counts.get("LLM_FALLBACK", 0))
+    g4.metric("Cached", mode_counts.get("CACHED", 0))
+
+    llm_latencies = [
+        float(s.get("llm_latency_ms"))
+        for s in segments
+        if s.get("generation_mode") == "LLM" and s.get("llm_latency_ms") is not None
+    ]
+    if llm_latencies:
+        st.caption(
+            f"LLM latency median={np.median(llm_latencies):.0f}ms | "
+            f"p95={np.quantile(llm_latencies, 0.95):.0f}ms | "
+            f"max={np.max(llm_latencies):.0f}ms"
+        )
 
     # Real-time animation controls
     anim_col, _, _ = st.columns([1, 0.2, 1])
@@ -788,6 +810,13 @@ else:
                 "bizarreness_score",
                 "lucidity_probability",
                 "generation_mode",
+                "llm_trigger_type",
+                "llm_latency_ms",
+                "template_bank",
+                "ach",
+                "serotonin",
+                "ne",
+                "cortisol",
                 "narrative",
                 "scene_description",
                 "active_memory_ids",
@@ -795,6 +824,7 @@ else:
             writer = csv.writer(sio)
             writer.writerow(seg_cols)
             for s in segs:
+                neuro = s.get("neurochemistry") or {}
                 writer.writerow(
                     [
                         s.get("segment_index") or s.get("id") or "",
@@ -806,6 +836,13 @@ else:
                         s.get("bizarreness_score") or s.get("bizarreness") or "",
                         s.get("lucidity_probability") or s.get("lucidity_score") or "",
                         s.get("generation_mode") or "TEMPLATE",
+                        s.get("llm_trigger_type") or "",
+                        s.get("llm_latency_ms") or "",
+                        s.get("template_bank") or "",
+                        neuro.get("ach", ""),
+                        neuro.get("serotonin", ""),
+                        neuro.get("ne", ""),
+                        neuro.get("cortisol", ""),
                         (
                             s.get("narrative")
                             or s.get("narrative_text")
@@ -1108,7 +1145,7 @@ else:
                 with c2:
                     filter_mode = st.selectbox(
                         "Filter Mode",
-                        ["All", "LLM", "TEMPLATE", "LLM_FALLBACK"],
+                        ["All", "LLM", "TEMPLATE", "LLM_FALLBACK", "CACHED"],
                         key=f"narr_mode_filter_{sim_key}",
                     )
                 with c3:

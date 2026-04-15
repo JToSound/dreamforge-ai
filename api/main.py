@@ -28,6 +28,7 @@ import logging
 import os
 import random
 import re
+import time
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -208,6 +209,9 @@ class DreamSegmentResponse(BaseModel):
     neurochemistry: Optional[Dict[str, float]] = None
     active_memory_ids: List[str] = []
     generation_mode: str = "TEMPLATE"
+    llm_trigger_type: Optional[str] = None
+    llm_latency_ms: Optional[float] = None
+    template_bank: Optional[str] = None
 
 
 class SimulationResponse(BaseModel):
@@ -401,6 +405,9 @@ def _simulate_night_physics(config: SimulationConfig) -> List[dict]:
                 # Placeholders — will be replaced by LLM below
                 "narrative": "",
                 "scene_description": "",
+                "llm_trigger_type": None,
+                "llm_latency_ms": None,
+                "template_bank": f"TEMPLATE_{stage}",
             }
         )
 
@@ -480,7 +487,11 @@ def _build_memory_outputs(
         {"source": src, "target": dst, "weight": round(weight, 3)}
         for (src, dst), weight in edge_weights.items()
     ]
-    return {"nodes": nodes, "edges": edges}, snapshots
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "activation_snapshots": snapshots,
+    }, snapshots
 
 
 def _template_narrative(seg: dict, config: SimulationConfig) -> tuple[str, str]:
@@ -736,14 +747,27 @@ async def simulate_night(config: SimulationConfig):
         nonlocal llm_used
         seg = raw_segments[idx]
         async with semaphore:
+            t0 = time.perf_counter()
             try:
                 narrative, scene = await _generate_llm_narrative(seg, config, client)
                 llm_used = True
                 raw_segments[idx]["generation_mode"] = "LLM"
+                raw_segments[idx]["llm_trigger_type"] = "API_SAMPLED"
+                raw_segments[idx]["llm_latency_ms"] = round(
+                    (time.perf_counter() - t0) * 1000.0, 1
+                )
+                raw_segments[idx]["template_bank"] = ""
             except Exception as exc:
                 logger.error("LLM narrative failed for segment %d: %s", idx, exc)
                 narrative, scene = _template_narrative(seg, config)
                 raw_segments[idx]["generation_mode"] = "LLM_FALLBACK"
+                raw_segments[idx]["llm_trigger_type"] = "API_SAMPLED"
+                raw_segments[idx]["llm_latency_ms"] = round(
+                    (time.perf_counter() - t0) * 1000.0, 1
+                )
+                raw_segments[idx][
+                    "template_bank"
+                ] = f"TEMPLATE_{seg.get('stage', 'N2')}"
         raw_segments[idx]["narrative"] = narrative
         raw_segments[idx]["scene_description"] = scene
 
@@ -753,6 +777,9 @@ async def simulate_night(config: SimulationConfig):
     # Fill remaining segments with templates
     for i, seg in enumerate(raw_segments):
         seg.setdefault("generation_mode", "TEMPLATE")
+        seg.setdefault("llm_trigger_type", None)
+        seg.setdefault("llm_latency_ms", None)
+        seg.setdefault("template_bank", f"TEMPLATE_{seg.get('stage', 'N2')}")
         if not seg["narrative"]:
             n, s = _template_narrative(seg, config)
             seg["narrative"] = n

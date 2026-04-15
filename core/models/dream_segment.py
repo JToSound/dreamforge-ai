@@ -16,6 +16,7 @@ class GenerationMode(str, Enum):
     LLM = "LLM"
     TEMPLATE = "TEMPLATE"
     LLM_FALLBACK = "LLM_FALLBACK"
+    CACHED = "CACHED"
 
 
 class DreamSegment(BaseModel):
@@ -37,6 +38,9 @@ class DreamSegment(BaseModel):
     bizarreness_score: float = Field(0.0, ge=0.0, le=1.0)
     lucidity_probability: float = Field(0.0, ge=0.0, le=1.0)
     generation_mode: GenerationMode = GenerationMode.TEMPLATE
+    llm_trigger_type: str | None = None
+    llm_latency_ms: float | None = None
+    template_bank: str | None = None
 
     metadata: dict[str, Any] = Field(
         default_factory=dict,

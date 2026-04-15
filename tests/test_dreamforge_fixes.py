@@ -122,6 +122,14 @@ class TestMemoryActivations:
         assert len(snaps) >= 1
         assert all("time_hours" in s and "activations" in s for s in snaps)
 
+    def test_memory_graph_contains_activation_snapshots(
+        self, completed_simulation_result: dict[str, Any]
+    ) -> None:
+        memory_graph = completed_simulation_result["memory_graph"]
+        assert "activation_snapshots" in memory_graph
+        assert isinstance(memory_graph["activation_snapshots"], list)
+        assert len(memory_graph["activation_snapshots"]) >= 1
+
 
 class TestSleepStageProportions:
     def test_n3_proportion_within_physiological_range(
@@ -188,9 +196,21 @@ class TestGenerationModeCSV:
         out = tmp_path / "segments.csv"
         export_segments_csv(mock_result_960, out)
         df = pd.read_csv(out)
-        valid = {"LLM", "TEMPLATE", "LLM_FALLBACK"}
+        valid = {"LLM", "TEMPLATE", "LLM_FALLBACK", "CACHED"}
         unexpected = set(df["generation_mode"].unique()) - valid
         assert not unexpected, f"Unexpected generation_mode values found: {unexpected}"
+
+    def test_segments_csv_has_trigger_latency_and_template_columns(
+        self, tmp_path: Path, mock_result_960: dict[str, Any]
+    ) -> None:
+        from core.simulation.runner import export_segments_csv
+
+        out = tmp_path / "segments.csv"
+        export_segments_csv(mock_result_960, out)
+        df = pd.read_csv(out)
+        assert {"llm_trigger_type", "llm_latency_ms", "template_bank"}.issubset(
+            set(df.columns)
+        )
 
     def test_llm_trigger_rate_within_expected_range(
         self, completed_simulation_result: dict[str, Any]

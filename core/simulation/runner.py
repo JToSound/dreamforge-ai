@@ -120,6 +120,7 @@ def export_segments_csv(result: Dict[str, Any], output_path: Path) -> None:
             active_ids_text = ",".join(str(item) for item in active_ids)
         else:
             active_ids_text = str(active_ids or "")
+        neuro = seg_dict.get("neurochemistry") or {}
 
         rows.append(
             {
@@ -131,6 +132,13 @@ def export_segments_csv(result: Dict[str, Any], output_path: Path) -> None:
                 "bizarreness_score": seg_dict.get("bizarreness_score"),
                 "lucidity_probability": seg_dict.get("lucidity_probability"),
                 "generation_mode": seg_dict.get("generation_mode", "TEMPLATE"),
+                "llm_trigger_type": seg_dict.get("llm_trigger_type", ""),
+                "llm_latency_ms": seg_dict.get("llm_latency_ms", ""),
+                "template_bank": seg_dict.get("template_bank", ""),
+                "ach": neuro.get("ach", float("nan")),
+                "serotonin": neuro.get("serotonin", float("nan")),
+                "ne": neuro.get("ne", float("nan")),
+                "cortisol": neuro.get("cortisol", float("nan")),
                 "narrative": seg_dict.get("narrative", ""),
                 "scene_description": seg_dict.get("scene_description", ""),
                 "active_memory_ids": active_ids_text,
