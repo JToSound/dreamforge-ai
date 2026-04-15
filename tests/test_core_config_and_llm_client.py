@@ -140,6 +140,54 @@ async def test_llm_client_chat_failure_and_health_failure(monkeypatch):
     assert "health down" in health["error"]
 
 
+@pytest.mark.asyncio
+async def test_llm_client_retries_with_relaxed_payload_on_400(monkeypatch):
+    calls: list[dict[str, object]] = []
+
+    class VariantAsyncClient:
+        def __init__(self, *args, **kwargs):
+            return None
+
+        async def post(self, path, json):
+            calls.append(json)
+            if len(calls) == 1:
+                req = llm_client.httpx.Request("POST", "http://fake/chat/completions")
+                err = llm_client.httpx.HTTPStatusError(
+                    "400 Bad Request",
+                    request=req,
+                    response=llm_client.httpx.Response(400, request=req),
+                )
+                return _FakeResponse(error=err)
+            return _FakeResponse(
+                payload={"choices": [{"message": {"content": "ok after relax"}}]}
+            )
+
+        async def get(self, path, timeout=5):
+            return _FakeResponse(payload={"data": [{"id": "model-a"}]})
+
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", VariantAsyncClient)
+    client = llm_client.LLMClient(
+        llm_client.LLMConfig(
+            provider="openai",
+            base_url="http://fake",
+            model="x",
+            api_key="k",
+            retries=3,
+            backoff_base=0.0,
+            json_mode=True,
+            no_think=True,
+        )
+    )
+    out = await client.chat(system="sys", user="usr")
+    assert out == "ok after relax"
+    assert len(calls) >= 2
+    assert "response_format" in calls[0]
+    assert "response_format" not in calls[1]
+
+
 def test_get_llm_client_singleton_reset(monkeypatch):
     llm_client._default_client = None
 

@@ -77,25 +77,13 @@ class LLMClient:
         Returns: the text content on success, or a sentinel error string
         beginning with "[LLM unavailable:" on failure.
         """
-        payload: dict[str, object] = {
-            "model": self.config.model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        f"/no_think\n\n{system}" if self.config.no_think else system
-                    ),
-                },
-                {"role": "user", "content": user},
-            ],
-            "max_tokens": self.config.max_tokens,
-            "temperature": self.config.temperature,
-        }
-        if self.config.json_mode:
-            payload["response_format"] = {"type": "json_object"}
+        payload_variants = self._build_payload_variants(system=system, user=user)
+        total_attempts = max(1, int(self.config.retries), len(payload_variants))
 
         last_exc = None
-        for attempt in range(1, max(1, int(self.config.retries)) + 1):
+        for attempt in range(1, total_attempts + 1):
+            variant_idx = min(attempt - 1, len(payload_variants) - 1)
+            payload = payload_variants[variant_idx]
             try:
                 resp = await asyncio.wait_for(
                     self._client.post("/chat/completions", json=payload),
@@ -132,6 +120,29 @@ class LLMClient:
                     if isinstance(choices, list) and choices:
                         return str(choices[0])
                     return str(data_obj)
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+                status_code = (
+                    exc.response.status_code if exc.response is not None else 0
+                )
+                # Compatibility path: some providers reject response_format/no_think
+                # combinations with 400. Progressively relax payload controls.
+                if status_code == 400 and variant_idx < len(payload_variants) - 1:
+                    logger.warning(
+                        "LLM payload rejected (400) on variant %d/%d; retrying with relaxed payload",
+                        variant_idx + 1,
+                        len(payload_variants),
+                    )
+                    continue
+                logger.warning(
+                    "LLM call attempt %d/%d failed: %s",
+                    attempt,
+                    total_attempts,
+                    exc,
+                )
+                if attempt < total_attempts:
+                    backoff = float(self.config.backoff_base) * (2 ** (attempt - 1))
+                    await asyncio.sleep(backoff)
             except (
                 asyncio.TimeoutError,
                 httpx.HTTPError,
@@ -142,17 +153,71 @@ class LLMClient:
                 logger.warning(
                     "LLM call attempt %d/%d failed: %s",
                     attempt,
-                    self.config.retries,
+                    total_attempts,
                     exc,
                 )
-                if attempt < self.config.retries:
+                if attempt < total_attempts:
                     backoff = float(self.config.backoff_base) * (2 ** (attempt - 1))
                     await asyncio.sleep(backoff)
 
         logger.error(
-            "LLM call failed after %d attempts: %s", int(self.config.retries), last_exc
+            "LLM call failed after %d attempts: %s", int(total_attempts), last_exc
         )
         return f"[LLM unavailable: {last_exc}]"
+
+    def _build_payload(
+        self,
+        *,
+        system: str,
+        user: str,
+        include_no_think: bool,
+        include_json_mode: bool,
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "model": self.config.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        f"/no_think\n\n{system}"
+                        if include_no_think and self.config.no_think
+                        else system
+                    ),
+                },
+                {"role": "user", "content": user},
+            ],
+            "max_tokens": self.config.max_tokens,
+            "temperature": self.config.temperature,
+        }
+        if include_json_mode and self.config.json_mode:
+            payload["response_format"] = {"type": "json_object"}
+        return payload
+
+    def _build_payload_variants(
+        self, *, system: str, user: str
+    ) -> list[dict[str, object]]:
+        variants: list[tuple[bool, bool]] = [
+            (True, True),  # configured payload
+            (True, False),  # relax response_format
+            (False, True),  # relax /no_think
+            (False, False),  # relax both
+        ]
+        payloads: list[dict[str, object]] = []
+        seen: set[str] = set()
+        for include_no_think, include_json_mode in variants:
+            payload = self._build_payload(
+                system=system,
+                user=user,
+                include_no_think=include_no_think,
+                include_json_mode=include_json_mode,
+            )
+            # Deduplicate when config disables a feature already.
+            signature = repr(payload)
+            if signature in seen:
+                continue
+            seen.add(signature)
+            payloads.append(payload)
+        return payloads
 
     async def check_health(self) -> dict[str, object]:
         try:

@@ -22,6 +22,14 @@ class _TimeoutLLM:
         raise asyncio.TimeoutError("timeout")
 
 
+class _BadRequestLLM:
+    async def chat(self, system: str, user: str) -> str:
+        return (
+            "[LLM unavailable: Client error '400 Bad Request' for url "
+            "'http://fake/chat/completions']"
+        )
+
+
 @pytest.mark.asyncio
 async def test_rem_narrative_word_count_gte_40() -> None:
     seg = {
@@ -122,3 +130,23 @@ async def test_n3_fallback_narrative_has_terminal_punctuation() -> None:
     await gen.generate_batch([seg])
     assert seg.get("_llm_fallback") is True
     assert seg["narrative"].endswith((".", "!", "?"))
+
+
+@pytest.mark.asyncio
+async def test_400_bad_request_maps_to_provider_error_reason() -> None:
+    seg = {
+        "stage": "REM",
+        "dominant_emotion": "anxious",
+        "bizarreness_score": 0.9,
+        "lucidity_probability": 0.0,
+        "active_memory_ids": [],
+        "start_time_hours": 2.25,
+        "narrative": "",
+    }
+    gen = NarrativeGenerator(
+        llm_client=_BadRequestLLM(),
+        config=NarrativeGeneratorConfig(llm_enabled=True, timeout_seconds=0.01),
+    )
+    await gen.generate_batch([seg])
+    assert seg.get("_llm_fallback") is True
+    assert seg.get("_llm_fallback_reason") == "provider_error"

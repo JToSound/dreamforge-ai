@@ -182,7 +182,18 @@ class NarrativeGenerator:
             elif isinstance(exc, RuntimeError) and str(exc).startswith(
                 "[LLM unavailable:"
             ):
-                reason = "health_unavailable"
+                low = str(exc).lower()
+                if "400 bad request" in low or "status/400" in low:
+                    reason = "provider_error"
+                elif (
+                    "connection" in low
+                    or "connect" in low
+                    or "dns" in low
+                    or "refused" in low
+                ):
+                    reason = "health_unavailable"
+                else:
+                    reason = "provider_error"
             else:
                 reason = "provider_error"
             segment["narrative"] = fallback
