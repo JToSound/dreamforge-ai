@@ -63,6 +63,9 @@ class LLMClient:
     def __init__(self, config: Optional[LLMConfig] = None):
         self.config = config or LLMConfig.from_env()
         self.last_response_meta: dict[str, Any] = {}
+        self._preferred_no_think = self.config.no_think
+        self._preferred_json_mode = self.config.json_mode
+        self._compat_lock = asyncio.Lock()
         # Keep a long-lived AsyncClient for connection reuse
         self._client = httpx.AsyncClient(
             base_url=self.config.base_url,
@@ -83,9 +86,11 @@ class LLMClient:
         total_attempts = max(1, int(self.config.retries), len(payload_variants))
 
         last_exc = None
+        saw_payload_rejection = False
         for attempt in range(1, total_attempts + 1):
             variant_idx = min(attempt - 1, len(payload_variants) - 1)
-            payload = payload_variants[variant_idx]
+            variant = payload_variants[variant_idx]
+            payload = variant["payload"]
             try:
                 resp = await asyncio.wait_for(
                     self._client.post("/chat/completions", json=payload),
@@ -100,6 +105,11 @@ class LLMClient:
                 usage = data_obj.get("usage")
                 if isinstance(usage, dict):
                     self.last_response_meta["usage"] = usage
+                if saw_payload_rejection and variant_idx > 0:
+                    await self._remember_compatible_variant(
+                        include_no_think=bool(variant["include_no_think"]),
+                        include_json_mode=bool(variant["include_json_mode"]),
+                    )
                 # support multiple response shapes; be defensive
                 try:
                     choices = data_obj.get("choices", [])
@@ -130,6 +140,7 @@ class LLMClient:
                 # Compatibility path: some providers reject response_format/no_think
                 # combinations with 400. Progressively relax payload controls.
                 if status_code == 400 and variant_idx < len(payload_variants) - 1:
+                    saw_payload_rejection = True
                     logger.warning(
                         "LLM payload rejected (400) on variant %d/%d; retrying with relaxed payload",
                         variant_idx + 1,
@@ -199,27 +210,49 @@ class LLMClient:
         self, *, system: str, user: str
     ) -> list[dict[str, object]]:
         variants: list[tuple[bool, bool]] = [
-            (True, True),  # configured payload
-            (True, False),  # relax response_format
-            (False, True),  # relax /no_think
+            (self._preferred_no_think, self._preferred_json_mode),  # preferred payload
+            (self._preferred_no_think, False),  # relax response_format
+            (False, self._preferred_json_mode),  # relax /no_think
             (False, False),  # relax both
         ]
         payloads: list[dict[str, object]] = []
-        seen: set[str] = set()
+        seen: set[tuple[bool, bool]] = set()
         for include_no_think, include_json_mode in variants:
+            signature = (include_no_think, include_json_mode)
+            if signature in seen:
+                continue
+            seen.add(signature)
             payload = self._build_payload(
                 system=system,
                 user=user,
                 include_no_think=include_no_think,
                 include_json_mode=include_json_mode,
             )
-            # Deduplicate when config disables a feature already.
-            signature = repr(payload)
-            if signature in seen:
-                continue
-            seen.add(signature)
-            payloads.append(payload)
+            payloads.append(
+                {
+                    "include_no_think": include_no_think,
+                    "include_json_mode": include_json_mode,
+                    "payload": payload,
+                }
+            )
         return payloads
+
+    async def _remember_compatible_variant(
+        self, *, include_no_think: bool, include_json_mode: bool
+    ) -> None:
+        async with self._compat_lock:
+            if (
+                self._preferred_no_think == include_no_think
+                and self._preferred_json_mode == include_json_mode
+            ):
+                return
+            self._preferred_no_think = include_no_think
+            self._preferred_json_mode = include_json_mode
+            logger.info(
+                "LLM compatibility learned: no_think=%s, json_mode=%s",
+                include_no_think,
+                include_json_mode,
+            )
 
     async def check_health(self) -> dict[str, object]:
         try:

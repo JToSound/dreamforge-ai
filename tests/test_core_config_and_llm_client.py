@@ -194,6 +194,57 @@ async def test_llm_client_retries_with_relaxed_payload_on_400(monkeypatch):
     assert "response_format" not in calls[1]
 
 
+@pytest.mark.asyncio
+async def test_llm_client_learns_compatible_payload_after_400(monkeypatch):
+    calls: list[dict[str, object]] = []
+
+    class LearningAsyncClient:
+        def __init__(self, *args, **kwargs):
+            return None
+
+        async def post(self, path, json):
+            calls.append(json)
+            if "response_format" in json:
+                req = llm_client.httpx.Request("POST", "http://fake/chat/completions")
+                err = llm_client.httpx.HTTPStatusError(
+                    "400 Bad Request",
+                    request=req,
+                    response=llm_client.httpx.Response(400, request=req),
+                )
+                return _FakeResponse(error=err)
+            return _FakeResponse(payload={"choices": [{"message": {"content": "ok"}}]})
+
+        async def get(self, path, timeout=5):
+            return _FakeResponse(payload={"data": [{"id": "model-a"}]})
+
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", LearningAsyncClient)
+    client = llm_client.LLMClient(
+        llm_client.LLMConfig(
+            provider="openai",
+            base_url="http://fake",
+            model="x",
+            api_key="k",
+            retries=3,
+            backoff_base=0.0,
+            json_mode=True,
+            no_think=True,
+        )
+    )
+
+    first = await client.chat(system="sys", user="u1")
+    second = await client.chat(system="sys", user="u2")
+
+    assert first == "ok"
+    assert second == "ok"
+    assert len(calls) == 3
+    assert "response_format" in calls[0]
+    assert "response_format" not in calls[1]
+    assert "response_format" not in calls[2]
+
+
 def test_get_llm_client_singleton_reset(monkeypatch):
     llm_client._default_client = None
 
