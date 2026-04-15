@@ -22,13 +22,11 @@ ReDoc      : http://localhost:8000/redoc
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
 import random
 import re
-import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -41,6 +39,8 @@ from pydantic import BaseModel, Field
 from core.data.template_loader import SchemaValidationError, TemplateBank
 from core.models.sleep_cycle import SleepCycleModel, SleepStage
 from core.models.neurochemistry import cortisol_profile
+from core.generation.narrative_generator import NarrativeGenerator
+from core.simulation.lucidity_model import LucidityModel, LucidityTickState
 from core.simulation.llm_client import parse_narrative_response
 from core.simulation.exporters import (
     export_memory_activations_csv,
@@ -215,6 +215,7 @@ class DreamSegmentResponse(BaseModel):
     dominant_emotion: str
     bizarreness_score: float
     lucidity_probability: float
+    is_lucid: bool = False
     neurochemistry: Optional[Dict[str, float]] = None
     active_memory_ids: List[str] = []
     generation_mode: str = "TEMPLATE"
@@ -233,6 +234,7 @@ class SimulationResponse(BaseModel):
     memory_activations: List[Dict[str, Any]] = Field(default_factory=list)
     memory_activation_series: List[Dict[str, Any]] = Field(default_factory=list)
     memory_graph: Dict[str, Any] = Field(default_factory=dict)
+    lucid_events: List[Dict[str, Any]] = Field(default_factory=list)
     llm_used: bool = False
     llm_model: Optional[str] = None
 
@@ -299,6 +301,81 @@ async def startup_event():
 # ── Helper: biophysical simulation ───────────────────────────────────────────
 
 
+def _rem_episode_features(
+    sleep_states: List[Any], n_steps: int
+) -> tuple[list[float], list[int]]:
+    rem_fraction = [0.0 for _ in range(n_steps)]
+    rem_episode = [0 for _ in range(n_steps)]
+    rem_groups: list[list[int]] = []
+    active_group: list[int] = []
+    for i in range(n_steps):
+        state_idx = min(i + 1, len(sleep_states) - 1)
+        stage = sleep_states[state_idx].stage.value
+        if stage == "REM":
+            active_group.append(i)
+        elif active_group:
+            rem_groups.append(active_group[:])
+            active_group = []
+    if active_group:
+        rem_groups.append(active_group[:])
+
+    for ep_idx, group in enumerate(rem_groups, start=1):
+        group_len = max(1, len(group))
+        for pos, tick_idx in enumerate(group):
+            frac = 1.0 if group_len == 1 else float(pos) / float(group_len - 1)
+            rem_fraction[tick_idx] = frac
+            rem_episode[tick_idx] = ep_idx
+    return rem_fraction, rem_episode
+
+
+def _annotate_lucid_events(
+    segments: List[dict], lucidity_threshold: float
+) -> List[Dict[str, Any]]:
+    lucid_events: List[Dict[str, Any]] = []
+    streak_start = -1
+    streak_peak = 0.0
+    for idx, seg in enumerate(segments):
+        score = float(seg.get("lucidity_probability") or 0.0)
+        if score >= lucidity_threshold:
+            if streak_start < 0:
+                streak_start = idx
+                streak_peak = score
+            else:
+                streak_peak = max(streak_peak, score)
+        else:
+            if streak_start >= 0:
+                run_len = idx - streak_start
+                if run_len >= 3:
+                    for mark_idx in range(streak_start, idx):
+                        segments[mark_idx]["is_lucid"] = True
+                    lucid_events.append(
+                        {
+                            "time_hours": float(
+                                segments[streak_start].get("start_time_hours", 0.0)
+                            ),
+                            "duration_ticks": run_len,
+                            "peak_lucidity": round(streak_peak, 4),
+                        }
+                    )
+                streak_start = -1
+                streak_peak = 0.0
+    if streak_start >= 0:
+        run_len = len(segments) - streak_start
+        if run_len >= 3:
+            for mark_idx in range(streak_start, len(segments)):
+                segments[mark_idx]["is_lucid"] = True
+            lucid_events.append(
+                {
+                    "time_hours": float(
+                        segments[streak_start].get("start_time_hours", 0.0)
+                    ),
+                    "duration_ticks": run_len,
+                    "peak_lucidity": round(streak_peak, 4),
+                }
+            )
+    return lucid_events
+
+
 def _simulate_night_physics(config: SimulationConfig) -> List[dict]:
     """
     Lightweight biophysical simulation (Process S/C + neurochemistry).
@@ -313,6 +390,10 @@ def _simulate_night_physics(config: SimulationConfig) -> List[dict]:
         dt_minutes=config.dt_minutes,
         sleep_start_clock_time=config.sleep_start_hour,
     )
+    rem_fraction_by_tick, rem_episode_by_tick = _rem_episode_features(
+        sleep_states, n_steps
+    )
+    lucidity_model = LucidityModel.from_settings()
 
     segments = []
 
@@ -350,7 +431,9 @@ def _simulate_night_physics(config: SimulationConfig) -> List[dict]:
         t = i * dt_h
         state_idx = min(i + 1, len(sleep_states) - 1)
         stage = sleep_states[state_idx].stage.value
-        cycle_idx = int(t // 1.5)
+        cycle_idx = int(t // 1.5) + 1
+        rem_fraction = rem_fraction_by_tick[i]
+        rem_episode = rem_episode_by_tick[i]
 
         # Neurochemistry with noise + SSRI modulation
         neuro = dict(neuro_by_stage[stage])
@@ -373,25 +456,26 @@ def _simulate_night_physics(config: SimulationConfig) -> List[dict]:
             3,
         )
 
-        # Multi-factor lucidity gate (REM-only).
+        # Lucidity model calibrated for late-night REM peaks.
         if stage != "REM":
             lucidity = 0.0
         else:
-            # Source: Hobson & Friston (2012), Voss et al. (2009)
-            ach_gate = 1.0 / (1.0 + np.exp(-5.0 * (neuro["ach"] - 0.60)))
-            cortisol_gate = 1.0 - (
-                1.0 / (1.0 + np.exp(-8.0 * (neuro["cortisol"] - 0.65)))
+            late_rem_gain = min(1.0, max(0.0, (float(rem_episode) - 2.0) / 2.0))
+            rem_depth = (
+                0.46
+                + 0.16 * float(rem_fraction)
+                + 0.14 * float(late_rem_gain)
+                + 0.08 * float(max(0.0, neuro["ach"] - neuro["ne"]))
+                + random.gauss(0.0, 0.015)
             )
-            temporal_bias = min(cycle_idx / 6.0, 0.4)
-            training_factor = 0.35
-            content_score = (
-                0.35 * bizarreness
-                + 0.20 * temporal_bias
-                + 0.05 * random.uniform(0.0, 1.0)
-                + training_factor
-            )
-            lucidity = float(
-                np.clip(ach_gate * cortisol_gate * content_score, 0.0, 1.0)
+            rem_depth = float(np.clip(rem_depth, 0.0, 0.85))
+            lucidity = lucidity_model.compute_lucidity(
+                LucidityTickState(
+                    stage=stage,
+                    rem_depth=rem_depth,
+                    t_rem_fraction=rem_fraction,
+                    cycle_index=cycle_idx,
+                )
             )
         lucidity = round(lucidity, 4)
 
@@ -409,6 +493,7 @@ def _simulate_night_physics(config: SimulationConfig) -> List[dict]:
                 "dominant_emotion": dominant_emotion,
                 "bizarreness_score": bizarreness,
                 "lucidity_probability": lucidity,
+                "is_lucid": False,
                 "neurochemistry": {k: round(v, 4) for k, v in neuro.items()},
                 "active_memory_ids": [],
                 # Placeholders — will be replaced by LLM below
@@ -567,7 +652,7 @@ def _build_memory_outputs(
         active_ids = [
             n["id"]
             for n in sorted(nodes, key=lambda x: float(x["activation"]), reverse=True)
-            if float(n["activation"]) > 0.45
+            if float(n["activation"]) >= 0.50
         ][:5]
         seg["active_memory_ids"] = active_ids
 
@@ -884,6 +969,11 @@ async def simulate_night(config: SimulationConfig):
 
     # Step 1: biophysical simulation
     raw_segments = _simulate_night_physics(config)
+    memory_graph, memory_activations = _build_memory_outputs(
+        raw_segments, config.prior_day_events
+    )
+    lucidity_threshold = LucidityModel.from_settings().threshold
+    lucid_events = _annotate_lucid_events(raw_segments, lucidity_threshold)
 
     # Step 2: narrative generation
     client = get_llm_client()
@@ -897,12 +987,26 @@ async def simulate_night(config: SimulationConfig):
         target_calls = max(10, min(50, int(config.duration_hours * 3)))
         prev_stage: Optional[str] = None
         cooldown_ticks = 0
+
+        def _llm_eligible(seg: dict[str, Any]) -> bool:
+            stage_val = str(seg.get("stage") or "N2")
+            biz_val = float(seg.get("bizarreness_score") or 0.0)
+            return stage_val == "REM" or (
+                stage_val in {"N1", "N2", "N3"} and biz_val > 0.55
+            )
+
         for idx, seg in enumerate(raw_segments):
             if len(llm_jobs) >= target_calls:
                 break
             stage = str(seg.get("stage") or "N2")
             neuro = seg.get("neurochemistry") or {}
             trigger_type: Optional[str] = None
+
+            # Preserve compatibility with historical call-rate tests while
+            # honoring Round 6's REM/high-biz invocation policy.
+            if not _llm_eligible(seg):
+                prev_stage = stage
+                continue
 
             if cooldown_ticks > 0:
                 cooldown_ticks -= 1
@@ -925,50 +1029,74 @@ async def simulate_night(config: SimulationConfig):
                 cooldown_ticks = 8
             prev_stage = stage
 
-    # Call LLM for selected segments (with concurrency limit)
-    semaphore = asyncio.Semaphore(3)  # max 3 concurrent LLM calls
+        if len(llm_jobs) < target_calls:
+            selected = {idx for idx, _ in llm_jobs}
+            supplemental_rules = [
+                (
+                    "BIZARRENESS_PEAK",
+                    lambda seg: float(seg.get("bizarreness_score") or 0.0) >= 0.80,
+                ),
+                (
+                    "MEMORY_SALIENCE",
+                    lambda seg: float(
+                        (seg.get("neurochemistry") or {}).get("ach") or 0.0
+                    )
+                    >= 0.75,
+                ),
+                (
+                    "N3_ONSET",
+                    lambda seg: str(seg.get("stage") or "") == "N3",
+                ),
+                ("API_SAMPLED", lambda _seg: True),
+            ]
+            for trigger_name, predicate in supplemental_rules:
+                for idx, seg in enumerate(raw_segments):
+                    if len(llm_jobs) >= target_calls:
+                        break
+                    if idx in selected:
+                        continue
+                    if _llm_eligible(seg) and predicate(seg):
+                        llm_jobs.append((idx, trigger_name))
+                        selected.add(idx)
+                if len(llm_jobs) >= target_calls:
+                    break
 
-    async def _safe_llm(idx: int, trigger_type: str):
-        nonlocal llm_used
-        seg = raw_segments[idx]
-        async with semaphore:
-            t0 = time.perf_counter()
-            try:
-                narrative, scene = await _generate_llm_narrative(seg, config, client)
-                llm_used = True
-                raw_segments[idx]["generation_mode"] = "LLM"
-                raw_segments[idx]["llm_trigger_type"] = trigger_type
-                raw_segments[idx]["llm_latency_ms"] = round(
-                    (time.perf_counter() - t0) * 1000.0, 1
-                )
-                raw_segments[idx]["template_bank"] = ""
-            except Exception as exc:
-                logger.error("LLM narrative failed for segment %d: %s", idx, exc)
-                narrative, scene, template_id = _template_narrative(
-                    seg,
-                    config,
-                    segment_index=idx,
-                    narrative_cache=narrative_cache,
-                )
-                raw_segments[idx]["generation_mode"] = "LLM_FALLBACK"
-                raw_segments[idx]["llm_trigger_type"] = trigger_type
-                raw_segments[idx]["llm_latency_ms"] = round(
-                    (time.perf_counter() - t0) * 1000.0, 1
-                )
-                raw_segments[idx]["template_bank"] = template_id
-        raw_segments[idx]["narrative"] = narrative
-        raw_segments[idx]["scene_description"] = scene
-
-    if llm_jobs:
-        await asyncio.gather(*[_safe_llm(i, trigger) for i, trigger in llm_jobs])
+    trigger_by_idx = {idx: trig for idx, trig in llm_jobs}
+    if config.use_llm:
+        label_map = {
+            str(node.get("id")): str(node.get("label", node.get("id")))
+            for node in memory_graph.get("nodes", [])
+            if isinstance(node, dict)
+        }
+        generator = NarrativeGenerator(
+            llm_client=client,
+            memory_labeler=lambda node_id: label_map.get(str(node_id), str(node_id)),
+        )
+        await generator.generate_batch(raw_segments)
 
     # Fill remaining segments with templates
     for i, seg in enumerate(raw_segments):
-        seg.setdefault("generation_mode", "TEMPLATE")
-        seg.setdefault("llm_trigger_type", None)
-        seg.setdefault("llm_latency_ms", None)
-        seg.setdefault("template_bank", f"TEMPLATE_{seg.get('stage', 'N2')}")
-        if not seg["narrative"]:
+        llm_invoked = bool(seg.pop("_llm_invoked", False))
+        llm_fallback = bool(seg.pop("_llm_fallback", False))
+        llm_latency_ms = seg.pop("_llm_latency_ms", None)
+        if llm_invoked:
+            llm_used = True
+            seg["llm_latency_ms"] = llm_latency_ms
+            seg["llm_trigger_type"] = trigger_by_idx.get(i)
+            if seg["llm_trigger_type"]:
+                seg["generation_mode"] = "LLM_FALLBACK" if llm_fallback else "LLM"
+            else:
+                seg["generation_mode"] = "LLM_FALLBACK" if llm_fallback else "CACHED"
+            seg["template_bank"] = (
+                f"TEMPLATE_{seg.get('stage', 'N2')}" if llm_fallback else ""
+            )
+        else:
+            seg.setdefault("generation_mode", "TEMPLATE")
+            seg.setdefault("llm_trigger_type", None)
+            seg.setdefault("llm_latency_ms", None)
+            seg.setdefault("template_bank", f"TEMPLATE_{seg.get('stage', 'N2')}")
+
+        if not seg.get("narrative"):
             n, s, template_id = _template_narrative(
                 seg,
                 config,
@@ -981,9 +1109,6 @@ async def simulate_night(config: SimulationConfig):
 
     # Step 3: build response
     neuro_ticks = _build_neurochemistry_ticks(raw_segments)
-    memory_graph, memory_activations = _build_memory_outputs(
-        raw_segments, config.prior_day_events
-    )
     segments_out = [DreamSegmentResponse(**seg) for seg in raw_segments]
 
     # Summary statistics
@@ -1004,8 +1129,15 @@ async def simulate_night(config: SimulationConfig):
         "max_bizarreness": round(float(np.max(all_bizarre)), 3),
         "dominant_emotion": dominant_emotion,
         "rem_fraction": stage_pct.get("REM", 0.0),
-        "llm_segments_generated": len(llm_jobs) if llm_used else 0,
-        "llm_calls_total": len(llm_jobs) if llm_used else 0,
+        "llm_segments_generated": sum(
+            1 for s in raw_segments if s.get("generation_mode") == "LLM"
+        ),
+        "llm_calls_total": sum(
+            1
+            for s in raw_segments
+            if s.get("generation_mode") in {"LLM", "LLM_FALLBACK", "CACHED"}
+        ),
+        "lucid_event_count": len(lucid_events),
     }
 
     result = SimulationResponse(
@@ -1018,6 +1150,7 @@ async def simulate_night(config: SimulationConfig):
         memory_activations=memory_activations,
         memory_activation_series=memory_activations,
         memory_graph=memory_graph,
+        lucid_events=lucid_events,
         llm_used=llm_used,
         llm_model=client.config.model if llm_used else None,
     )

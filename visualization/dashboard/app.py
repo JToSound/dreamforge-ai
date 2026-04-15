@@ -3,11 +3,10 @@ DreamForge AI — Streamlit Dashboard
 Real-time dream simulation visualization with LLM configuration.
 """
 
-import os
-
 import json
 import time
 from collections import Counter
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -365,6 +364,7 @@ else:
         ]
     )
     mem_graph = result.get("memory_graph", {"nodes": [], "edges": []})
+    lucid_events = result.get("lucid_events", [])
     metadata = result.get("metadata", {})
 
     n_seg = len(segments)
@@ -851,7 +851,7 @@ else:
                         ).replace("\n", " "),
                         s.get("scene_description") or "",
                         (
-                            ";".join(s.get("active_memory_ids", []))
+                            "|".join(s.get("active_memory_ids", []))
                             if isinstance(s.get("active_memory_ids"), list)
                             else s.get("active_memory_ids") or ""
                         ),
@@ -979,6 +979,53 @@ else:
                 "⚠️ Neurochemistry data unavailable. Check result JSON or CSV export."
             )
 
+        if segments:
+            lucid_df = pd.DataFrame(
+                [
+                    {
+                        "time_hours": float(
+                            s.get("start_time_hours", s.get("time_hours", 0.0)) or 0.0
+                        ),
+                        "lucidity_probability": float(
+                            s.get("lucidity_probability", 0.0)
+                        ),
+                    }
+                    for s in segments
+                ]
+            )
+            fig_lucid = go.Figure()
+            fig_lucid.add_trace(
+                go.Scatter(
+                    x=lucid_df["time_hours"],
+                    y=lucid_df["lucidity_probability"],
+                    mode="lines",
+                    name="Lucidity",
+                    line=dict(color=OKABE_ITO["yellow"], width=2),
+                )
+            )
+            for ev in lucid_events:
+                t0 = float(ev.get("time_hours", 0.0))
+                fig_lucid.add_vline(
+                    x=t0,
+                    line_width=1,
+                    line_dash="dash",
+                    line_color=OKABE_ITO["purple"],
+                )
+            fig_lucid.update_layout(
+                title="Lucidity Probability Timeline",
+                xaxis_title="Time (hours)",
+                yaxis_title="Lucidity probability",
+                template="plotly_dark",
+                height=300,
+                paper_bgcolor="#0d0d14",
+                plot_bgcolor="#12121e",
+            )
+            st.plotly_chart(
+                fig_lucid,
+                use_container_width=True,
+                key=f"lucidity_tab_{sim_key}",
+            )
+
     # ── Memory Graph ──────────────────────────────────────────────────────────
     with tab_mem:
         nodes = mem_graph.get("nodes", [])
@@ -1056,133 +1103,147 @@ else:
             )
             st.plotly_chart(fig3, use_container_width=True, key=f"memory_tab_{sim_key}")
         else:
-            st.info("No memory graph data returned.")
+            st.info(
+                "Memory graph structure unavailable; showing activation heatmap when data exists."
+            )
 
-        # Memory activation heatmap (if available)
-        mem_activation = (
-            result.get("memory_activation_series")
-            or result.get("memory_activations")
-            or result.get("memory_activation")
-            or []
+        heatmap_rows: list[dict[str, object]] = []
+        csv_path = (
+            Path("outputs")
+            / str(result.get("id") or result.get("simulation_id") or "")
+            / "memory_activations.csv"
         )
-        if mem_activation:
-            if st.button(
-                "🔬 Generate Memory Activation Heatmap",
-                key=f"gen_mem_heatmap_{sim_key}",
-            ):
-                outdir = os.path.join("reports", "plots")
-                os.makedirs(outdir, exist_ok=True)
-                sim_id = (
-                    result.get("id") or result.get("simulation_id") or int(time.time())
-                )
-                if plot_memory_activation_heatmap is None:
-                    st.error("Plotting module not available (import failed).")
-                else:
-                    try:
-                        p = plot_memory_activation_heatmap(
-                            mem_activation, outdir, sim_id
+        if csv_path.exists():
+            try:
+                csv_df = pd.read_csv(csv_path)
+                if {"time_hours", "node_label", "activation"}.issubset(csv_df.columns):
+                    for row in csv_df.to_dict(orient="records"):
+                        heatmap_rows.append(
+                            {
+                                "time_hours": float(row.get("time_hours", 0.0)),
+                                "node_label": str(row.get("node_label", "")),
+                                "activation": float(row.get("activation", 0.0)),
+                            }
                         )
-                        if p:
-                            st.image(
-                                p,
-                                caption="Memory Activation Heatmap",
-                                use_column_width=True,
-                            )
-                        else:
-                            st.info("No activation data to plot.")
-                    except Exception as e:
-                        st.error(f"Error generating heatmap: {e}")
+            except Exception as e:
+                st.warning(f"Could not read memory_activations.csv: {e}")
+
+        if not heatmap_rows:
+            mem_activation = (
+                result.get("memory_activation_series")
+                or result.get("memory_activations")
+                or result.get("memory_activation")
+                or []
+            )
+            for snapshot in mem_activation:
+                time_hours = float(snapshot.get("time_hours", 0.0))
+                for node in snapshot.get("activations", []) or []:
+                    heatmap_rows.append(
+                        {
+                            "time_hours": time_hours,
+                            "node_label": str(node.get("label", node.get("id", ""))),
+                            "activation": float(node.get("activation", 0.0)),
+                        }
+                    )
+
+        if heatmap_rows:
+            heat_df = pd.DataFrame(heatmap_rows)
+            pivot_df = (
+                heat_df.pivot_table(
+                    index="node_label",
+                    columns="time_hours",
+                    values="activation",
+                    aggfunc="max",
+                )
+                .fillna(0.0)
+                .sort_index(axis=0)
+            )
+            fig_heat = go.Figure(
+                data=go.Heatmap(
+                    z=pivot_df.values,
+                    x=[round(float(x), 3) for x in pivot_df.columns],
+                    y=list(pivot_df.index),
+                    colorscale="Viridis",
+                    colorbar=dict(title="Activation"),
+                )
+            )
+            fig_heat.update_layout(
+                title="Memory Activation Heatmap",
+                xaxis_title="snapshot_time_hours",
+                yaxis_title="memory_node_label",
+                template="plotly_dark",
+                height=520,
+                paper_bgcolor="#0d0d14",
+                plot_bgcolor="#12121e",
+            )
+            st.plotly_chart(
+                fig_heat, use_container_width=True, key=f"mem_heat_{sim_key}"
+            )
         else:
-            st.info("No memory activation snapshots found in result.")
+            st.info(
+                "No memory activation snapshots found in result or memory_activations.csv."
+            )
 
     # ── Dream Narrative ───────────────────────────────────────────────────────
     with tab_dream:
         if segments:
-            extracted_segments = []
+            rem_segments = []
             for i, seg in enumerate(segments):
-                narrative = (
-                    seg.get("narrative")
-                    or seg.get("narrative_text")
-                    or seg.get("dream_text")
-                    or seg.get("content")
-                    or seg.get("dream_narrative")
-                    or seg.get("scene_description")
-                )
-                if not narrative or not isinstance(narrative, str):
+                if str(seg.get("stage", "")) != "REM":
                     continue
-                narrative = narrative.strip()
+                narrative = str(seg.get("narrative") or "").strip()
+                scene_text = str(seg.get("scene_description") or "")
                 if not narrative:
                     continue
-                extracted_segments.append(
+                rem_segments.append(
                     {
                         "idx": i + 1,
-                        "stage": seg.get("stage", "N2"),
                         "time": float(
                             seg.get("start_time_hours", seg.get("time_hours", 0.0))
                             or 0.0
                         ),
-                        "emotion": seg.get("dominant_emotion", "neutral"),
+                        "emotion": str(seg.get("dominant_emotion", "neutral")),
                         "biz": float(
                             seg.get("bizarreness_score", seg.get("bizarreness", 0.0))
                         ),
-                        "mode": seg.get("generation_mode", "TEMPLATE"),
+                        "scene": scene_text,
+                        "is_lucid": bool(seg.get("is_lucid", False)),
+                        "mode": str(seg.get("generation_mode", "TEMPLATE")),
                         "narrative": narrative,
                     }
                 )
 
-            if extracted_segments:
-                extracted_segments.sort(
-                    key=lambda s: (0 if s["mode"] == "LLM" else 1, -s["biz"])
+            if rem_segments:
+                st.caption(
+                    "REM narrative viewer. Lucid segments are highlighted in gold."
                 )
-
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    filter_stage = st.selectbox(
-                        "Filter Stage",
-                        ["All", "REM", "N1", "N2", "N3", "WAKE"],
-                        key=f"narr_stage_filter_{sim_key}",
-                    )
-                with c2:
-                    filter_mode = st.selectbox(
-                        "Filter Mode",
-                        ["All", "LLM", "TEMPLATE", "LLM_FALLBACK", "CACHED"],
-                        key=f"narr_mode_filter_{sim_key}",
-                    )
-                with c3:
-                    n_display = st.slider(
-                        "Max segments",
-                        min_value=5,
-                        max_value=50,
-                        value=20,
-                        key=f"narr_count_filter_{sim_key}",
-                    )
-
-                filtered = [
-                    s
-                    for s in extracted_segments
-                    if (filter_stage == "All" or s["stage"] == filter_stage)
-                    and (filter_mode == "All" or s["mode"] == filter_mode)
-                ][:n_display]
-
-                for seg in filtered:
-                    stage = seg["stage"]
-                    badge_color = stage_color.get(stage, "#888")
-                    st.markdown(
+                cards: list[str] = []
+                for seg in rem_segments:
+                    border_color = "#d4af37" if seg["is_lucid"] else "#4c3f8f"
+                    lucid_badge = " · [LUCID]" if seg["is_lucid"] else ""
+                    cards.append(
                         f"""
-                    <div style="background:#1a1a2e; border-left:3px solid {badge_color};
+                    <div style="background:#1a1a2e; border-left:4px solid {border_color};
                          border-radius:8px; padding:0.8rem 1rem; margin-bottom:0.8rem;">
-                      <div style="font-size:0.75rem; color:#6060a0; margin-bottom:0.3rem;">
-                        Segment {seg["idx"]} · Stage: <b style="color:{badge_color}">{stage}</b>
-                        · t={seg["time"]:.2f}h · Emotion: {seg["emotion"]}
-                        · Bizarreness: {seg["biz"]:.2f} · Mode: {seg["mode"]}
+                      <div style="font-size:0.75rem; color:#9090c0; margin-bottom:0.3rem;">
+                        REM Segment {seg["idx"]} · t={seg["time"]:.2f}h · Emotion: {seg["emotion"]}
+                        · Bizarreness: {seg["biz"]:.2f} · Mode: {seg["mode"]}{lucid_badge}
                       </div>
-                      <div style="color:#c8c8e0; font-size:0.95rem; line-height:1.6;">
+                      <div style="color:#d8d8ef; font-size:0.95rem; line-height:1.6; margin-bottom:0.35rem;">
                         {seg["narrative"]}
                       </div>
+                      <div style="color:#aab0d8; font-size:0.82rem;">
+                        Scene: {seg["scene"]}
+                      </div>
                     </div>
-                    """,
-                        unsafe_allow_html=True,
+                    """
                     )
+                st.markdown(
+                    '<div style="max-height:540px; overflow-y:auto; padding-right:0.35rem;">'
+                    + "".join(cards)
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
             else:
                 st.info("No narrative segments found in simulation result.")
         else:

@@ -117,7 +117,7 @@ def export_segments_csv(result: Dict[str, Any], output_path: Path) -> None:
             continue
         active_ids = seg_dict.get("active_memory_ids", [])
         if isinstance(active_ids, list):
-            active_ids_text = ",".join(str(item) for item in active_ids)
+            active_ids_text = "|".join(str(item) for item in active_ids)
         else:
             active_ids_text = str(active_ids or "")
         neuro = seg_dict.get("neurochemistry") or {}

@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## [Round 6]
+
+- Added `core/generation/narrative_generator.py` with async batch generation, REM/high-biz gating, continuity context, dedicated scene generation, and timeout/error fallback logging.
+- Added calibrated lucidity module `core/simulation/lucidity_model.py` and integrated it into API physics generation with REM-depth signals.
+- Added lucid-event detection (3+ consecutive threshold ticks), segment-level `is_lucid`, and top-level `lucid_events` in simulation payloads.
+- Reordered API pipeline so memory activations are computed before narrative generation, and active memory labels are injected into prompts.
+- Updated memory integration surfaces:
+  - `MemoryGraph.apply_replay_pulse()` now returns active IDs above threshold.
+  - Added `MemoryGraph.label(node_id)` and `MemoryGraph.active_node_ids()`.
+  - Exported `active_memory_ids` as pipe-delimited values in segment CSVs.
+- Updated dashboard (`visualization/dashboard/app.py`) with:
+  - REM narrative viewer panel including scene text and lucid highlighting,
+  - lucidity timeline chart with lucid-event markers,
+  - in-app memory activation heatmap (CSV-first with payload fallback).
+- Added `settings.yaml` runtime knobs:
+  - `lucidity_threshold`
+  - `llm_enabled`
+  - `narrative_min_words_rem`
+- Added Round 6 tests:
+  - `tests/generation/test_narrative_generator.py`
+  - `tests/simulation/test_lucidity_model.py`
+  - `tests/simulation/test_memory_integration.py`
+
 ### Round 3 metadata + memory graph completion
 - Added segment-level provenance fields across simulation/export surfaces:
   - `llm_trigger_type`, `llm_latency_ms`, `template_bank`

@@ -1,0 +1,4 @@
+lucidity_threshold: 0.60
+llm_enabled: true
+narrative_min_words_rem: 40
+

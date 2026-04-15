@@ -333,14 +333,15 @@ class MemoryGraph:
         propagation_delay_s: float = 0.08,
         decay_tau_hours: float = 0.05,
         current_time_hours: float = 0.0,
-    ) -> None:
+        activation_threshold: float = 0.50,
+    ) -> list[str]:
         """Apply a decaying pulse sequence across nodes and log the event.
 
         Each subsequent node in the sequence receives a pulse reduced by a
         factor (0.85 ** i) to simulate propagation attenuation.
         """
         if not sequence or not sequence.node_ids:
-            return
+            return []
 
         increments = []
         for i, nid in enumerate(sequence.node_ids):
@@ -374,6 +375,7 @@ class MemoryGraph:
                 "total_weight": float(sequence.total_weight),
             }
         )
+        return self.active_node_ids(threshold=activation_threshold)
 
     def decay_activations(self, dt_hours: float, decay_tau_hours: float = 0.05) -> None:
         """Exponentially decay activations across all nodes.
@@ -424,6 +426,18 @@ class MemoryGraph:
 
     def to_networkx(self) -> nx.MultiDiGraph:
         return self._g
+
+    def label(self, node_id: str) -> str:
+        if node_id in self._g:
+            return str(self._g.nodes[node_id].get("label", node_id))
+        return str(node_id)
+
+    def active_node_ids(self, threshold: float = 0.50) -> list[str]:
+        return [
+            str(node_id)
+            for node_id, data in self._g.nodes(data=True)
+            if float(data.get("activation", 0.0)) >= threshold
+        ]
 
     def to_json_serializable(self) -> dict[str, Any]:
         nodes = []
