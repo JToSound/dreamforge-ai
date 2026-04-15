@@ -55,3 +55,49 @@ def test_lucidity_result_json_contains_lucid_events_key() -> None:
     body = response.json()
     assert "lucid_events" in body
     assert isinstance(body["lucid_events"], list)
+
+
+def test_llm_fallback_reason_and_summary_counters(monkeypatch) -> None:
+    class _UnavailableClient:
+        class _Cfg:
+            model = "offline"
+            base_url = "http://offline.local"
+
+        config = _Cfg()
+
+        async def check_health(self):
+            return {"ok": True, "models": ["offline"]}
+
+        async def chat(self, system: str, user: str) -> str:
+            return "[LLM unavailable: provider offline]"
+
+    monkeypatch.setattr(api_main, "get_llm_client", lambda: _UnavailableClient())
+    payload = {
+        "duration_hours": 8.0,
+        "dt_minutes": 0.5,
+        "ssri_strength": 1.0,
+        "stress_level": 0.6,
+        "sleep_start_hour": 23.0,
+        "prior_day_events": ["deadline"],
+        "emotional_state": "anxious",
+        "use_llm": True,
+        "llm_segments_only": False,
+    }
+    with TestClient(api_main.app) as client:
+        response = client.post("/api/simulation/night", json=payload)
+    assert response.status_code == 201
+    body = response.json()
+
+    fallback_segments = [
+        s for s in body["segments"] if s.get("generation_mode") == "LLM_FALLBACK"
+    ]
+    assert fallback_segments
+    assert all(s.get("llm_fallback_reason") for s in fallback_segments)
+
+    summary = body.get("summary", {})
+    assert "llm_success_segments" in summary
+    assert "llm_fallback_segments" in summary
+    assert "llm_total_invocations" in summary
+    assert summary["llm_total_invocations"] == (
+        summary["llm_success_segments"] + summary["llm_fallback_segments"]
+    )

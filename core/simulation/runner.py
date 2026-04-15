@@ -134,6 +134,7 @@ def export_segments_csv(result: Dict[str, Any], output_path: Path) -> None:
                 "generation_mode": seg_dict.get("generation_mode", "TEMPLATE"),
                 "llm_trigger_type": seg_dict.get("llm_trigger_type", ""),
                 "llm_latency_ms": seg_dict.get("llm_latency_ms", ""),
+                "llm_fallback_reason": seg_dict.get("llm_fallback_reason", ""),
                 "template_bank": seg_dict.get("template_bank", ""),
                 "ach": neuro.get("ach", float("nan")),
                 "serotonin": neuro.get("serotonin", float("nan")),

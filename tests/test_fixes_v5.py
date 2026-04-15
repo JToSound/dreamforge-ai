@@ -185,6 +185,13 @@ def test_dashboard_uses_fallback_neuro_and_narrative_keys() -> None:
     assert "No narrative segments found in simulation result." in src
 
 
+def test_dashboard_segments_csv_preserves_zero_values() -> None:
+    src = Path("visualization/dashboard/app.py").read_text(encoding="utf-8")
+    assert "def _first_non_none" in src
+    assert "if value is not None" in src
+    assert '"llm_fallback_reason"' in src
+
+
 def test_memory_graph_exports_activation_snapshots() -> None:
     graph = MemoryGraph()
     node_id = graph.add_memory(

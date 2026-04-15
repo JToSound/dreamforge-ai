@@ -114,6 +114,7 @@ class NarrativeGenerator:
     ) -> None:
         segment["_llm_invoked"] = False
         segment["_llm_fallback"] = False
+        segment["_llm_fallback_reason"] = None
         segment["_llm_latency_ms"] = None
         stage = str(segment.get("stage", "N2"))
         bizarreness = float(segment.get("bizarreness_score", 0.0))
@@ -167,6 +168,7 @@ class NarrativeGenerator:
             segment["scene_description"] = self._truncate_words(str(scene), 25)
             segment["_llm_invoked"] = True
             segment["_llm_fallback"] = False
+            segment["_llm_fallback_reason"] = None
             segment["_llm_latency_ms"] = round(
                 (asyncio.get_running_loop().time() - t0) * 1000.0, 1
             )
@@ -175,6 +177,14 @@ class NarrativeGenerator:
                 segment["metadata"]["llm_invoked"] = True
         except (asyncio.TimeoutError, RuntimeError, ValueError) as exc:
             fallback = self._fallback_text(segment=segment, index=index)
+            if isinstance(exc, asyncio.TimeoutError):
+                reason = "timeout"
+            elif isinstance(exc, RuntimeError) and str(exc).startswith(
+                "[LLM unavailable:"
+            ):
+                reason = "health_unavailable"
+            else:
+                reason = "provider_error"
             segment["narrative"] = fallback
             segment["scene_description"] = self._truncate_words(
                 f"{stage} segment with {segment.get('dominant_emotion', 'neutral')} imagery.",
@@ -182,10 +192,16 @@ class NarrativeGenerator:
             )
             segment["_llm_invoked"] = True
             segment["_llm_fallback"] = True
+            segment["_llm_fallback_reason"] = reason
             segment["_llm_latency_ms"] = round(
                 (asyncio.get_running_loop().time() - t0) * 1000.0, 1
             )
-            logger.warning("Narrative fallback used for segment %d: %s", index, exc)
+            logger.warning(
+                "Narrative fallback used for segment %d (%s): %s",
+                index,
+                reason,
+                exc,
+            )
 
     def _normalize_narrative(
         self, text: str, segment: dict[str, Any], index: int
@@ -197,7 +213,9 @@ class NarrativeGenerator:
             return self._fallback_text(segment=segment, index=index)
 
         if stage == "N3":
-            return self._force_word_window(cleaned, minimum=10, maximum=20)
+            return self._ensure_terminal_punctuation(
+                self._force_word_window(cleaned, minimum=10, maximum=20)
+            )
         if stage == "N1":
             return self._force_word_window(cleaned, minimum=10, maximum=15)
         if stage == "N2":
@@ -228,6 +246,15 @@ class NarrativeGenerator:
         if len(words) > maximum:
             words = words[:maximum]
         return " ".join(words)
+
+    @staticmethod
+    def _ensure_terminal_punctuation(text: str) -> str:
+        cleaned = " ".join(str(text).split()).strip()
+        if not cleaned:
+            return ""
+        if cleaned[-1] in ".!?":
+            return cleaned
+        return f"{cleaned}."
 
     def _fallback_text(self, segment: dict[str, Any], index: int) -> str:
         stage = str(segment.get("stage", "N2"))

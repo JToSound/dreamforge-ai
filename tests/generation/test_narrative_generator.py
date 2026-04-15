@@ -101,3 +101,24 @@ async def test_llm_fallback_on_timeout_returns_template() -> None:
     await gen.generate_batch([seg])
     assert seg["narrative"]
     assert seg.get("_llm_fallback") is True
+    assert seg.get("_llm_fallback_reason") == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_n3_fallback_narrative_has_terminal_punctuation() -> None:
+    seg = {
+        "stage": "N3",
+        "dominant_emotion": "anxious",
+        "bizarreness_score": 0.9,
+        "lucidity_probability": 0.0,
+        "active_memory_ids": [],
+        "start_time_hours": 1.75,
+        "narrative": "",
+    }
+    gen = NarrativeGenerator(
+        llm_client=_TimeoutLLM(),
+        config=NarrativeGeneratorConfig(llm_enabled=True, timeout_seconds=0.01),
+    )
+    await gen.generate_batch([seg])
+    assert seg.get("_llm_fallback") is True
+    assert seg["narrative"].endswith((".", "!", "?"))

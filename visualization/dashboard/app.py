@@ -812,6 +812,7 @@ else:
                 "generation_mode",
                 "llm_trigger_type",
                 "llm_latency_ms",
+                "llm_fallback_reason",
                 "template_bank",
                 "ach",
                 "serotonin",
@@ -823,22 +824,36 @@ else:
             ]
             writer = csv.writer(sio)
             writer.writerow(seg_cols)
+
+            def _first_non_none(*values: object) -> object:
+                for value in values:
+                    if value is not None:
+                        return value
+                return ""
+
             for s in segs:
                 neuro = s.get("neurochemistry") or {}
                 writer.writerow(
                     [
-                        s.get("segment_index") or s.get("id") or "",
-                        s.get("time_hours") or s.get("start_time_hours") or "",
-                        s.get("start_time_hours") or "",
-                        s.get("end_time_hours") or "",
-                        s.get("stage") or "",
-                        s.get("dominant_emotion") or s.get("emotion") or "",
-                        s.get("bizarreness_score") or s.get("bizarreness") or "",
-                        s.get("lucidity_probability") or s.get("lucidity_score") or "",
-                        s.get("generation_mode") or "TEMPLATE",
-                        s.get("llm_trigger_type") or "",
-                        s.get("llm_latency_ms") or "",
-                        s.get("template_bank") or "",
+                        _first_non_none(s.get("segment_index"), s.get("id")),
+                        _first_non_none(s.get("time_hours"), s.get("start_time_hours")),
+                        _first_non_none(s.get("start_time_hours")),
+                        _first_non_none(s.get("end_time_hours")),
+                        _first_non_none(s.get("stage"), ""),
+                        _first_non_none(
+                            s.get("dominant_emotion"), s.get("emotion"), ""
+                        ),
+                        _first_non_none(
+                            s.get("bizarreness_score"), s.get("bizarreness"), ""
+                        ),
+                        _first_non_none(
+                            s.get("lucidity_probability"), s.get("lucidity_score"), ""
+                        ),
+                        _first_non_none(s.get("generation_mode"), "TEMPLATE"),
+                        _first_non_none(s.get("llm_trigger_type"), ""),
+                        _first_non_none(s.get("llm_latency_ms"), ""),
+                        _first_non_none(s.get("llm_fallback_reason"), ""),
+                        _first_non_none(s.get("template_bank"), ""),
                         neuro.get("ach", ""),
                         neuro.get("serotonin", ""),
                         neuro.get("ne", ""),

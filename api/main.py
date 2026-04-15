@@ -221,6 +221,7 @@ class DreamSegmentResponse(BaseModel):
     generation_mode: str = "TEMPLATE"
     llm_trigger_type: Optional[str] = None
     llm_latency_ms: Optional[float] = None
+    llm_fallback_reason: Optional[str] = None
     template_bank: Optional[str] = None
 
 
@@ -1078,11 +1079,15 @@ async def simulate_night(config: SimulationConfig):
     for i, seg in enumerate(raw_segments):
         llm_invoked = bool(seg.pop("_llm_invoked", False))
         llm_fallback = bool(seg.pop("_llm_fallback", False))
+        llm_fallback_reason = seg.pop("_llm_fallback_reason", None)
         llm_latency_ms = seg.pop("_llm_latency_ms", None)
         if llm_invoked:
             llm_used = True
             seg["llm_latency_ms"] = llm_latency_ms
             seg["llm_trigger_type"] = trigger_by_idx.get(i)
+            seg["llm_fallback_reason"] = (
+                str(llm_fallback_reason) if llm_fallback_reason else None
+            )
             if seg["llm_trigger_type"]:
                 seg["generation_mode"] = "LLM_FALLBACK" if llm_fallback else "LLM"
             else:
@@ -1094,6 +1099,7 @@ async def simulate_night(config: SimulationConfig):
             seg.setdefault("generation_mode", "TEMPLATE")
             seg.setdefault("llm_trigger_type", None)
             seg.setdefault("llm_latency_ms", None)
+            seg.setdefault("llm_fallback_reason", None)
             seg.setdefault("template_bank", f"TEMPLATE_{seg.get('stage', 'N2')}")
 
         if not seg.get("narrative"):
@@ -1120,6 +1126,13 @@ async def simulate_night(config: SimulationConfig):
     all_bizarre = [s.bizarreness_score for s in segments_out]
     all_emotions = [s.dominant_emotion for s in segments_out]
     dominant_emotion = max(set(all_emotions), key=all_emotions.count)
+    llm_success_segments = sum(
+        1 for s in raw_segments if s.get("generation_mode") in {"LLM", "CACHED"}
+    )
+    llm_fallback_segments = sum(
+        1 for s in raw_segments if s.get("generation_mode") == "LLM_FALLBACK"
+    )
+    llm_total_invocations = llm_success_segments + llm_fallback_segments
 
     summary = {
         "total_segments": total,
@@ -1132,11 +1145,10 @@ async def simulate_night(config: SimulationConfig):
         "llm_segments_generated": sum(
             1 for s in raw_segments if s.get("generation_mode") == "LLM"
         ),
-        "llm_calls_total": sum(
-            1
-            for s in raw_segments
-            if s.get("generation_mode") in {"LLM", "LLM_FALLBACK", "CACHED"}
-        ),
+        "llm_calls_total": llm_total_invocations,
+        "llm_success_segments": llm_success_segments,
+        "llm_fallback_segments": llm_fallback_segments,
+        "llm_total_invocations": llm_total_invocations,
         "lucid_event_count": len(lucid_events),
     }
 
