@@ -1,0 +1,56 @@
+- id: rem_vivid_anxious_01
+  stage: REM
+  emotion: anxious
+  neurochem_filter: {ach_min: 0.70, ach_max: null, serotonin_max: 0.15}
+  min_words: 40
+  text: "The city bends around me in impossible angles while every clock races at a different speed, and I keep searching for a room that shifts location each time I approach it; anxiety sharpens perception, making colors intense and transitions abruptly cinematic."
+
+- id: rem_vivid_fearful_01
+  stage: REM
+  emotion: fearful
+  neurochem_filter: {ach_min: 0.75, ach_max: null, serotonin_max: 0.15}
+  min_words: 40
+  text: "I run across suspended walkways above a dark sea as alarms pulse from nowhere, and each escape route closes into mirrors that replay my own movement with a delay; fear escalates through vivid sensory detail, unstable physics, and relentless scene transformation."
+
+- id: rem_vivid_curious_01
+  stage: REM
+  emotion: curious
+  neurochem_filter: {ach_min: 0.70, ach_max: null, serotonin_max: 0.15}
+  min_words: 40
+  text: "A museum of living maps unfolds around me, with hallways that rearrange into constellations and objects that narrate their own histories; curiosity drives the sequence forward as each discovered pattern reveals another symbolic layer, all rendered in highly vivid perceptual detail."
+
+- id: rem_neutral_01
+  stage: REM
+  emotion: neutral
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "I move through a sequence of richly detailed scenes that merge memory fragments with surreal architecture, where familiar people speak in symbolic language and locations transition without physical constraints; the narrative remains coherent enough to follow while staying unmistakably dreamlike."
+
+- id: rem_melancholic_01
+  stage: REM
+  emotion: melancholic
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "The dream opens onto luminous versions of old places where reunions nearly occur but slip away at the last moment, leaving emotional afterimages; melancholy colors every scene transition, yet the imagery is vivid and expressive, with strong sensory contrast and symbolic continuity."
+
+- id: rem_joyful_01
+  stage: REM
+  emotion: joyful
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "I leap between rooftops under a sky full of moving constellations, meeting people who greet me as if continuing an unfinished celebration; joyful momentum shapes the dream into bright, fast transitions, with playful distortions of distance, gravity, and social space."
+
+- id: rem_serene_01
+  stage: REM
+  emotion: serene
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "A quiet ocean city drifts through dawn light as boats glide above streets and voices echo softly from distant balconies; serenity remains stable despite surreal mechanics, and the dream sustains vivid detail without urgency, creating a lucid, contemplative atmosphere."
+
+- id: rem_any_01
+  stage: REM
+  emotion: null
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "The scene evolves in high-resolution symbolic sequences where identity, space, and time remain fluid but narratively linked; sensory vividness is strong, transitions are rapid, and emotional salience remains elevated, matching REM physiology with pronounced associative and imaginative activity."
+

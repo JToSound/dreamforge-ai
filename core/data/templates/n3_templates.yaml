@@ -1,0 +1,56 @@
+- id: n3_neutral_01
+  stage: N3
+  emotion: neutral
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "Experience compresses into sparse sensations and broad, dark spaces where time is difficult to track; events feel discontinuous and heavy, with minimal narrative pressure, as if consciousness is mostly offline while distant fragments of place and motion rise briefly and recede."
+
+- id: n3_anxious_01
+  stage: N3
+  emotion: anxious
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "An undercurrent of unease runs through thick, low-resolution imagery where details are hard to hold; I sense that something is unresolved, but the dream remains slow and muffled, turning anxiety into body-level tension rather than explicit, high-definition threat."
+
+- id: n3_fearful_01
+  stage: N3
+  emotion: fearful
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "Fear appears as abrupt sensory jolts inside otherwise blank darkness: a sudden drop, a distant call, a room that feels occupied; each event is brief and fragmentary, lacking full plot continuity, yet strong enough to leave a residue of alarm."
+
+- id: n3_melancholic_01
+  stage: N3
+  emotion: melancholic
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "The dream stays dim and minimal, presenting isolated impressions of empty places and unfinished farewells; sadness is diffuse rather than dramatic, woven into the slow rhythm of deep sleep where meaning comes in distant pulses instead of articulated scenes."
+
+- id: n3_joyful_01
+  stage: N3
+  emotion: joyful
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "Joy emerges as bodily ease and warmth more than story, with soft brightness rising and fading in low-detail imagery; the experience remains deep and slow, but the affective tone is distinctly positive, like resting inside a protected and restorative environment."
+
+- id: n3_serene_01
+  stage: N3
+  emotion: serene
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "I settle into broad quiet where sensation and thought are both muted, and the dream drifts through simple textures of darkness, temperature, and distance; serenity is stable, with almost no narrative demand, matching the heavy, restorative character of deep sleep."
+
+- id: n3_curious_01
+  stage: N3
+  emotion: curious
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "Even in deep sleep, occasional odd structures appear briefly: geometric rooms, distant machinery, and symbolic objects that vanish before inspection; curiosity persists as a faint orientation response, yet the dominant state remains slow-wave heaviness with sparse continuity."
+
+- id: n3_any_01
+  stage: N3
+  emotion: null
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "The dream layer is diffuse and low-detail, prioritizing bodily depth over narrative complexity; scenes are short, partially formed, and often nonverbal, consistent with slow-wave physiology where conscious reportability drops while emotional and sensory residues still surface intermittently."
+

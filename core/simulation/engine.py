@@ -189,6 +189,18 @@ class SimulationEngine:
                     # Attach memory IDs from replay
                     if replay:
                         seg.active_memory_ids = replay.node_ids[:5]
+                    else:
+                        graph_view = self.memory_graph.to_networkx()
+                        ranked_nodes = sorted(
+                            graph_view.nodes(data=True),
+                            key=lambda item: float(item[1].get("activation", 0.0)),
+                            reverse=True,
+                        )
+                        seg.active_memory_ids = [
+                            str(node_id)
+                            for node_id, data in ranked_nodes
+                            if float(data.get("activation", 0.0)) > 0.45
+                        ][:5]
                     dream_segments.append(seg)
                     segment_index += 1
 

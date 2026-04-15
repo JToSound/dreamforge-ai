@@ -172,9 +172,12 @@ async def test_api_main_helpers_and_llm_parser(monkeypatch):
     segs = api_main._simulate_night_physics(cfg)
     assert len(segs) > 0
 
-    template_narrative, template_scene = api_main._template_narrative(segs[0], cfg)
+    template_narrative, template_scene, template_bank = api_main._template_narrative(
+        segs[0], cfg
+    )
     assert template_narrative
     assert template_scene
+    assert template_bank
 
     class JSONClient(DummyLLMClient):
         async def chat(self, system: str, user: str) -> str:

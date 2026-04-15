@@ -30,6 +30,7 @@ import random
 import re
 import time
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -37,9 +38,15 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from core.models.sleep_cycle import SleepCycleModel
+from core.data.template_loader import SchemaValidationError, TemplateBank
+from core.models.sleep_cycle import SleepCycleModel, SleepStage
 from core.models.neurochemistry import cortisol_profile
 from core.simulation.llm_client import parse_narrative_response
+from core.simulation.exporters import (
+    export_memory_activations_csv,
+    export_neurochemistry_csv,
+)
+from core.simulation.narrative_cache import NarrativeCache
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -150,6 +157,8 @@ except ImportError:
 
 # ── In-memory store ───────────────────────────────────────────────────────────
 _simulations: Dict[str, dict] = {}
+_template_bank: TemplateBank | None = None
+_template_bank_initialized = False
 
 
 # ── Pydantic schemas (inline — no dependency on api/schemas.py) ───────────────
@@ -435,58 +444,151 @@ def _build_memory_outputs(
     segments: List[dict], prior_day_events: List[str]
 ) -> tuple[Dict[str, Any], List[Dict[str, Any]]]:
     node_map: Dict[str, Dict[str, Any]] = {}
-    edge_weights: Dict[tuple[str, str], float] = {}
     snapshots: List[Dict[str, Any]] = []
-    prev_node_id: Optional[str] = None
+
+    semantic_seed = [
+        ("childhood_home", "episodic", -0.1),
+        ("school_corridor", "episodic", -0.2),
+        ("familiar_face", "episodic", 0.1),
+        ("recurring_journey", "episodic", 0.0),
+        ("falling", "conceptual", -0.6),
+        ("being_chased", "conceptual", -0.7),
+        ("flying", "conceptual", 0.6),
+        ("being_late", "conceptual", -0.4),
+        ("teeth_loosening", "conceptual", -0.5),
+        ("cold_water", "sensory", -0.1),
+        ("bright_light", "sensory", 0.2),
+        ("loud_crowd", "sensory", -0.2),
+        ("grief", "emotional", -0.8),
+        ("joy", "emotional", 0.8),
+        ("dread", "emotional", -0.9),
+        ("wonder", "emotional", 0.5),
+    ]
+    for label, category, valence in semantic_seed:
+        node_id = f"mem::{label}"
+        node_map[node_id] = {
+            "id": node_id,
+            "label": label,
+            "category": category,
+            "valence": float(valence),
+            "activation": round(random.uniform(0.1, 0.4), 4),
+            "salience": round(random.uniform(0.3, 0.8), 4),
+        }
 
     for event in prior_day_events:
         label = event.strip()[:80]
         if not label:
             continue
-        node_id = f"event::{label.lower()}"
+        node_id = f"event::{label.lower().replace(' ', '_')}"
         node_map[node_id] = {
             "id": node_id,
             "label": label,
-            "emotion": "neutral",
-            "activation": 0.25,
-            "salience": 0.45,
+            "category": "episodic",
+            "valence": round(random.uniform(-0.4, 0.4), 4),
+            "activation": round(random.uniform(0.2, 0.5), 4),
+            "salience": round(random.uniform(0.4, 0.9), 4),
         }
 
-    for seg in segments:
-        emotion = str(seg.get("dominant_emotion") or "neutral")
-        node_id = f"emotion::{emotion}"
-        if node_id not in node_map:
-            node_map[node_id] = {
-                "id": node_id,
-                "label": emotion,
-                "emotion": emotion,
-                "activation": 0.35,
-                "salience": 0.50,
-            }
+    nodes = list(node_map.values())
+    edges: List[Dict[str, Any]] = []
+    for i, src in enumerate(nodes):
+        for dst in nodes[i + 1 :]:
+            src_vec = np.array(
+                [
+                    src["valence"],
+                    src["salience"],
+                    src["activation"],
+                    float(len(src["label"])) / 20.0,
+                    1.0 if src["category"] == dst["category"] else 0.0,
+                ],
+                dtype=float,
+            )
+            dst_vec = np.array(
+                [
+                    dst["valence"],
+                    dst["salience"],
+                    dst["activation"],
+                    float(len(dst["label"])) / 20.0,
+                    1.0 if src["category"] == dst["category"] else 0.0,
+                ],
+                dtype=float,
+            )
+            denom = float(np.linalg.norm(src_vec) * np.linalg.norm(dst_vec))
+            if denom <= 0:
+                continue
+            weight = float(np.dot(src_vec, dst_vec) / denom)
+            if weight >= 0.15:
+                edges.append(
+                    {
+                        "source": src["id"],
+                        "target": dst["id"],
+                        "weight": round(weight, 4),
+                    }
+                )
 
-        if prev_node_id and prev_node_id != node_id:
-            edge = (prev_node_id, node_id)
-            edge_weights[edge] = edge_weights.get(edge, 0.0) + 1.0
-        prev_node_id = node_id
+    prev_time = 0.0
+    for idx, seg in enumerate(segments):
+        t = float(seg.get("start_time_hours") or 0.0)
+        dt_h = max(1 / 120.0, t - prev_time)
+        prev_time = t
+        stage = str(seg.get("stage") or "N2")
+        emotion = str(seg.get("dominant_emotion") or "neutral").lower()
+        neuro = seg.get("neurochemistry") or {}
+        ach = float(neuro.get("ach") or 0.0)
 
-        if seg.get("stage") == "REM":
-            biz = float(seg.get("bizarreness_score") or 0.0)
-            activation = round(min(1.0, max(0.05, 0.2 + 0.8 * biz)), 4)
+        decay_rate = 0.3 if stage == "REM" else 0.8
+        decay_factor = float(np.exp(-decay_rate * dt_h))
+        for node in nodes:
+            node["activation"] = round(
+                max(0.0, min(1.0, float(node["activation"]) * decay_factor)), 4
+            )
+
+        if stage == "REM":
+            ranked = sorted(nodes, key=lambda n: float(n["activation"]), reverse=True)[
+                :2
+            ]
+            for node in ranked:
+                boost = float(node["salience"]) * ach * 0.4
+                node["activation"] = round(
+                    min(1.0, float(node["activation"]) + boost), 4
+                )
+
+        target_valence = (
+            -1.0
+            if emotion in {"fearful", "anxious", "melancholic", "dread"}
+            else 1.0 if emotion in {"joyful", "serene", "wonder"} else 0.0
+        )
+        for node in nodes:
+            if target_valence != 0.0 and float(node["valence"]) * target_valence > 0:
+                node["activation"] = round(
+                    min(1.0, float(node["activation"]) + 0.15), 4
+                )
+
+        active_ids = [
+            n["id"]
+            for n in sorted(nodes, key=lambda x: float(x["activation"]), reverse=True)
+            if float(n["activation"]) > 0.45
+        ][:5]
+        seg["active_memory_ids"] = active_ids
+
+        if idx % 10 == 0:
             snapshots.append(
                 {
-                    "time_hours": seg.get("start_time_hours"),
-                    "stage": "REM",
+                    "time_hours": t,
+                    "stage": stage,
                     "activations": [
-                        {"id": node_id, "label": emotion, "activation": activation}
+                        {
+                            "id": n["id"],
+                            "label": n["label"],
+                            "activation": float(n["activation"]),
+                        }
+                        for n in sorted(
+                            nodes, key=lambda x: float(x["activation"]), reverse=True
+                        )[:12]
                     ],
                 }
             )
 
-    nodes = list(node_map.values())
-    edges = [
-        {"source": src, "target": dst, "weight": round(weight, 3)}
-        for (src, dst), weight in edge_weights.items()
-    ]
     return {
         "nodes": nodes,
         "edges": edges,
@@ -494,11 +596,52 @@ def _build_memory_outputs(
     }, snapshots
 
 
-def _template_narrative(seg: dict, config: SimulationConfig) -> tuple[str, str]:
+def _get_template_bank() -> TemplateBank | None:
+    global _template_bank, _template_bank_initialized
+    if _template_bank_initialized:
+        return _template_bank
+    _template_bank_initialized = True
+    try:
+        bank = TemplateBank(data_dir=Path("core") / "data")
+        bank.load()
+        _template_bank = bank
+        return _template_bank
+    except (FileNotFoundError, OSError, SchemaValidationError, ValueError) as exc:
+        logger.warning("TemplateBank unavailable, using inline templates: %s", exc)
+        _template_bank = None
+        return None
+
+
+def _template_narrative(
+    seg: dict,
+    config: SimulationConfig,
+    *,
+    segment_index: int = 0,
+    narrative_cache: NarrativeCache | None = None,
+) -> tuple[str, str, str]:
     """Fallback template-based narrative when LLM is disabled."""
     stage = seg["stage"]
     emotion = seg["dominant_emotion"]
     bizarre = seg["bizarreness_score"]
+    time_marker = float(seg.get("start_time_hours") or 0.0)
+
+    if narrative_cache is not None and stage in {s.value for s in SleepStage}:
+        narrative = narrative_cache.get_segment_narrative(
+            segment_index=segment_index,
+            emotion=str(emotion),
+            stage=SleepStage(stage),
+            nchem=seg.get("neurochemistry", {}),
+        )
+        if narrative:
+            template_id = narrative_cache.last_template_id or f"TEMPLATE_{stage}"
+            if narrative_cache.last_template_id:
+                logger.debug(
+                    "template_source=yaml stage=%s template_id=%s",
+                    stage,
+                    narrative_cache.last_template_id,
+                )
+            scene = f"A {emotion} dreamscape at {stage} depth."
+            return narrative, scene, template_id
 
     templates = {
         "REM": f"The dream unfolds vividly — a {emotion} scene fractured by impossible geometry. "
@@ -515,7 +658,30 @@ def _template_narrative(seg: dict, config: SimulationConfig) -> tuple[str, str]:
         "N1": "The hypnagogic edge — phosphenes and whispers.",
         "WAKE": "A brief moment of wakefulness in darkness.",
     }
-    return templates.get(stage, ""), scene_templates.get(stage, "")
+    narrative = templates.get(stage, "")
+    if len(narrative.split()) < 40:
+        narrative = (
+            f"{narrative} The emotional texture remains {emotion}, and nearby details "
+            "keep reshaping into symbolic fragments that feel personally familiar "
+            "without becoming fully explicit. The dream moves forward as if guided "
+            "by hidden associations, and the atmosphere stays continuous rather than abrupt. "
+            f"At simulation time {time_marker:.4f}h, this imagery tilts into the next scene."
+        )
+    return narrative, scene_templates.get(stage, ""), f"TEMPLATE_{stage}"
+
+
+def _resolve_output_dir(session_id: str) -> Path:
+    """Resolve per-simulation output directory from env or default pattern."""
+    output_env = os.getenv("DREAMFORGE_OUTPUT_DIR", "").strip()
+    if output_env:
+        if "{session_id}" in output_env:
+            target = Path(output_env.format(session_id=session_id))
+        else:
+            target = Path(output_env) / session_id
+    else:
+        target = Path("outputs") / session_id
+    target.mkdir(parents=True, exist_ok=True)
+    return target
 
 
 def _strip_thinking_tags(response: str) -> str:
@@ -722,28 +888,47 @@ async def simulate_night(config: SimulationConfig):
     # Step 2: narrative generation
     client = get_llm_client()
     llm_used = False
+    narrative_cache = NarrativeCache(template_bank=_get_template_bank())
 
-    # Determine which segments get LLM treatment
+    # Determine which segments get LLM treatment using trigger priorities + cooldown.
+    llm_jobs: List[tuple[int, str]] = []
     if config.use_llm:
-        if config.llm_segments_only:
-            llm_indices = [i for i, s in enumerate(raw_segments) if s["stage"] == "REM"]
-            # Source: DreamForge architecture spec v4.0 (target ~15–30 LLM calls / 8h)
-            target_calls = max(10, min(50, int(config.duration_hours * 3)))
-            if len(llm_indices) > target_calls:
-                step = max(1, len(llm_indices) // target_calls)
-                llm_indices = llm_indices[::step][:target_calls]
-        else:
-            # Source: DreamForge architecture spec v4.0 (target ~15–30 LLM calls / 8h)
-            target_calls = max(10, min(50, int(config.duration_hours * 3)))
-            sample_step = max(1, len(raw_segments) // target_calls)
-            llm_indices = list(range(0, len(raw_segments), sample_step))[:target_calls]
-    else:
-        llm_indices = []
+        # Source: DreamForge architecture spec v4.0 (~15–30 calls over 8h).
+        target_calls = max(10, min(50, int(config.duration_hours * 3)))
+        prev_stage: Optional[str] = None
+        cooldown_ticks = 0
+        for idx, seg in enumerate(raw_segments):
+            if len(llm_jobs) >= target_calls:
+                break
+            stage = str(seg.get("stage") or "N2")
+            neuro = seg.get("neurochemistry") or {}
+            trigger_type: Optional[str] = None
+
+            if cooldown_ticks > 0:
+                cooldown_ticks -= 1
+            else:
+                if prev_stage != "REM" and stage == "REM":
+                    trigger_type = "REM_ONSET"
+                elif float(seg.get("lucidity_probability") or 0.0) >= 0.55:
+                    trigger_type = "LUCIDITY_THRESHOLD"
+                elif float(seg.get("bizarreness_score") or 0.0) >= 0.80:
+                    trigger_type = "BIZARRENESS_PEAK"
+                elif float(neuro.get("ach") or 0.0) >= 0.75:
+                    trigger_type = "MEMORY_SALIENCE"
+                elif prev_stage != "N3" and stage == "N3":
+                    trigger_type = "N3_ONSET"
+                elif random.random() < 0.04:
+                    trigger_type = "API_SAMPLED"
+
+            if trigger_type:
+                llm_jobs.append((idx, trigger_type))
+                cooldown_ticks = 8
+            prev_stage = stage
 
     # Call LLM for selected segments (with concurrency limit)
     semaphore = asyncio.Semaphore(3)  # max 3 concurrent LLM calls
 
-    async def _safe_llm(idx: int):
+    async def _safe_llm(idx: int, trigger_type: str):
         nonlocal llm_used
         seg = raw_segments[idx]
         async with semaphore:
@@ -752,27 +937,30 @@ async def simulate_night(config: SimulationConfig):
                 narrative, scene = await _generate_llm_narrative(seg, config, client)
                 llm_used = True
                 raw_segments[idx]["generation_mode"] = "LLM"
-                raw_segments[idx]["llm_trigger_type"] = "API_SAMPLED"
+                raw_segments[idx]["llm_trigger_type"] = trigger_type
                 raw_segments[idx]["llm_latency_ms"] = round(
                     (time.perf_counter() - t0) * 1000.0, 1
                 )
                 raw_segments[idx]["template_bank"] = ""
             except Exception as exc:
                 logger.error("LLM narrative failed for segment %d: %s", idx, exc)
-                narrative, scene = _template_narrative(seg, config)
+                narrative, scene, template_id = _template_narrative(
+                    seg,
+                    config,
+                    segment_index=idx,
+                    narrative_cache=narrative_cache,
+                )
                 raw_segments[idx]["generation_mode"] = "LLM_FALLBACK"
-                raw_segments[idx]["llm_trigger_type"] = "API_SAMPLED"
+                raw_segments[idx]["llm_trigger_type"] = trigger_type
                 raw_segments[idx]["llm_latency_ms"] = round(
                     (time.perf_counter() - t0) * 1000.0, 1
                 )
-                raw_segments[idx][
-                    "template_bank"
-                ] = f"TEMPLATE_{seg.get('stage', 'N2')}"
+                raw_segments[idx]["template_bank"] = template_id
         raw_segments[idx]["narrative"] = narrative
         raw_segments[idx]["scene_description"] = scene
 
-    if llm_indices:
-        await asyncio.gather(*[_safe_llm(i) for i in llm_indices])
+    if llm_jobs:
+        await asyncio.gather(*[_safe_llm(i, trigger) for i, trigger in llm_jobs])
 
     # Fill remaining segments with templates
     for i, seg in enumerate(raw_segments):
@@ -781,16 +969,22 @@ async def simulate_night(config: SimulationConfig):
         seg.setdefault("llm_latency_ms", None)
         seg.setdefault("template_bank", f"TEMPLATE_{seg.get('stage', 'N2')}")
         if not seg["narrative"]:
-            n, s = _template_narrative(seg, config)
+            n, s, template_id = _template_narrative(
+                seg,
+                config,
+                segment_index=i,
+                narrative_cache=narrative_cache,
+            )
             seg["narrative"] = n
             seg["scene_description"] = s
+            seg["template_bank"] = template_id
 
     # Step 3: build response
-    segments_out = [DreamSegmentResponse(**seg) for seg in raw_segments]
     neuro_ticks = _build_neurochemistry_ticks(raw_segments)
     memory_graph, memory_activations = _build_memory_outputs(
         raw_segments, config.prior_day_events
     )
+    segments_out = [DreamSegmentResponse(**seg) for seg in raw_segments]
 
     # Summary statistics
     stages = [s.stage for s in segments_out]
@@ -810,8 +1004,8 @@ async def simulate_night(config: SimulationConfig):
         "max_bizarreness": round(float(np.max(all_bizarre)), 3),
         "dominant_emotion": dominant_emotion,
         "rem_fraction": stage_pct.get("REM", 0.0),
-        "llm_segments_generated": len(llm_indices) if llm_used else 0,
-        "llm_calls_total": len(llm_indices) if llm_used else 0,
+        "llm_segments_generated": len(llm_jobs) if llm_used else 0,
+        "llm_calls_total": len(llm_jobs) if llm_used else 0,
     }
 
     result = SimulationResponse(
@@ -827,9 +1021,26 @@ async def simulate_night(config: SimulationConfig):
         llm_used=llm_used,
         llm_model=client.config.model if llm_used else None,
     )
+    result_payload = result.model_dump()
+
+    output_dir = _resolve_output_dir(sim_id)
+    try:
+        export_neurochemistry_csv(result_payload, output_dir / "neurochemistry.csv")
+    except (ValueError, OSError) as exc:
+        logger.error(
+            "neurochemistry.csv export failed for simulation %s: %s", sim_id, exc
+        )
+    try:
+        export_memory_activations_csv(
+            result_payload, output_dir / "memory_activations.csv"
+        )
+    except (ValueError, OSError) as exc:
+        logger.error(
+            "memory_activations.csv export failed for simulation %s: %s", sim_id, exc
+        )
 
     # Persist to in-memory store
-    _simulations[sim_id] = result.model_dump()
+    _simulations[sim_id] = result_payload
     logger.info("Simulation %s complete — %d segments, LLM=%s", sim_id, total, llm_used)
 
     return result

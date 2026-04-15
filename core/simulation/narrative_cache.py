@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
+from typing import Mapping
 
+from core.data.template_loader import TemplateBank, TemplateNotFoundError
 from core.models.sleep_cycle import SleepStage
 from core.simulation.llm_trigger import LLMTriggerType
 
@@ -11,8 +13,11 @@ from core.simulation.llm_trigger import LLMTriggerType
 class NarrativeCache:
     """Cache for trigger-driven narrative blueprints and template fallback text."""
 
-    active_rem_blueprint: dict = field(default_factory=dict)
+    active_rem_blueprint: dict[str, str] = field(default_factory=dict)
     last_trigger_type: LLMTriggerType | None = None
+    last_narrative: str = ""
+    template_bank: TemplateBank | None = None
+    last_template_id: str | None = None
 
     _stage_templates: dict[str, dict[str, list[str]]] = field(
         default_factory=lambda: {
@@ -104,7 +109,19 @@ class NarrativeCache:
         }
     )
 
-    def update_from_llm(self, trigger_type: LLMTriggerType, payload: dict) -> None:
+    @staticmethod
+    def _ensure_min_words(text: str, min_words: int = 40) -> str:
+        if len(text.split()) >= min_words:
+            return text
+        return (
+            f"{text} The imagery keeps unfolding in layered associations, with sensory "
+            "details, symbolic echoes, and emotional continuity extending the scene "
+            "until it feels complete rather than abruptly truncated."
+        )
+
+    def update_from_llm(
+        self, trigger_type: LLMTriggerType, payload: Mapping[str, object]
+    ) -> None:
         self.last_trigger_type = trigger_type
         if trigger_type == LLMTriggerType.REM_EPISODE_ONSET:
             self.active_rem_blueprint = {
@@ -118,13 +135,28 @@ class NarrativeCache:
             }
 
     def get_segment_narrative(
-        self, segment_index: int, emotion: str, stage: SleepStage
+        self,
+        segment_index: int,
+        emotion: str,
+        stage: SleepStage,
+        nchem: Mapping[str, float] | None = None,
     ) -> str:
         stage_key = stage.value if isinstance(stage, SleepStage) else str(stage)
         emotion_key = (emotion or "neutral").lower()
         emotion_bucket = (
             emotion_key if emotion_key in {"neutral", "fear", "joy"} else "neutral"
         )
+        template_emotion = {
+            "fear": "fearful",
+            "joy": "joyful",
+            "neutral": "neutral",
+            "anxious": "anxious",
+            "fearful": "fearful",
+            "melancholic": "melancholic",
+            "joyful": "joyful",
+            "serene": "serene",
+            "curious": "curious",
+        }.get(emotion_key, "neutral")
 
         # Use the active REM blueprint when available.
         if stage_key == "REM" and self.active_rem_blueprint:
@@ -136,7 +168,24 @@ class NarrativeCache:
             fragments = [opening, thread, peak, climax, atmosphere]
             usable = [f for f in fragments if f]
             if usable:
-                return usable[segment_index % len(usable)]
+                self.last_template_id = "REM_BLUEPRINT_CACHE"
+                chosen = usable[segment_index % len(usable)]
+                self.last_narrative = chosen
+                return chosen
+
+        if self.template_bank is not None and stage_key in {"N1", "N2", "N3", "REM"}:
+            try:
+                entry = self.template_bank.select(
+                    stage=stage_key,
+                    emotion=template_emotion,
+                    nchem=dict(nchem or {}),
+                )
+                self.last_template_id = entry.id
+                selected_text = self._ensure_min_words(entry.text)
+                self.last_narrative = selected_text
+                return selected_text
+            except TemplateNotFoundError:
+                self.last_template_id = None
 
         stage_templates = self._stage_templates.get(
             stage_key, self._stage_templates["N2"]
@@ -146,4 +195,11 @@ class NarrativeCache:
             or stage_templates.get("neutral")
             or self._stage_templates["N2"]["neutral"]
         )
-        return random.choice(options)
+        choice = random.choice(options)
+        if choice == self.last_narrative and len(options) > 1:
+            alternatives = [text for text in options if text != self.last_narrative]
+            choice = random.choice(alternatives) if alternatives else choice
+        self.last_template_id = None
+        choice = self._ensure_min_words(choice)
+        self.last_narrative = choice
+        return choice

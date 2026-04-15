@@ -15,8 +15,14 @@ from core.models.memory_graph import (
     MemoryType,
 )
 from core.models.neurochemistry import cortisol_profile
-from core.models.sleep_cycle import CYCLE_TEMPLATES, SleepStage, TwoProcessParameters
+from core.models.sleep_cycle import (
+    CYCLE_TEMPLATES,
+    SleepCycleModel,
+    SleepStage,
+    TwoProcessParameters,
+)
 from core.utils.bizarreness_scorer import compute_bizarreness
+from core.utils.neurochemistry_descriptors import nchem_to_descriptors
 
 
 def test_tau_sleep_and_cycle_stage_proportions() -> None:
@@ -40,6 +46,24 @@ def test_tau_sleep_and_cycle_stage_proportions() -> None:
     n3_ratio = n3_minutes / total_minutes
     assert 0.16 <= rem_ratio <= 0.26
     assert 0.13 <= n3_ratio <= 0.23
+
+
+def test_cycle_rem_durations_increase_across_night() -> None:
+    rem_by_cycle = []
+    for cycle_idx in [1, 2, 3, 4, 5]:
+        template = CYCLE_TEMPLATES[cycle_idx]
+        rem_by_cycle.append(
+            float(
+                next(minutes for stage, minutes in template if stage == SleepStage.REM)
+            )
+        )
+
+    assert 8.0 <= rem_by_cycle[0] <= 12.0
+    assert rem_by_cycle[1] > rem_by_cycle[0]
+    assert rem_by_cycle[2] > rem_by_cycle[1]
+    assert rem_by_cycle[3] >= rem_by_cycle[2]
+    assert rem_by_cycle[4] >= rem_by_cycle[3]
+    assert rem_by_cycle[-1] <= 60.0
 
 
 def test_cortisol_profile_matches_target_shape() -> None:
@@ -135,6 +159,19 @@ def test_api_physics_produces_nontrivial_rem_lucidity_and_bizarreness() -> None:
     assert 0.7 <= float(np.mean(rem_biz)) <= 0.98
 
 
+@pytest.mark.parametrize("seed", [0, 7, 42])
+def test_sleep_architecture_hits_n2_and_rem_ranges(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    model = SleepCycleModel()
+    _, stages = model.simulate_night(duration_hours=8.0, dt_minutes=0.5)
+    total = len(stages)
+    n2_fraction = sum(1 for s in stages if s == SleepStage.N2) / total
+    rem_fraction = sum(1 for s in stages if s == SleepStage.REM) / total
+    assert 0.45 <= n2_fraction <= 0.59
+    assert 0.18 <= rem_fraction <= 0.28
+
+
 def test_dashboard_uses_fallback_neuro_and_narrative_keys() -> None:
     src = Path("visualization/dashboard/app.py").read_text(encoding="utf-8")
 
@@ -163,3 +200,25 @@ def test_memory_graph_exports_activation_snapshots() -> None:
 
     assert "activation_snapshots" in exported
     assert len(exported["activation_snapshots"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("ach", "serotonin", "ne", "cortisol"),
+    [
+        (0.8, 0.7, 0.8, 0.8),
+        (0.6, 0.5, 0.5, 0.5),
+        (0.3, 0.2, 0.3, 0.3),
+        (0.1, 0.1, 0.1, 0.1),
+    ],
+)
+def test_nchem_descriptor_mapping_has_all_keys(
+    ach: float, serotonin: float, ne: float, cortisol: float
+) -> None:
+    desc = nchem_to_descriptors(ach=ach, serotonin=serotonin, ne=ne, cortisol=cortisol)
+    assert set(desc.keys()) == {
+        "ach_state",
+        "mood_tone",
+        "arousal_level",
+        "stress_signature",
+    }
+    assert all(isinstance(v, str) and v for v in desc.values())

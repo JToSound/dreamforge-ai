@@ -19,7 +19,7 @@ class LLMTriggerType(str, Enum):
 class LLMTrigger:
     trigger_type: LLMTriggerType
     time_hours: float
-    context: dict
+    context: dict[str, object]
     priority: int = 3
 
 
@@ -42,8 +42,8 @@ class LLMTriggerDetector:
         bizarreness_score: float,
         lucidity_probability: float,
         memory_replay_occurred: bool,
-        neurochemistry: dict,
-        memory_fragments: list[dict],
+        neurochemistry: dict[str, float],
+        memory_fragments: list[dict[str, object]],
     ) -> Optional[LLMTrigger]:
         trigger: Optional[LLMTrigger] = None
 
@@ -101,8 +101,15 @@ class LLMTriggerDetector:
                     },
                 )
         elif memory_replay_occurred:
+
+            def _salience_value(fragment: dict[str, object]) -> float:
+                raw = fragment.get("salience", 0.0)
+                if isinstance(raw, (int, float, str, bytes)):
+                    return float(raw)
+                return 0.0
+
             has_high_salience = any(
-                float(m.get("salience", 0.0)) >= self.memory_replay_salience_threshold
+                _salience_value(m) >= self.memory_replay_salience_threshold
                 for m in memory_fragments
             )
             if has_high_salience or not memory_fragments:

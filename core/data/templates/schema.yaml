@@ -1,0 +1,15 @@
+entry_schema:
+  id: string
+  stage:
+    enum: [N1, N2, N3, REM]
+  emotion:
+    enum: [neutral, anxious, fearful, melancholic, joyful, serene, curious, null]
+  neurochem_filter:
+    ach_min: float_or_null
+    ach_max: float_or_null
+    serotonin_max: float_or_null
+  min_words:
+    type: int
+    minimum: 40
+  text: string
+

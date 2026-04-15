@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from core.models.memory_graph import EmotionLabel, MemoryGraph
 
@@ -10,10 +10,10 @@ LLMCallable = Callable[[str], str]
 
 def _load_openai_client(
     base_url: Optional[str] = None, api_key_env: str = "OPENAI_API_KEY"
-):
+) -> Any:
     try:
-        from openai import OpenAI  # type: ignore
-    except Exception as exc:  # pragma: no cover - optional dependency
+        from openai import OpenAI
+    except ImportError as exc:  # pragma: no cover - optional dependency
         raise RuntimeError(
             "openai package is not installed; cannot use OpenAI/LM Studio backend"
         ) from exc
@@ -27,10 +27,10 @@ def _load_openai_client(
     return client
 
 
-def _load_ollama_client():
+def _load_ollama_client() -> Any:
     try:
-        import ollama  # type: ignore
-    except Exception as exc:  # pragma: no cover - optional dependency
+        import ollama  # type: ignore[import-not-found]
+    except ImportError as exc:  # pragma: no cover - optional dependency
         raise RuntimeError(
             "ollama package is not installed; cannot use Ollama backend"
         ) from exc
@@ -86,7 +86,10 @@ def create_llm_callable(
             resp = ollama.chat(
                 model=model, messages=[{"role": "user", "content": prompt}]
             )
-            return resp.get("message", {}).get("content", "")
+            message = resp.get("message", {})
+            if isinstance(message, dict):
+                return str(message.get("content", ""))
+            return ""
 
         return _call
 
@@ -107,7 +110,7 @@ def populate_memory_from_journal(graph: MemoryGraph) -> None:
     for entry in entries:
         try:
             emotion = EmotionLabel(entry["emotion"])
-        except Exception:
+        except ValueError:
             emotion = EmotionLabel.NEUTRAL
         tags = entry.get("tags", [])
         graph.encode_from_user_input(

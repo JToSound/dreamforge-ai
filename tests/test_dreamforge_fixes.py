@@ -298,3 +298,133 @@ class TestParseNarrativeResponse:
             f"LLM_MAX_TOKENS={max_tokens} is too small for Qwen3.5 thinking model. "
             f"Set to 2048 minimum."
         )
+
+
+class TestLLMTriggerDistribution:
+    def test_trigger_distribution_contains_multiple_trigger_types(
+        self, completed_simulation_result: dict[str, Any]
+    ) -> None:
+        segments = completed_simulation_result["segments"]
+        trigger_types = [
+            str(s.get("llm_trigger_type"))
+            for s in segments
+            if s.get("llm_trigger_type")
+            and s.get("generation_mode") in {"LLM", "LLM_FALLBACK"}
+        ]
+        assert len(set(trigger_types)) >= 3
+
+    def test_api_sampled_rate_is_bounded(
+        self, completed_simulation_result: dict[str, Any]
+    ) -> None:
+        segments = completed_simulation_result["segments"]
+        sampled = sum(1 for s in segments if s.get("llm_trigger_type") == "API_SAMPLED")
+        sampled_rate = sampled / max(1, len(segments))
+        assert sampled_rate <= 0.05
+
+
+class TestTemplateNarrativeQuality:
+    def test_no_consecutive_duplicate_template_narratives(
+        self, completed_simulation_result: dict[str, Any]
+    ) -> None:
+        templates = [
+            s.get("narrative", "")
+            for s in completed_simulation_result["segments"]
+            if s.get("generation_mode") == "TEMPLATE"
+        ]
+        duplicates = sum(1 for a, b in zip(templates, templates[1:]) if a == b)
+        assert duplicates == 0
+
+    def test_template_mean_word_count_is_at_least_40(
+        self, completed_simulation_result: dict[str, Any]
+    ) -> None:
+        templates = [
+            s.get("narrative", "")
+            for s in completed_simulation_result["segments"]
+            if s.get("generation_mode") == "TEMPLATE"
+        ]
+        assert templates, "Expected at least one TEMPLATE segment"
+        mean_words = sum(len(t.split()) for t in templates) / len(templates)
+        assert mean_words >= 40
+
+
+class TestLLMRetryAndFallback:
+    def test_retry_succeeds_after_truncated_json(self) -> None:
+        from core.agents.dream_constructor_agent import DreamConstructorAgent
+
+        class _Msg:
+            def __init__(self, content: str) -> None:
+                self.content = content
+
+        class _Choice:
+            def __init__(self, content: str) -> None:
+                self.message = _Msg(content)
+
+        class _Resp:
+            def __init__(self, content: str) -> None:
+                self.choices = [_Choice(content)]
+
+        class _Completions:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def create(self, **_kwargs: Any) -> _Resp:
+                self.calls += 1
+                if self.calls == 1:
+                    return _Resp('{"narrative": "cut off"')
+                return _Resp(
+                    '{"narrative":"ok","dominant_emotion":"neutral",'
+                    '"bizarreness_score":0.4,"lucidity_probability":0.1}'
+                )
+
+        class _Chat:
+            def __init__(self) -> None:
+                self.completions = _Completions()
+
+        class _Client:
+            def __init__(self) -> None:
+                self.chat = _Chat()
+
+        agent = DreamConstructorAgent(llm_config={"provider": "openai"})
+        agent._provider = "openai"  # type: ignore[attr-defined]
+        agent._get_client = lambda: _Client()  # type: ignore[assignment]
+
+        payload, error, llm_used, _latency = agent._call_llm("sys", "user")
+        assert llm_used is True
+        assert error is None
+        assert payload.get("narrative") == "ok"
+
+    def test_retry_falls_back_after_two_failures(self) -> None:
+        from core.agents.dream_constructor_agent import DreamConstructorAgent
+
+        class _Msg:
+            def __init__(self, content: str) -> None:
+                self.content = content
+
+        class _Choice:
+            def __init__(self, content: str) -> None:
+                self.message = _Msg(content)
+
+        class _Resp:
+            def __init__(self, content: str) -> None:
+                self.choices = [_Choice(content)]
+
+        class _Completions:
+            def create(self, **_kwargs: Any) -> _Resp:
+                return _Resp("not-json")
+
+        class _Chat:
+            def __init__(self) -> None:
+                self.completions = _Completions()
+
+        class _Client:
+            def __init__(self) -> None:
+                self.chat = _Chat()
+
+        agent = DreamConstructorAgent(llm_config={"provider": "openai"})
+        agent._provider = "openai"  # type: ignore[attr-defined]
+        agent._get_client = lambda: _Client()  # type: ignore[assignment]
+
+        payload, error, llm_used, _latency = agent._call_llm("sys", "user")
+        assert llm_used is False
+        assert payload == {}
+        assert isinstance(error, str) and error

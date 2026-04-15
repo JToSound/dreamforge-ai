@@ -26,7 +26,7 @@ class SleepCycleAgent:
         self.event_bus = event_bus or EventBus()
         self.config = config or SleepCycleConfig()
         self.state: SleepState = self.model.initial_state(
-            sleep_start_circadian_time=self.config.sleep_start_clock_time
+            sleep_start_clock_time=self.config.sleep_start_clock_time
         )
 
     def step(self) -> SleepState:

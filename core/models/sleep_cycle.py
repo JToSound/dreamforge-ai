@@ -19,12 +19,15 @@ Scientific references
 from __future__ import annotations
 
 import math
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import numpy as np
 from pydantic import BaseModel, Field, ConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -237,6 +240,47 @@ DEFAULT_CYCLE_TEMPLATE: list[tuple[SleepStage, float]] = [
 ]
 
 
+class HomeostaticState(BaseModel):
+    """Independent homeostatic drives for SWS and REM pressure.
+
+    Source: Borbély AA et al. (2016) Journal of Sleep Research 25:131–143.
+    DOI: 10.1111/jsr.12371
+    """
+
+    sws_debt: float = 0.0
+    rem_debt: float = 0.0
+    rem_cycles_completed: int = 0
+
+
+def enforce_n3_floor(
+    schedule: list[SleepStage],
+    n3_min_fraction: float = 0.10,
+) -> list[SleepStage]:
+    """Enforce a minimum N3 fraction by converting early-night N2 to N3.
+
+    Args:
+        schedule: Minute-resolution sleep-stage sequence.
+        n3_min_fraction: Minimum required N3 fraction.
+
+    Returns:
+        Updated schedule preserving REM segments.
+    """
+    if not schedule:
+        return []
+
+    updated = list(schedule)
+    n3_count = sum(1 for stage in updated if stage == SleepStage.N3)
+    required_n3 = int(math.ceil(float(n3_min_fraction) * len(updated)))
+    if n3_count >= required_n3:
+        return updated
+
+    needed = required_n3 - n3_count
+    n2_indices = [i for i, stage in enumerate(updated) if stage == SleepStage.N2]
+    for idx in n2_indices[:needed]:
+        updated[idx] = SleepStage.N3
+    return updated
+
+
 class CycleStateMachine:
     """Build staged ultradian-cycle schedules from empirical templates."""
 
@@ -247,22 +291,207 @@ class CycleStateMachine:
         jitter_std: float = 0.2,
         jitter_min: float = 0.8,
         jitter_max: float = 1.2,
+        rem_threshold_hours: float = 2.4,
+        rem_accum_rate_per_hour: float = 1.0,
+        rem_discharge_rate_per_hour: float = 5.0,
+        n3_min_fraction: float = 0.10,
+        sws_debt_threshold: float = 0.90,
     ) -> None:
         self.templates = templates or CYCLE_TEMPLATES
         self.default_template = default_template or DEFAULT_CYCLE_TEMPLATE
         self.jitter_std = jitter_std
         self.jitter_min = jitter_min
         self.jitter_max = jitter_max
+        self.rem_threshold_hours = rem_threshold_hours
+        self.rem_accum_rate_per_hour = rem_accum_rate_per_hour
+        self.rem_discharge_rate_per_hour = rem_discharge_rate_per_hour
+        self.n3_min_fraction = n3_min_fraction
+        self.sws_debt_threshold = sws_debt_threshold
+
+    @staticmethod
+    def _target_rem_minutes(cycle_idx_1_based: int) -> float:
+        """Return target REM duration for a cycle.
+
+        Source: Carskadon MA & Dement WC (2011), Principles and Practice of Sleep
+        Medicine (5th ed.), pp. 16–26.
+        """
+        if cycle_idx_1_based <= 1:
+            return 10.0
+        if cycle_idx_1_based == 2:
+            return 20.0
+        if cycle_idx_1_based == 3:
+            return 31.0
+        if cycle_idx_1_based == 4:
+            return 45.0
+        return 55.0
+
+    def _rebalance_n2_ceiling(
+        self,
+        schedule: list[dict[str, Any]],
+        total_minutes: int,
+        sws_debt: float,
+    ) -> list[dict[str, Any]]:
+        """Clamp N2 share to <=58% and redistribute surplus to REM/N3 (0.7/0.3)."""
+        if not schedule:
+            return schedule
+
+        durations = [
+            max(0.0, float(seg["end_min"]) - float(seg["start_min"]))
+            for seg in schedule
+        ]
+        total = max(1.0, float(sum(durations)))
+        n2_indices = [
+            i for i, seg in enumerate(schedule) if seg["stage"] == SleepStage.N2
+        ]
+        rem_indices = [
+            i for i, seg in enumerate(schedule) if seg["stage"] == SleepStage.REM
+        ]
+        n3_indices = [
+            i for i, seg in enumerate(schedule) if seg["stage"] == SleepStage.N3
+        ]
+        n2_total = float(sum(durations[i] for i in n2_indices))
+        n2_fraction = n2_total / total
+        if n2_fraction <= 0.58:
+            return schedule
+        if sws_debt <= self.sws_debt_threshold:
+            return schedule
+
+        surplus = n2_total - (0.58 * total)
+        if surplus <= 0.0:
+            return schedule
+        logger.debug(
+            "N2_rebalance fired: N2=%.1f%%, sws_debt=%.3f",
+            n2_fraction * 100.0,
+            sws_debt,
+        )
+
+        reducible = float(sum(max(0.0, durations[i] - 1.0) for i in n2_indices))
+        if reducible <= 0.0:
+            return schedule
+        reduce_amount = min(surplus, reducible)
+        for i in n2_indices:
+            room = max(0.0, durations[i] - 1.0)
+            if room <= 0.0:
+                continue
+            delta = reduce_amount * (room / reducible)
+            durations[i] -= delta
+
+        rem_add = reduce_amount * 0.7
+        n3_add = reduce_amount * 0.3
+        if rem_indices:
+            per_rem = rem_add / len(rem_indices)
+            for i in rem_indices:
+                durations[i] += per_rem
+        if n3_indices:
+            per_n3 = n3_add / len(n3_indices)
+            for i in n3_indices:
+                durations[i] += per_n3
+
+        rebuilt: list[dict[str, Any]] = []
+        cursor = 0.0
+        for seg, dur in zip(schedule, durations):
+            if cursor >= total_minutes:
+                break
+            start = cursor
+            end = min(float(total_minutes), start + max(1.0, float(dur)))
+            row = dict(seg)
+            row["start_min"] = start
+            row["end_min"] = end
+            rebuilt.append(row)
+            cursor = end
+
+        if rebuilt and rebuilt[-1]["end_min"] < total_minutes:
+            rebuilt[-1]["end_min"] = float(total_minutes)
+        return rebuilt
+
+    @staticmethod
+    def _schedule_to_minutes(
+        schedule: list[dict[str, Any]], total_minutes: int
+    ) -> tuple[list[SleepStage], list[int], list[float]]:
+        if total_minutes <= 0:
+            return [], [], []
+        first = schedule[0]
+        stages = [first["stage"]] * total_minutes
+        cycle_indices = [int(first["cycle_index"])] * total_minutes
+        cycle_starts = [float(first["cycle_cycle_start_min"])] * total_minutes
+
+        for seg in schedule:
+            start = max(0, int(math.floor(float(seg["start_min"]))))
+            end = min(total_minutes, int(math.ceil(float(seg["end_min"]))))
+            for minute in range(start, end):
+                stages[minute] = seg["stage"]
+                cycle_indices[minute] = int(seg["cycle_index"])
+                cycle_starts[minute] = float(seg["cycle_cycle_start_min"])
+
+        return stages, cycle_indices, cycle_starts
+
+    @staticmethod
+    def _front_weight_n3(
+        stages: list[SleepStage], first_window_minutes: int = 120
+    ) -> list[SleepStage]:
+        if not stages:
+            return []
+        updated = list(stages)
+        cursor = 0
+        while True:
+            total_n3 = sum(1 for stage in updated if stage == SleepStage.N3)
+            if total_n3 == 0:
+                return updated
+            first_n3 = sum(
+                1
+                for stage in updated[: min(first_window_minutes, len(updated))]
+                if stage == SleepStage.N3
+            )
+            if (first_n3 / total_n3) >= 0.40:
+                return updated
+            found = False
+            for idx in range(cursor, min(first_window_minutes, len(updated))):
+                if updated[idx] == SleepStage.N2:
+                    updated[idx] = SleepStage.N3
+                    cursor = idx + 1
+                    found = True
+                    break
+            if not found:
+                return updated
+
+    @staticmethod
+    def _minutes_to_schedule(
+        stages: list[SleepStage], cycle_indices: list[int], cycle_starts: list[float]
+    ) -> list[dict[str, Any]]:
+        if not stages:
+            return []
+
+        schedule: list[dict[str, Any]] = []
+        start = 0
+        for idx in range(1, len(stages) + 1):
+            boundary = idx == len(stages) or (
+                stages[idx] != stages[start]
+                or cycle_indices[idx] != cycle_indices[start]
+                or cycle_starts[idx] != cycle_starts[start]
+            )
+            if boundary:
+                schedule.append(
+                    {
+                        "cycle_index": cycle_indices[start],
+                        "stage": stages[start],
+                        "start_min": float(start),
+                        "end_min": float(idx),
+                        "cycle_cycle_start_min": cycle_starts[start],
+                    }
+                )
+                start = idx
+        return schedule
 
     def _jitter_duration(self, base_minutes: float) -> float:
         mult = float(np.random.normal(1.0, self.jitter_std))
         mult = max(self.jitter_min, min(self.jitter_max, mult))
         return max(1.0, base_minutes * mult)
 
-    def build_schedule(self, total_minutes: int) -> list[dict]:
-        schedule: list[dict] = []
+    def build_schedule(self, total_minutes: int) -> list[dict[str, Any]]:
+        schedule: list[dict[str, Any]] = []
         cursor = 0.0
         cycle_idx = 0
+        homeostatic = HomeostaticState()
 
         while cursor < total_minutes:
             cycle_idx += 1
@@ -271,6 +500,30 @@ class CycleStateMachine:
 
             for stage, base_min in template:
                 dur = self._jitter_duration(base_min)
+                if stage == SleepStage.REM:
+                    rem_target = float(
+                        np.random.normal(
+                            self._target_rem_minutes(cycle_idx),
+                            self._target_rem_minutes(cycle_idx) * 0.10,
+                        )
+                    )
+                    rem_target = max(1.0, rem_target)
+                    if homeostatic.rem_debt > self.rem_threshold_hours:
+                        dur = max(dur, rem_target)
+                    else:
+                        dur = min(dur, rem_target * 0.8)
+                    homeostatic.rem_debt = max(
+                        0.0,
+                        homeostatic.rem_debt
+                        - (dur / 60.0) * self.rem_discharge_rate_per_hour,
+                    )
+                    homeostatic.rem_cycles_completed += 1
+                else:
+                    homeostatic.rem_debt += (dur / 60.0) * self.rem_accum_rate_per_hour
+                    if stage == SleepStage.N3:
+                        homeostatic.sws_debt = 0.0
+                    else:
+                        homeostatic.sws_debt += dur / 60.0
                 start_min = cursor
                 end_min = min(total_minutes, cursor + dur)
 
@@ -288,7 +541,21 @@ class CycleStateMachine:
                 if cursor >= total_minutes:
                     break
 
-        return schedule
+        schedule = self._rebalance_n2_ceiling(
+            schedule,
+            total_minutes=total_minutes,
+            sws_debt=float(homeostatic.sws_debt),
+        )
+        minute_stages, minute_cycles, minute_cycle_starts = self._schedule_to_minutes(
+            schedule, total_minutes=total_minutes
+        )
+        minute_stages = enforce_n3_floor(
+            minute_stages, n3_min_fraction=self.n3_min_fraction
+        )
+        minute_stages = self._front_weight_n3(minute_stages, first_window_minutes=120)
+        return self._minutes_to_schedule(
+            minute_stages, minute_cycles, minute_cycle_starts
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -641,7 +908,7 @@ class SleepCycleModel:
 
         return states, stages
 
-    def _build_cycle_schedule(self, total_minutes: int) -> list[dict]:
+    def _build_cycle_schedule(self, total_minutes: int) -> list[dict[str, Any]]:
         """Build a schedule of (stage, start_min, end_min, cycle_index).
 
         Durations follow empirical templates per cycle (see Task 2 spec) with

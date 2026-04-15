@@ -168,7 +168,7 @@ class NeurochemistryModel:
     """
 
     def __init__(self, params: Optional[NeurochemistryParameters] = None) -> None:
-        self.params = params or NeurochemistryParameters()
+        self.params = params or NeurochemistryParameters.model_validate({})
 
     # ------------------------------------------------------------------
     # Stage-dependent production rates

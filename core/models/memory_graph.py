@@ -140,7 +140,7 @@ class MemoryGraph:
     def __init__(self) -> None:
         self._g: nx.MultiDiGraph = nx.MultiDiGraph()
         # Log of replay events for visualization and export
-        self.replay_event_log: list[dict] = []
+        self.replay_event_log: list[dict[str, object]] = []
         # Chronological activation snapshots captured during simulation.
         self.activation_snapshots: list[MemoryActivationSnapshot] = []
 

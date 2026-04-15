@@ -15,6 +15,7 @@ from core.models.neurochemistry import NeurochemistryState
 from core.models.sleep_cycle import SleepState
 from core.simulation.llm_trigger import LLMTriggerDetector, LLMTriggerType
 from core.simulation.narrative_cache import NarrativeCache
+from core.utils.neurochemistry_descriptors import nchem_to_descriptors
 
 logger = logging.getLogger(__name__)
 _RUNTIME_CONFIG = load_runtime_config()
@@ -68,8 +69,15 @@ class DreamConstructorAgent:
         self._max_tokens = int(
             self.llm_config.get("max_tokens", _RUNTIME_CONFIG.llm_max_tokens)
         )
+        # Source: internal prompt sizing (120-word narrative + JSON envelope budget).
+        self._narrative_max_tokens = int(
+            self.llm_config.get("narrative_max_tokens", 600)
+        )
+        self._no_think = bool(self.llm_config.get("no_think", True))
+        self._mock_mode = str(self.llm_config.get("mock_mode", "")).strip().lower()
         self._api_key = self.llm_config.get("api_key")
         self._base_url = self.llm_config.get("base_url")
+        self.last_llm_metadata: dict[str, Any] = {}
 
         self.trigger_detector = LLMTriggerDetector()
         self.narrative_cache = NarrativeCache()
@@ -148,33 +156,8 @@ class DreamConstructorAgent:
             if ctx:
                 prev_text = "Previous context:\n" + "\n".join(f"- {c}" for c in ctx)
 
-        ach_desc = (
-            "hyper-vivid and hallucinatory"
-            if ach > 0.80
-            else "moderately vivid and coherent" if ach > 0.55 else "hazy and diffuse"
-        )
-        ne_desc = (
-            "high threat salience and urgency"
-            if ne > 0.40
-            else (
-                "reduced reality resistance; absurd events feel normal"
-                if ne < 0.15
-                else "mild alertness"
-            )
-        )
-        cortisol_desc = (
-            "anxious, fragmented tone"
-            if cortisol > 0.75
-            else (
-                "stable but slightly tense tone"
-                if cortisol > 0.25
-                else "calm, generative tone"
-            )
-        )
-        serotonin_desc = (
-            "reality monitoring is strongly reduced"
-            if five_ht < 0.10
-            else "partial reality monitoring remains"
+        descriptors = nchem_to_descriptors(
+            ach=ach, serotonin=five_ht, ne=ne, cortisol=cortisol
         )
 
         system_msg = (
@@ -189,10 +172,10 @@ class DreamConstructorAgent:
             f"ACh={ach} 5-HT={five_ht} NE={ne} Cortisol={cortisol}\n"
             f"Bizarreness={bizarreness_score:.2f} Lucidity={lucidity_probability:.2f}\n"
             "[NEUROCHEMICAL CONTEXT]\n"
-            f"- ACh texture: {ach_desc}\n"
-            f"- NE tone: {ne_desc}\n"
-            f"- Cortisol affect: {cortisol_desc}\n"
-            f"- Serotonin coherence: {serotonin_desc}\n"
+            f"- ACh texture: {descriptors['ach_state']}\n"
+            f"- Affect tone: {descriptors['mood_tone']}\n"
+            f"- Arousal level: {descriptors['arousal_level']}\n"
+            f"- Stress signature: {descriptors['stress_signature']}\n"
             f"Stress={stress_level:.2f}\n"
             f"Events={events_str}\n"
             f"{replay_summary}\n"
@@ -200,11 +183,17 @@ class DreamConstructorAgent:
             f"Memory nodes={(replay.node_ids[:6] if replay else [])}\n"
             "Return JSON now."
         )
-        user_msg = f"/no_think\n\n{user_msg}"
         return system_msg, user_msg
 
     @staticmethod
     def _fallback_payload(stage: str, emotion: str, narrative: str) -> dict:
+        if len(narrative.split()) < 40:
+            narrative = (
+                f"{narrative} In this {stage} segment, the {emotion} tone keeps shaping "
+                "the dream environment as details drift and reassemble around the dreamer. "
+                "Objects feel symbolically charged, and the scene continues evolving "
+                "without a hard boundary into the next moment of sleep."
+            )
         return {
             "narrative": narrative,
             "dominant_emotion": emotion,
@@ -221,48 +210,131 @@ class DreamConstructorAgent:
 
         self.llm_calls_total += 1
         t0 = time.perf_counter()
-        try:
-            if self._provider in ("openai", "ollama"):
-                resp = client.chat.completions.create(
-                    model=self._model,
-                    messages=[
-                        {"role": "system", "content": system_msg},
-                        {"role": "user", "content": user_msg},
-                    ],
-                    temperature=self._temperature,
-                    max_tokens=self._max_tokens,
-                    response_format={"type": "json_object"},
-                )
-                raw = strip_thinking_tags(resp.choices[0].message.content or "{}")
-                cleaned = re.sub(r"```(?:json)?", "", raw).strip().rstrip("`").strip()
-                parsed = json.loads(cleaned)
-                latency_ms = (time.perf_counter() - t0) * 1000.0
-                return parsed, None, True, latency_ms
+        system_content = f"/no_think\n\n{system_msg}" if self._no_think else system_msg
+        temperatures = [self._temperature, 0.5]
+        last_error: Optional[str] = None
 
-            if self._provider == "anthropic":
-                resp = client.messages.create(
-                    model=self._model,
-                    max_tokens=self._max_tokens,
-                    system=system_msg,
-                    messages=[{"role": "user", "content": user_msg}],
-                )
-                raw = strip_thinking_tags(
-                    resp.content[0].text if resp.content else "{}"
-                )
-                start = raw.find("{")
-                end = raw.rfind("}")
-                if start >= 0 and end > start:
+        def _parse_payload(raw: str) -> dict[str, Any]:
+            cleaned = re.sub(r"```(?:json)?", "", strip_thinking_tags(raw)).strip()
+            cleaned = cleaned.rstrip("`").strip()
+            parsed = json.loads(cleaned)
+            if not isinstance(parsed, dict):
+                raise ValueError("parsed LLM payload is not an object")
+            if "narrative" not in parsed:
+                raise ValueError("parsed LLM payload missing 'narrative'")
+            return parsed
+
+        try:
+            for temperature in temperatures:
+                if self._provider in ("openai", "ollama"):
+                    request_kwargs: dict[str, Any] = {
+                        "model": self._model,
+                        "messages": [
+                            {"role": "system", "content": system_content},
+                            {"role": "user", "content": user_msg},
+                        ],
+                        "temperature": temperature,
+                        "max_tokens": self._narrative_max_tokens,
+                        "response_format": {"type": "json_object"},
+                    }
+                    if self._mock_mode:
+                        request_kwargs["extra_headers"] = {
+                            "X-Mock-Mode": self._mock_mode
+                        }
+
+                    resp = client.chat.completions.create(
+                        **request_kwargs,
+                    )
+                    self.last_llm_metadata = self._extract_response_metadata(resp)
+                    raw = str(resp.choices[0].message.content or "{}")
+                    logger.debug("raw llm response (temp=%.2f): %s", temperature, raw)
+                    parsed = _parse_payload(raw)
                     latency_ms = (time.perf_counter() - t0) * 1000.0
-                    return json.loads(raw[start : end + 1]), None, True, latency_ms
-                latency_ms = (time.perf_counter() - t0) * 1000.0
-                return {}, "invalid_json_response", False, latency_ms
+                    return parsed, None, True, latency_ms
+
+                if self._provider == "anthropic":
+                    resp = client.messages.create(
+                        model=self._model,
+                        max_tokens=self._narrative_max_tokens,
+                        system=system_content,
+                        messages=[{"role": "user", "content": user_msg}],
+                    )
+                    self.last_llm_metadata = self._extract_response_metadata(resp)
+                    raw = resp.content[0].text if resp.content else "{}"
+                    logger.debug("raw llm response (temp=%.2f): %s", temperature, raw)
+                    parsed = _parse_payload(raw)
+                    latency_ms = (time.perf_counter() - t0) * 1000.0
+                    return parsed, None, True, latency_ms
+
+                last_error = "provider_not_supported"
+                break
         except Exception as exc:
-            logger.error("LLM call failed: %s", exc)
-            latency_ms = (time.perf_counter() - t0) * 1000.0
-            return {}, str(exc), False, latency_ms
+            logger.debug("raw llm parse/call failure: %s", exc)
+            last_error = str(exc)
+            # Retry once at a lower temperature for malformed JSON output.
+            try:
+                if self._provider in ("openai", "ollama"):
+                    retry_kwargs: dict[str, Any] = {
+                        "model": self._model,
+                        "messages": [
+                            {"role": "system", "content": system_content},
+                            {"role": "user", "content": user_msg},
+                        ],
+                        "temperature": 0.5,
+                        "max_tokens": self._narrative_max_tokens,
+                        "response_format": {"type": "json_object"},
+                    }
+                    if self._mock_mode:
+                        retry_kwargs["extra_headers"] = {"X-Mock-Mode": self._mock_mode}
+                    retry_resp = client.chat.completions.create(**retry_kwargs)
+                    self.last_llm_metadata = self._extract_response_metadata(retry_resp)
+                    retry_raw = retry_resp.choices[0].message.content or "{}"
+                    logger.debug("raw llm retry response: %s", retry_raw)
+                    retry_parsed = _parse_payload(retry_raw)
+                    latency_ms = (time.perf_counter() - t0) * 1000.0
+                    return retry_parsed, None, True, latency_ms
+
+                if self._provider == "anthropic":
+                    retry_resp = client.messages.create(
+                        model=self._model,
+                        max_tokens=self._narrative_max_tokens,
+                        system=system_content,
+                        messages=[{"role": "user", "content": user_msg}],
+                    )
+                    self.last_llm_metadata = self._extract_response_metadata(retry_resp)
+                    retry_raw = (
+                        retry_resp.content[0].text if retry_resp.content else "{}"
+                    )
+                    logger.debug("raw llm retry response: %s", retry_raw)
+                    retry_parsed = _parse_payload(retry_raw)
+                    latency_ms = (time.perf_counter() - t0) * 1000.0
+                    return retry_parsed, None, True, latency_ms
+            except Exception as retry_exc:
+                logger.warning("LLM retry failed: %s", retry_exc)
+                last_error = str(retry_exc)
 
         latency_ms = (time.perf_counter() - t0) * 1000.0
-        return {}, "provider_not_supported", False, latency_ms
+        return {}, last_error or "provider_not_supported", False, latency_ms
+
+    @staticmethod
+    def _extract_response_metadata(response: Any) -> dict[str, Any]:
+        metadata: dict[str, Any] = {}
+        try:
+            choices = getattr(response, "choices", None)
+            if isinstance(choices, list) and choices:
+                first = choices[0]
+                finish_reason = getattr(first, "finish_reason", None)
+                if finish_reason is not None:
+                    metadata["finish_reason"] = finish_reason
+            usage = getattr(response, "usage", None)
+            if usage is not None:
+                if hasattr(usage, "model_dump"):
+                    metadata["usage"] = usage.model_dump()
+                elif isinstance(usage, dict):
+                    metadata["usage"] = usage
+        except (AttributeError, TypeError, ValueError):
+            return metadata
+        return metadata
 
     def generate_segment(
         self,
@@ -343,11 +415,14 @@ class DreamConstructorAgent:
                     segment_index=segment_index,
                     emotion=base_emotion,
                     stage=stage,
+                    nchem=neuro_snapshot,
                 )
                 payload = self._fallback_payload(
                     stage_value, base_emotion, fallback_narrative
                 )
-                template_bank = f"TEMPLATE_{stage_value}"
+                template_bank = (
+                    self.narrative_cache.last_template_id or f"TEMPLATE_{stage_value}"
+                )
             logger.info(
                 "dream-segment trigger=%s t=%.2f mode=%s llm_calls=%d",
                 trigger.trigger_type.value,
@@ -360,6 +435,7 @@ class DreamConstructorAgent:
                 segment_index=segment_index,
                 emotion=base_emotion,
                 stage=stage,
+                nchem=neuro_snapshot,
             )
             payload = self._fallback_payload(stage_value, base_emotion, narrative)
             if stage_value == "REM" and self.narrative_cache.active_rem_blueprint:
@@ -367,7 +443,9 @@ class DreamConstructorAgent:
                 template_bank = "REM_BLUEPRINT_CACHE"
             else:
                 mode = GenerationMode.TEMPLATE
-                template_bank = f"TEMPLATE_{stage_value}"
+                template_bank = (
+                    self.narrative_cache.last_template_id or f"TEMPLATE_{stage_value}"
+                )
 
         return DreamSegment(
             segment_index=segment_index,

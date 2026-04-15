@@ -1,0 +1,56 @@
+- id: n2_neutral_01
+  stage: N2
+  emotion: neutral
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "I move through stitched-together scenes where ordinary settings recur with slight distortions, as if memory is editing itself in place; the narrative advances in stable fragments, and each transition feels smooth enough to maintain continuity without becoming fully vivid."
+
+- id: n2_anxious_01
+  stage: N2
+  emotion: anxious
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "The dream keeps looping through nearly identical corridors, conversations, and clocks that never match, producing a persistent unease rather than panic; I keep trying to resolve small inconsistencies, but every answer introduces another mismatch that pulls me onward."
+
+- id: n2_fearful_01
+  stage: N2
+  emotion: fearful
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "A low-threat dread pervades familiar places, with open doors, delayed footsteps, and messages that arrive too late; the dream never erupts, yet each scene carries a sharpened edge, making routine actions feel dangerous even when nothing explicitly attacks me."
+
+- id: n2_melancholic_01
+  stage: N2
+  emotion: melancholic
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "I revisit quiet environments tied to old routines, where conversations are incomplete and people fade before we reconnect; the tone is reflective and heavy, with gentle sadness layered over everyday details that feel just out of reach but emotionally significant."
+
+- id: n2_joyful_01
+  stage: N2
+  emotion: joyful
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "The dream offers bright, coherent moments across streets, rooms, and gatherings where each interaction feels welcoming and lightly magical; colors are richer than waking life, and even ordinary gestures carry quiet delight that accumulates into a sustained positive mood."
+
+- id: n2_serene_01
+  stage: N2
+  emotion: serene
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "A calm narrative unfolds through still air, soft light, and unhurried movement, with scenes transitioning like slow breaths; nothing demands urgency, and the dream's continuity feels dependable, allowing me to drift through familiar spaces without cognitive strain."
+
+- id: n2_curious_01
+  stage: N2
+  emotion: curious
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "Each location presents a puzzle disguised as routine detail, such as symbols on train maps, altered room layouts, or renamed objects; I follow these anomalies from scene to scene, noticing how the dream preserves structure while quietly reshaping the rules underneath."
+
+- id: n2_any_01
+  stage: N2
+  emotion: null
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "The narrative stays moderately coherent, blending episodic memory traces with new associations so transitions feel logical within dream context; imagery remains softer than REM but stable enough to support continuing action, mood persistence, and recognizable scene progression."
+

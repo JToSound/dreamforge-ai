@@ -1,0 +1,56 @@
+- id: n1_neutral_01
+  stage: N1
+  emotion: neutral
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "At the edge of sleep I hover between the room and a drifting interior stage, where half-formed faces, corridor lights, and bits of spoken language appear for a breath, dissolve, and return with slight changes that feel both familiar and unplaceable."
+
+- id: n1_anxious_01
+  stage: N1
+  emotion: anxious
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "A mild tension rides each flicker of imagery as doorframes tilt and shadows expand just before I can inspect them, then snap away; the scene feels unfinished, yet my body senses a warning signal that keeps me suspended in uncertain, shallow descent."
+
+- id: n1_fearful_01
+  stage: N1
+  emotion: fearful
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "The boundary of wakefulness fractures into abrupt flashes of threat: a voice near my ear, a silhouette in the hallway, the sensation of falling without movement; each image vanishes instantly, leaving a lingering fear that colors the next transition."
+
+- id: n1_melancholic_01
+  stage: N1
+  emotion: melancholic
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "I drift through dim fragments of remembered places, each one softened by distance and loss, as if the dream is testing old rooms for emotional echoes; everything is quiet, unfinished, and tenderly sad, with details fading before meaning can fully settle."
+
+- id: n1_joyful_01
+  stage: N1
+  emotion: joyful
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "Soft color pulses and brief melodies pass through my awareness like warm signals, and ordinary images gain a small, celebratory brightness; nothing lasts long, yet each micro-scene carries gentle delight, nudging me toward deeper sleep with easy optimism."
+
+- id: n1_serene_01
+  stage: N1
+  emotion: serene
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "The world narrows to floating textures and distant sounds that never demand action, while thoughts loosen into slow visual fragments; I feel carried by a calm undertow, crossing the threshold in quiet increments as the waking room recedes without resistance."
+
+- id: n1_curious_01
+  stage: N1
+  emotion: curious
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "Every small image arrives like a clue from an unknown narrative: a map corner, a stranger's smile, a stairwell that bends unexpectedly; I remain lightly alert, examining each fragment before it disappears, intrigued by how quickly the dream keeps rewriting itself."
+
+- id: n1_any_01
+  stage: N1
+  emotion: null
+  neurochem_filter: {ach_min: null, ach_max: null, serotonin_max: null}
+  min_words: 40
+  text: "I pass through short-lived scenes where objects, voices, and body sensations overlap in unstable combinations, creating the unmistakable feeling of transition; the imagery is brief and porous, allowing waking reality and dream logic to coexist for a few uncertain moments."
+
