@@ -40,12 +40,14 @@ class RuntimeConfig:
     llm_ollama_base_url: str = "http://localhost:11434"
     llm_lmstudio_base_url: str = "http://localhost:1234/v1"
     llm_base_url: str = "http://host.docker.internal:1234/v1"
+    llm_timeout_seconds: float = 15.0
 
     # Simulation defaults
     simulation_duration_hours: float = 8.0
     simulation_dt_minutes: float = 0.5
     simulation_stress_level: float = 0.3
     simulation_sleep_start_hour: float = 23.0
+    simulation_request_timeout_seconds: float = 600.0
 
 
 def load_runtime_config() -> RuntimeConfig:
@@ -63,8 +65,12 @@ def load_runtime_config() -> RuntimeConfig:
             "LMSTUDIO_BASE_URL", "http://localhost:1234/v1"
         ),
         llm_base_url=os.getenv("LLM_BASE_URL", "http://host.docker.internal:1234/v1"),
+        llm_timeout_seconds=_env_float("LLM_TIMEOUT_SECONDS", 15.0),
         simulation_duration_hours=_env_float("SIM_DURATION_HOURS", 8.0),
         simulation_dt_minutes=_env_float("SIM_DT_MINUTES", 0.5),
         simulation_stress_level=_env_float("SIM_STRESS_LEVEL", 0.3),
         simulation_sleep_start_hour=_env_float("SIM_SLEEP_START_HOUR", 23.0),
+        simulation_request_timeout_seconds=_env_float(
+            "SIM_REQUEST_TIMEOUT_SECONDS", 600.0
+        ),
     )

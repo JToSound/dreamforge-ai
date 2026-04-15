@@ -51,7 +51,9 @@ class LLMConfig:
             ),
             no_think=os.getenv("LLM_NO_THINK", "true").lower() == "true",
             json_mode=os.getenv("LLM_JSON_MODE", "true").lower() == "true",
-            timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", "15.0")),
+            timeout_seconds=float(
+                os.getenv("LLM_TIMEOUT_SECONDS", str(runtime.llm_timeout_seconds))
+            ),
             retries=int(os.getenv("LLM_RETRIES", "3")),
             backoff_base=float(os.getenv("LLM_BACKOFF_BASE", "0.5")),
         )

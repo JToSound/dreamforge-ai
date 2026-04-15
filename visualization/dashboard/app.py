@@ -195,6 +195,14 @@ with st.sidebar:
         _RUNTIME_CONFIG.simulation_sleep_start_hour,
         0.5,
     )
+    simulation_request_timeout_seconds = st.number_input(
+        "Simulation request timeout (seconds)",
+        min_value=30,
+        max_value=3600,
+        value=int(_RUNTIME_CONFIG.simulation_request_timeout_seconds),
+        step=30,
+        help="How long the dashboard waits for /api/simulation/night before showing a timeout.",
+    )
 
     st.markdown("---")
     st.markdown("### 💊 Pharmacology")
@@ -292,7 +300,7 @@ def run_simulation() -> Optional[dict]:
             r = httpx.post(
                 f"{API_BASE}/api/simulation/night",
                 json=payload,
-                timeout=300,  # LLM 可能需要時間
+                timeout=float(simulation_request_timeout_seconds),
             )
         if r.status_code in (200, 201):
             return r.json()
@@ -306,7 +314,7 @@ def run_simulation() -> Optional[dict]:
         return None
     except httpx.ReadTimeout:
         st.error(
-            "⏱ Request timed out. The LLM may be slow — try a smaller model or increase timeout."
+            "⏱ Request timed out. Increase 'Simulation request timeout (seconds)' in the sidebar and try again."
         )
         return None
 

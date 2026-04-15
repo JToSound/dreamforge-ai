@@ -18,12 +18,16 @@ def test_env_helpers_and_runtime_config(monkeypatch):
     monkeypatch.setenv("API_BASE_URL", "http://localhost:9999")
     monkeypatch.setenv("LLM_MODEL", "custom-model")
     monkeypatch.setenv("LLM_TIMEOUT", "42")
+    monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "27.5")
     monkeypatch.setenv("SIM_DURATION_HOURS", "6.5")
+    monkeypatch.setenv("SIM_REQUEST_TIMEOUT_SECONDS", "900")
     cfg = runtime_config.load_runtime_config()
     assert cfg.api_base_url == "http://localhost:9999"
     assert cfg.llm_model == "custom-model"
     assert cfg.llm_timeout == 42
+    assert cfg.llm_timeout_seconds == 27.5
     assert cfg.simulation_duration_hours == 6.5
+    assert cfg.simulation_request_timeout_seconds == 900
 
 
 def test_llm_config_from_env(monkeypatch):
@@ -35,6 +39,7 @@ def test_llm_config_from_env(monkeypatch):
     monkeypatch.setenv("LLM_TEMPERATURE", "0.6")
     monkeypatch.setenv("LLM_RETRIES", "2")
     monkeypatch.setenv("LLM_BACKOFF_BASE", "0.1")
+    monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "33.0")
 
     cfg = llm_client.LLMConfig.from_env()
     assert cfg.provider == "ollama"
@@ -43,6 +48,7 @@ def test_llm_config_from_env(monkeypatch):
     assert cfg.api_key == "k-1"
     assert cfg.max_tokens == 321
     assert cfg.temperature == 0.6
+    assert cfg.timeout_seconds == 33.0
     assert cfg.retries == 2
     assert cfg.backoff_base == 0.1
 

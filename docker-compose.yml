@@ -9,6 +9,7 @@ services:
       LLM_MODEL:        qwen/qwen3.5-9b
       LLM_API_KEY:      lm-studio
       LLM_TIMEOUT:      "120"
+      LLM_TIMEOUT_SECONDS: "45.0"
       LLM_MAX_TOKENS:   "512"
       LLM_TEMPERATURE:  "0.85"
       REDIS_URL:        redis://redis:6379
@@ -27,6 +28,7 @@ services:
       - "8501:8501"
     environment:
       API_BASE_URL: http://api:8000
+      SIM_REQUEST_TIMEOUT_SECONDS: "900"
       PYTHONPATH: /app
     depends_on:
       - api
