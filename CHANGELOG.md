@@ -55,6 +55,10 @@
   - added async job cancellation API (`/api/simulation/jobs/{job_id}/cancel`, plus `/api/v1` alias),
   - dashboard run flow now uses async submit/poll so `Stop` can terminate in-flight simulation jobs (including active LLM generation),
   - added regression coverage for async cancel lifecycle and dashboard stop wiring.
+- Dashboard control + export reliability fixes:
+  - fixed stop-state UX so one cancel action can return the UI to runnable state without a second stop click,
+  - static chart PNG/SVG export now uses layered fallback (local Plotly export + API export endpoint) to improve export success rate,
+  - added chart export API (`/api/charts/export`, plus `/api/v1` alias) and compare-delta validation coverage.
 
 ## [Round 6]
 

@@ -1,0 +1,289 @@
+time_hours,node_id,node_label,activation
+0.0,event::lunch_break_nap,lunch break nap,0.4576
+0.0,mem::familiar_face,familiar_face,0.3957
+0.0,mem::recurring_journey,recurring_journey,0.3655
+0.0,event::heavy_coffee_crash,heavy coffee crash,0.3567
+0.0,mem::school_corridor,school_corridor,0.3008
+0.0,mem::joy,joy,0.2837
+0.0,mem::bright_light,bright_light,0.2689
+0.0,mem::being_late,being_late,0.2389
+0.0,mem::loud_crowd,loud_crowd,0.2363
+0.0,mem::teeth_loosening,teeth_loosening,0.2314
+0.0,mem::being_chased,being_chased,0.2175
+0.0,mem::cold_water,cold_water,0.2072
+0.083333,mem::childhood_home,childhood_home,1.0
+0.083333,mem::school_corridor,school_corridor,1.0
+0.083333,mem::falling,falling,1.0
+0.083333,mem::being_chased,being_chased,1.0
+0.083333,mem::being_late,being_late,1.0
+0.083333,mem::teeth_loosening,teeth_loosening,1.0
+0.083333,mem::cold_water,cold_water,1.0
+0.083333,mem::loud_crowd,loud_crowd,1.0
+0.083333,mem::grief,grief,1.0
+0.083333,mem::dread,dread,1.0
+0.083333,event::lunch_break_nap,lunch break nap,1.0
+0.083333,event::heavy_coffee_crash,heavy coffee crash,1.0
+0.166667,mem::childhood_home,childhood_home,1.0
+0.166667,mem::school_corridor,school_corridor,1.0
+0.166667,mem::falling,falling,1.0
+0.166667,mem::being_chased,being_chased,1.0
+0.166667,mem::being_late,being_late,1.0
+0.166667,mem::teeth_loosening,teeth_loosening,1.0
+0.166667,mem::cold_water,cold_water,1.0
+0.166667,mem::loud_crowd,loud_crowd,1.0
+0.166667,mem::grief,grief,1.0
+0.166667,mem::dread,dread,1.0
+0.166667,event::lunch_break_nap,lunch break nap,1.0
+0.166667,event::heavy_coffee_crash,heavy coffee crash,1.0
+0.25,mem::childhood_home,childhood_home,1.0
+0.25,mem::school_corridor,school_corridor,1.0
+0.25,mem::falling,falling,1.0
+0.25,mem::being_chased,being_chased,1.0
+0.25,mem::being_late,being_late,1.0
+0.25,mem::teeth_loosening,teeth_loosening,1.0
+0.25,mem::cold_water,cold_water,1.0
+0.25,mem::loud_crowd,loud_crowd,1.0
+0.25,mem::grief,grief,1.0
+0.25,mem::dread,dread,1.0
+0.25,event::lunch_break_nap,lunch break nap,1.0
+0.25,event::heavy_coffee_crash,heavy coffee crash,1.0
+0.333333,mem::childhood_home,childhood_home,1.0
+0.333333,mem::school_corridor,school_corridor,1.0
+0.333333,mem::falling,falling,1.0
+0.333333,mem::being_chased,being_chased,1.0
+0.333333,mem::being_late,being_late,1.0
+0.333333,mem::teeth_loosening,teeth_loosening,1.0
+0.333333,mem::cold_water,cold_water,1.0
+0.333333,mem::loud_crowd,loud_crowd,1.0
+0.333333,mem::grief,grief,1.0
+0.333333,mem::dread,dread,1.0
+0.333333,event::lunch_break_nap,lunch break nap,1.0
+0.333333,event::heavy_coffee_crash,heavy coffee crash,1.0
+0.416667,mem::childhood_home,childhood_home,1.0
+0.416667,mem::school_corridor,school_corridor,1.0
+0.416667,mem::falling,falling,1.0
+0.416667,mem::being_chased,being_chased,1.0
+0.416667,mem::being_late,being_late,1.0
+0.416667,mem::teeth_loosening,teeth_loosening,1.0
+0.416667,mem::cold_water,cold_water,1.0
+0.416667,mem::loud_crowd,loud_crowd,1.0
+0.416667,mem::grief,grief,1.0
+0.416667,mem::dread,dread,1.0
+0.416667,event::lunch_break_nap,lunch break nap,1.0
+0.416667,event::heavy_coffee_crash,heavy coffee crash,1.0
+0.5,mem::childhood_home,childhood_home,1.0
+0.5,mem::school_corridor,school_corridor,1.0
+0.5,mem::falling,falling,1.0
+0.5,mem::being_chased,being_chased,1.0
+0.5,mem::being_late,being_late,1.0
+0.5,mem::teeth_loosening,teeth_loosening,1.0
+0.5,mem::cold_water,cold_water,1.0
+0.5,mem::loud_crowd,loud_crowd,1.0
+0.5,mem::grief,grief,1.0
+0.5,mem::dread,dread,1.0
+0.5,event::lunch_break_nap,lunch break nap,1.0
+0.5,event::heavy_coffee_crash,heavy coffee crash,1.0
+0.583333,mem::childhood_home,childhood_home,0.9934
+0.583333,mem::school_corridor,school_corridor,0.9934
+0.583333,mem::falling,falling,0.9934
+0.583333,mem::being_chased,being_chased,0.9934
+0.583333,mem::being_late,being_late,0.9934
+0.583333,mem::teeth_loosening,teeth_loosening,0.9934
+0.583333,mem::cold_water,cold_water,0.9934
+0.583333,mem::loud_crowd,loud_crowd,0.9934
+0.583333,mem::grief,grief,0.9934
+0.583333,mem::dread,dread,0.9934
+0.583333,event::lunch_break_nap,lunch break nap,0.9934
+0.583333,event::heavy_coffee_crash,heavy coffee crash,0.9934
+0.666667,mem::childhood_home,childhood_home,1.0
+0.666667,mem::school_corridor,school_corridor,1.0
+0.666667,mem::falling,falling,1.0
+0.666667,mem::being_chased,being_chased,1.0
+0.666667,mem::being_late,being_late,1.0
+0.666667,mem::teeth_loosening,teeth_loosening,1.0
+0.666667,mem::cold_water,cold_water,1.0
+0.666667,mem::loud_crowd,loud_crowd,1.0
+0.666667,mem::grief,grief,1.0
+0.666667,mem::dread,dread,1.0
+0.666667,event::lunch_break_nap,lunch break nap,1.0
+0.666667,event::heavy_coffee_crash,heavy coffee crash,1.0
+0.75,mem::childhood_home,childhood_home,1.0
+0.75,mem::school_corridor,school_corridor,1.0
+0.75,mem::falling,falling,1.0
+0.75,mem::being_chased,being_chased,1.0
+0.75,mem::being_late,being_late,1.0
+0.75,mem::teeth_loosening,teeth_loosening,1.0
+0.75,mem::cold_water,cold_water,1.0
+0.75,mem::loud_crowd,loud_crowd,1.0
+0.75,mem::grief,grief,1.0
+0.75,mem::dread,dread,1.0
+0.75,event::lunch_break_nap,lunch break nap,1.0
+0.75,event::heavy_coffee_crash,heavy coffee crash,1.0
+0.833333,mem::childhood_home,childhood_home,1.0
+0.833333,mem::school_corridor,school_corridor,1.0
+0.833333,mem::falling,falling,1.0
+0.833333,mem::being_chased,being_chased,1.0
+0.833333,mem::being_late,being_late,1.0
+0.833333,mem::teeth_loosening,teeth_loosening,1.0
+0.833333,mem::cold_water,cold_water,1.0
+0.833333,mem::loud_crowd,loud_crowd,1.0
+0.833333,mem::grief,grief,1.0
+0.833333,mem::dread,dread,1.0
+0.833333,event::lunch_break_nap,lunch break nap,1.0
+0.833333,event::heavy_coffee_crash,heavy coffee crash,1.0
+0.916667,mem::childhood_home,childhood_home,1.0
+0.916667,mem::school_corridor,school_corridor,1.0
+0.916667,mem::falling,falling,1.0
+0.916667,mem::being_chased,being_chased,1.0
+0.916667,mem::being_late,being_late,1.0
+0.916667,mem::teeth_loosening,teeth_loosening,1.0
+0.916667,mem::cold_water,cold_water,1.0
+0.916667,mem::loud_crowd,loud_crowd,1.0
+0.916667,mem::grief,grief,1.0
+0.916667,mem::dread,dread,1.0
+0.916667,event::lunch_break_nap,lunch break nap,1.0
+0.916667,event::heavy_coffee_crash,heavy coffee crash,1.0
+1.0,mem::childhood_home,childhood_home,1.0
+1.0,mem::school_corridor,school_corridor,1.0
+1.0,mem::falling,falling,1.0
+1.0,mem::being_chased,being_chased,1.0
+1.0,mem::being_late,being_late,1.0
+1.0,mem::teeth_loosening,teeth_loosening,1.0
+1.0,mem::cold_water,cold_water,1.0
+1.0,mem::loud_crowd,loud_crowd,1.0
+1.0,mem::grief,grief,1.0
+1.0,mem::dread,dread,1.0
+1.0,event::lunch_break_nap,lunch break nap,1.0
+1.0,event::heavy_coffee_crash,heavy coffee crash,1.0
+1.083333,mem::familiar_face,familiar_face,1.0
+1.083333,mem::flying,flying,1.0
+1.083333,mem::bright_light,bright_light,1.0
+1.083333,mem::joy,joy,1.0
+1.083333,mem::wonder,wonder,1.0
+1.083333,mem::childhood_home,childhood_home,0.9934
+1.083333,mem::school_corridor,school_corridor,0.9934
+1.083333,mem::falling,falling,0.9934
+1.083333,mem::being_chased,being_chased,0.9934
+1.083333,mem::being_late,being_late,0.9934
+1.083333,mem::teeth_loosening,teeth_loosening,0.9934
+1.083333,mem::cold_water,cold_water,0.9934
+1.166667,mem::childhood_home,childhood_home,1.0
+1.166667,mem::school_corridor,school_corridor,1.0
+1.166667,mem::falling,falling,1.0
+1.166667,mem::being_chased,being_chased,1.0
+1.166667,mem::being_late,being_late,1.0
+1.166667,mem::teeth_loosening,teeth_loosening,1.0
+1.166667,mem::cold_water,cold_water,1.0
+1.166667,mem::loud_crowd,loud_crowd,1.0
+1.166667,mem::grief,grief,1.0
+1.166667,mem::dread,dread,1.0
+1.166667,event::lunch_break_nap,lunch break nap,1.0
+1.166667,event::heavy_coffee_crash,heavy coffee crash,1.0
+1.25,mem::childhood_home,childhood_home,1.0
+1.25,mem::school_corridor,school_corridor,1.0
+1.25,mem::falling,falling,1.0
+1.25,mem::being_chased,being_chased,1.0
+1.25,mem::being_late,being_late,1.0
+1.25,mem::teeth_loosening,teeth_loosening,1.0
+1.25,mem::cold_water,cold_water,1.0
+1.25,mem::loud_crowd,loud_crowd,1.0
+1.25,mem::grief,grief,1.0
+1.25,mem::dread,dread,1.0
+1.25,event::lunch_break_nap,lunch break nap,1.0
+1.25,event::heavy_coffee_crash,heavy coffee crash,1.0
+1.333333,mem::childhood_home,childhood_home,1.0
+1.333333,mem::school_corridor,school_corridor,1.0
+1.333333,mem::falling,falling,1.0
+1.333333,mem::being_chased,being_chased,1.0
+1.333333,mem::being_late,being_late,1.0
+1.333333,mem::teeth_loosening,teeth_loosening,1.0
+1.333333,mem::cold_water,cold_water,1.0
+1.333333,mem::loud_crowd,loud_crowd,1.0
+1.333333,mem::grief,grief,1.0
+1.333333,mem::dread,dread,1.0
+1.333333,event::lunch_break_nap,lunch break nap,1.0
+1.333333,event::heavy_coffee_crash,heavy coffee crash,1.0
+1.416667,mem::familiar_face,familiar_face,1.0
+1.416667,mem::flying,flying,1.0
+1.416667,mem::bright_light,bright_light,1.0
+1.416667,mem::joy,joy,1.0
+1.416667,mem::wonder,wonder,1.0
+1.416667,mem::childhood_home,childhood_home,0.9868
+1.416667,mem::school_corridor,school_corridor,0.9868
+1.416667,mem::falling,falling,0.9868
+1.416667,mem::being_chased,being_chased,0.9868
+1.416667,mem::being_late,being_late,0.9868
+1.416667,mem::teeth_loosening,teeth_loosening,0.9868
+1.416667,mem::cold_water,cold_water,0.9868
+1.5,mem::childhood_home,childhood_home,1.0
+1.5,mem::school_corridor,school_corridor,1.0
+1.5,mem::falling,falling,1.0
+1.5,mem::being_chased,being_chased,1.0
+1.5,mem::being_late,being_late,1.0
+1.5,mem::teeth_loosening,teeth_loosening,1.0
+1.5,mem::cold_water,cold_water,1.0
+1.5,mem::loud_crowd,loud_crowd,1.0
+1.5,mem::grief,grief,1.0
+1.5,mem::dread,dread,1.0
+1.5,event::lunch_break_nap,lunch break nap,1.0
+1.5,event::heavy_coffee_crash,heavy coffee crash,1.0
+1.583333,mem::childhood_home,childhood_home,1.0
+1.583333,mem::school_corridor,school_corridor,1.0
+1.583333,mem::falling,falling,0.9975
+1.583333,mem::being_chased,being_chased,0.9975
+1.583333,mem::being_late,being_late,0.9975
+1.583333,mem::teeth_loosening,teeth_loosening,0.9975
+1.583333,mem::cold_water,cold_water,0.9975
+1.583333,mem::loud_crowd,loud_crowd,0.9975
+1.583333,mem::grief,grief,0.9975
+1.583333,mem::dread,dread,0.9975
+1.583333,event::lunch_break_nap,lunch break nap,0.9975
+1.583333,event::heavy_coffee_crash,heavy coffee crash,0.9975
+1.666667,mem::childhood_home,childhood_home,0.9934
+1.666667,mem::school_corridor,school_corridor,0.9934
+1.666667,mem::falling,falling,0.9934
+1.666667,mem::being_chased,being_chased,0.9934
+1.666667,mem::being_late,being_late,0.9934
+1.666667,mem::teeth_loosening,teeth_loosening,0.9934
+1.666667,mem::cold_water,cold_water,0.9934
+1.666667,mem::loud_crowd,loud_crowd,0.9934
+1.666667,mem::grief,grief,0.9934
+1.666667,mem::dread,dread,0.9934
+1.666667,event::lunch_break_nap,lunch break nap,0.9934
+1.666667,event::heavy_coffee_crash,heavy coffee crash,0.9934
+1.75,mem::childhood_home,childhood_home,1.0
+1.75,mem::school_corridor,school_corridor,1.0
+1.75,mem::falling,falling,1.0
+1.75,mem::being_chased,being_chased,1.0
+1.75,mem::being_late,being_late,1.0
+1.75,mem::teeth_loosening,teeth_loosening,1.0
+1.75,mem::cold_water,cold_water,1.0
+1.75,mem::loud_crowd,loud_crowd,1.0
+1.75,mem::grief,grief,1.0
+1.75,mem::dread,dread,1.0
+1.75,event::lunch_break_nap,lunch break nap,1.0
+1.75,event::heavy_coffee_crash,heavy coffee crash,1.0
+1.833333,mem::familiar_face,familiar_face,1.0
+1.833333,mem::flying,flying,1.0
+1.833333,mem::bright_light,bright_light,1.0
+1.833333,mem::joy,joy,1.0
+1.833333,mem::wonder,wonder,1.0
+1.833333,mem::childhood_home,childhood_home,0.9868
+1.833333,mem::school_corridor,school_corridor,0.9868
+1.833333,mem::falling,falling,0.9868
+1.833333,mem::being_chased,being_chased,0.9868
+1.833333,mem::being_late,being_late,0.9868
+1.833333,mem::teeth_loosening,teeth_loosening,0.9868
+1.833333,mem::cold_water,cold_water,0.9868
+1.916667,mem::childhood_home,childhood_home,0.9934
+1.916667,mem::school_corridor,school_corridor,0.9934
+1.916667,mem::falling,falling,0.9934
+1.916667,mem::being_chased,being_chased,0.9934
+1.916667,mem::being_late,being_late,0.9934
+1.916667,mem::teeth_loosening,teeth_loosening,0.9934
+1.916667,mem::cold_water,cold_water,0.9934
+1.916667,mem::loud_crowd,loud_crowd,0.9934
+1.916667,mem::grief,grief,0.9934
+1.916667,mem::dread,dread,0.9934
+1.916667,event::lunch_break_nap,lunch break nap,0.9934
+1.916667,event::heavy_coffee_crash,heavy coffee crash,0.9934

@@ -378,6 +378,41 @@ def check_api() -> bool:
         return False
 
 
+def _build_export_figure(fig: go.Figure) -> go.Figure:
+    export_fig = go.Figure(fig)
+    for trace in export_fig.data:
+        if getattr(trace, "type", "") == "scattergl":
+            trace.type = "scatter"
+    return export_fig
+
+
+def _export_image_bytes(
+    fig: go.Figure, image_format: str, *, scale: float = 2.0
+) -> Optional[bytes]:
+    export_fig = _build_export_figure(fig)
+    export_scale = float(scale) if image_format == "png" else 1.0
+    try:
+        return pio.to_image(export_fig, format=image_format, scale=export_scale)
+    except Exception:
+        pass
+
+    try:
+        response = httpx.post(
+            f"{API_BASE}/api/charts/export",
+            json={
+                "figure": export_fig.to_plotly_json(),
+                "format": image_format,
+                "scale": export_scale,
+            },
+            timeout=30.0,
+        )
+        if response.status_code == 200 and response.content:
+            return bytes(response.content)
+    except Exception:
+        return None
+    return None
+
+
 def _render_chart_with_exports(title: str, fig: go.Figure, key_prefix: str) -> None:
     st.markdown(f"#### {title}")
     st.plotly_chart(
@@ -388,17 +423,8 @@ def _render_chart_with_exports(title: str, fig: go.Figure, key_prefix: str) -> N
     )
 
     col_png, col_svg, col_html = st.columns(3)
-    png_bytes: Optional[bytes] = None
-    svg_bytes: Optional[bytes] = None
-    try:
-        png_bytes = pio.to_image(fig, format="png", scale=2)
-    except Exception:
-        png_bytes = None
-
-    try:
-        svg_bytes = pio.to_image(fig, format="svg")
-    except Exception:
-        svg_bytes = None
+    png_bytes = _export_image_bytes(fig, "png", scale=2.0)
+    svg_bytes = _export_image_bytes(fig, "svg", scale=1.0)
 
     if png_bytes is not None:
         col_png.download_button(
@@ -521,6 +547,7 @@ if active_job_id:
             if not sim_id:
                 st.error("Simulation finished but no simulation_id was returned.")
                 st.session_state.pop("active_sim_job_id", None)
+                st.rerun()
             else:
                 ok_result, result_payload = _api_get_json(
                     f"/api/simulation/{sim_id}",
@@ -542,6 +569,7 @@ if active_job_id:
                     st.session_state["simulation_history"] = history
                     status_placeholder.success("✅ Simulation complete!")
                 st.session_state.pop("active_sim_job_id", None)
+                st.rerun()
         elif job_status == "failed":
             st.error(
                 "Simulation failed: "
@@ -552,9 +580,11 @@ if active_job_id:
                 )
             )
             st.session_state.pop("active_sim_job_id", None)
+            st.rerun()
         elif job_status == "cancelled":
             status_placeholder.warning("🛑 Simulation stopped.")
             st.session_state.pop("active_sim_job_id", None)
+            st.rerun()
     else:
         status_placeholder.warning("Unable to poll simulation job status.")
 
@@ -1850,6 +1880,10 @@ else:
                                 fig_compare,
                                 use_container_width=True,
                                 key=f"compare_delta_{baseline_id}_{candidate_id}",
+                            )
+                            st.caption(
+                                "Delta formula: candidate - baseline "
+                                "(positive means candidate is higher)."
                             )
                         st.dataframe(compare_df, use_container_width=True)
                         anomaly_flags = compare_payload.get("anomaly_flags", [])

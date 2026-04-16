@@ -126,6 +126,62 @@ def test_system_and_llm_routes(patched_api):
         assert version.json()["api_contract"] == "v1"
 
 
+def test_chart_export_endpoint_returns_png_and_svg(patched_api):
+    figure_payload = {
+        "data": [{"type": "scatter", "x": [0, 1, 2], "y": [1, 3, 2]}],
+        "layout": {"title": {"text": "Export Smoke"}},
+    }
+    with TestClient(patched_api.app) as client:
+        png_resp = client.post(
+            "/api/charts/export",
+            json={"figure": figure_payload, "format": "png", "scale": 1.0},
+        )
+        assert png_resp.status_code == 200
+        assert png_resp.headers["content-type"].startswith("image/png")
+        assert len(png_resp.content) > 100
+
+        svg_resp = client.post(
+            "/api/charts/export",
+            json={"figure": figure_payload, "format": "svg", "scale": 1.0},
+        )
+        assert svg_resp.status_code == 200
+        assert svg_resp.headers["content-type"].startswith("image/svg+xml")
+        assert b"<svg" in svg_resp.content
+
+
+def test_build_comparison_payload_uses_candidate_minus_baseline(patched_api):
+    baseline = {
+        "id": "base-1",
+        "summary": {
+            "mean_bizarreness": 0.30,
+            "rem_fraction": 0.20,
+            "lucid_event_count": 2,
+            "narrative_quality_mean": 0.50,
+            "llm_fallback_segments": 1,
+        },
+        "segments": [{"stage": "REM", "start_time_hours": 0.0, "end_time_hours": 0.5}],
+    }
+    candidate = {
+        "id": "cand-1",
+        "summary": {
+            "mean_bizarreness": 0.45,
+            "rem_fraction": 0.30,
+            "lucid_event_count": 6,
+            "narrative_quality_mean": 0.65,
+            "llm_fallback_segments": 3,
+        },
+        "segments": [{"stage": "REM", "start_time_hours": 0.0, "end_time_hours": 0.5}],
+    }
+
+    payload = patched_api._build_comparison_payload(baseline, candidate)
+    assert payload["baseline_id"] == "base-1"
+    assert payload["candidate_id"] == "cand-1"
+    assert payload["delta"]["mean_bizarreness"] == 0.15
+    assert payload["delta"]["rem_fraction"] == 0.1
+    assert payload["delta"]["lucid_event_count"] == 4
+    assert payload["delta"]["narrative_quality_mean"] == 0.15
+
+
 def test_simulation_crud_and_counterfactual(patched_api):
     with TestClient(patched_api.app) as client:
         created = client.post("/api/simulation/night", json=_sim_payload())

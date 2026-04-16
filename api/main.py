@@ -38,7 +38,12 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import (
+    JSONResponse,
+    PlainTextResponse,
+    Response,
+    StreamingResponse,
+)
 from pydantic import BaseModel, Field
 from core.data.template_loader import SchemaValidationError, TemplateBank
 from core.models.sleep_cycle import SleepCycleModel, SleepStage
@@ -715,6 +720,12 @@ class AsyncSimulationCancelResponse(BaseModel):
     job_id: str
     status: str
     message: str
+
+
+class ChartExportRequest(BaseModel):
+    figure: Dict[str, Any]
+    format: str = Field(default="png")
+    scale: float = Field(default=2.0, ge=0.5, le=4.0)
 
 
 # ── FastAPI app ───────────────────────────────────────────────────────────────
@@ -1702,6 +1713,38 @@ async def llm_health():
 @app.get("/api/v1/llm/health", response_model=LLMHealthResponse, tags=["LLM"])
 async def llm_health_alias():
     return await llm_health()
+
+
+@app.post("/api/charts/export", tags=["System"])
+@app.post("/api/v1/charts/export", tags=["System"])
+async def export_chart_image(request: ChartExportRequest):
+    image_format = str(request.format).lower()
+    if image_format not in {"png", "svg"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="format must be 'png' or 'svg'.",
+        )
+    try:
+        import plotly.graph_objects as go
+        import plotly.io as pio
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Plot export backend unavailable: {exc}",
+        ) from exc
+
+    try:
+        fig = go.Figure(request.figure)
+        export_scale = float(request.scale) if image_format == "png" else 1.0
+        image_bytes = pio.to_image(fig, format=image_format, scale=export_scale)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Chart export failed: {exc}",
+        ) from exc
+
+    media_type = "image/png" if image_format == "png" else "image/svg+xml"
+    return Response(content=image_bytes, media_type=media_type)
 
 
 @app.get("/api/llm/config", response_model=LLMConfigResponse, tags=["LLM"])
