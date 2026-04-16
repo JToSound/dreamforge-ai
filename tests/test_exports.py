@@ -84,3 +84,23 @@ def test_memory_activations_csv_structure(tmp_path: Path) -> None:
 
     assert set(df.columns) == {"time_hours", "node_id", "node_label", "activation"}
     assert len(df) == 15
+
+
+def test_memory_graph_is_sparse_and_avoids_activation_saturation() -> None:
+    config = api_main.SimulationConfig(
+        duration_hours=4.0, dt_minutes=0.5, use_llm=False
+    )
+    segments = api_main._simulate_night_physics(config)
+    memory_graph, _ = api_main._build_memory_outputs(
+        segments, ["late meeting", "family dinner", "city bus ride"]
+    )
+    nodes = memory_graph["nodes"]
+    edges = memory_graph["edges"]
+
+    node_count = len(nodes)
+    max_complete_edges = (node_count * (node_count - 1)) // 2
+    degree_cap_upper_bound = (node_count * 5) // 2
+
+    assert len(edges) < max_complete_edges
+    assert len(edges) <= degree_cap_upper_bound
+    assert max(float(n["activation"]) for n in nodes) <= 0.95

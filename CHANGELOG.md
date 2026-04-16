@@ -65,6 +65,24 @@
 - Async simulation UX:
   - job status payload now includes `progress_percent`, `eta_seconds`, and `estimated_duration_seconds`,
   - dashboard displays a live progress bar with percentage and ETA (`mm:ss`) during `Simulation running...`.
+- P0 reliability + progress accuracy hardening:
+  - upgraded async job telemetry to phase-aware progress (`phase`, `progress_percent`, `eta_seconds`, `eta_margin_seconds`) with event-driven updates from simulation pipeline stages,
+  - dashboard progress UI now renders phase labels and ETA ranges, and uses a `Finalizing report...` state before result fetch completion,
+  - narrative generation now includes timeout circuit-breaker behavior and progress callbacks for segment-level completion tracking,
+  - LLM client now supports layered network timeouts (`connect/read/write/pool`) and provider-aware timeout retry policy to reduce repeated local-provider timeout stalls,
+  - narrative fallback/normalization improved with de-dup + grammar sanitization,
+  - narrative quality scoring improved with repetition penalty and token-overlap memory grounding metrics (`matched/unmatched/confidence` signals),
+  - memory graph realism improved with edge sparsity capping and anti-saturation activation boosts to avoid near-complete-graph and always-maxed activation artifacts,
+  - added regression coverage for the new progress, timeout, and narrative-quality behaviors.
+- Compare/report and release-gate productization extension:
+  - comparison payload now includes `narrative_memory_grounding_mean` and `llm_fallback_rate` deltas, fallback-rate event markers, explicit methodology formulas, and extra anomaly flags (`llm_fallback_spike`, `memory_grounding_drop`),
+  - simulation report methodology now includes metric definitions and release-target thresholds for quality/fallback governance,
+  - release-gate now evaluates recent simulation quality window checks (`narrative_quality_pass`, `llm_fallback_sla_pass`, `memory_grounding_pass`),
+  - dashboard compare center now renders extended anomaly explanations and collapsible comparison methodology details.
+- Product report bundle delivery:
+  - added report bundle endpoints (`/api/simulation/{id}/report/bundle`, `/api/v1/simulation/{id}/report/bundle`) returning a ZIP package with `report.json`, `summary.json`, `segments_overview.csv`, and `methodology.txt`,
+  - dashboard download center now includes one-click “Download product report bundle (ZIP)” using the new API surface,
+  - added regression coverage for report bundle API and dashboard wiring.
 
 ## [Round 6]
 

@@ -31,6 +31,10 @@ class LLMConfig:
     temperature: float = 0.85
     no_think: bool = True
     json_mode: bool = True
+    connect_timeout_seconds: float = 5.0
+    read_timeout_seconds: float = 30.0
+    write_timeout_seconds: float = 15.0
+    pool_timeout_seconds: float = 5.0
     timeout_seconds: float = 15.0
     # Resilience knobs
     retries: int = 3
@@ -51,6 +55,12 @@ class LLMConfig:
             ),
             no_think=os.getenv("LLM_NO_THINK", "true").lower() == "true",
             json_mode=os.getenv("LLM_JSON_MODE", "true").lower() == "true",
+            connect_timeout_seconds=float(
+                os.getenv("LLM_CONNECT_TIMEOUT_SECONDS", "5.0")
+            ),
+            read_timeout_seconds=float(os.getenv("LLM_READ_TIMEOUT_SECONDS", "30.0")),
+            write_timeout_seconds=float(os.getenv("LLM_WRITE_TIMEOUT_SECONDS", "15.0")),
+            pool_timeout_seconds=float(os.getenv("LLM_POOL_TIMEOUT_SECONDS", "5.0")),
             timeout_seconds=float(
                 os.getenv("LLM_TIMEOUT_SECONDS", str(runtime.llm_timeout_seconds))
             ),
@@ -73,7 +83,12 @@ class LLMClient:
                 "Authorization": f"Bearer {self.config.api_key}",
                 "Content-Type": "application/json",
             },
-            timeout=self.config.timeout,
+            timeout=httpx.Timeout(
+                connect=float(self.config.connect_timeout_seconds),
+                read=float(self.config.read_timeout_seconds),
+                write=float(self.config.write_timeout_seconds),
+                pool=float(self.config.pool_timeout_seconds),
+            ),
         )
 
     async def chat(self, system: str, user: str) -> str:
@@ -153,9 +168,11 @@ class LLMClient:
                     total_attempts,
                     exc,
                 )
-                if attempt < total_attempts:
+                if self._should_retry_exception(exc, attempt, total_attempts):
                     backoff = float(self.config.backoff_base) * (2 ** (attempt - 1))
                     await asyncio.sleep(backoff)
+                else:
+                    break
             except (
                 asyncio.TimeoutError,
                 httpx.HTTPError,
@@ -169,9 +186,11 @@ class LLMClient:
                     total_attempts,
                     exc,
                 )
-                if attempt < total_attempts:
+                if self._should_retry_exception(exc, attempt, total_attempts):
                     backoff = float(self.config.backoff_base) * (2 ** (attempt - 1))
                     await asyncio.sleep(backoff)
+                else:
+                    break
 
         logger.error(
             "LLM call failed after %d attempts: %s", int(total_attempts), last_exc
@@ -253,6 +272,36 @@ class LLMClient:
                 include_no_think,
                 include_json_mode,
             )
+
+    def _should_retry_exception(
+        self, exc: Exception, attempt: int, total_attempts: int
+    ) -> bool:
+        if attempt >= total_attempts:
+            return False
+
+        provider = str(self.config.provider or "").lower()
+        local_provider = provider in {"lmstudio", "ollama"}
+
+        if isinstance(exc, asyncio.TimeoutError):
+            # Local model providers often queue heavily; repeated timeout retries
+            # increase latency without improving success rates.
+            return not local_provider
+
+        if isinstance(exc, httpx.HTTPStatusError):
+            status_code = exc.response.status_code if exc.response is not None else 0
+            return status_code in {408, 409, 425, 429, 500, 502, 503, 504}
+
+        if isinstance(
+            exc, (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout)
+        ):
+            return not local_provider
+
+        if isinstance(
+            exc, (httpx.ConnectError, httpx.NetworkError, httpx.RemoteProtocolError)
+        ):
+            return True
+
+        return False
 
     async def check_health(self) -> dict[str, object]:
         try:

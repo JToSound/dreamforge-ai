@@ -1,5 +1,7 @@
 import asyncio
+import io
 import time
+import zipfile
 
 import pytest
 from fastapi.testclient import TestClient
@@ -157,7 +159,9 @@ def test_build_comparison_payload_uses_candidate_minus_baseline(patched_api):
             "rem_fraction": 0.20,
             "lucid_event_count": 2,
             "narrative_quality_mean": 0.50,
+            "narrative_memory_grounding_mean": 0.35,
             "llm_fallback_segments": 1,
+            "llm_total_invocations": 10,
         },
         "segments": [{"stage": "REM", "start_time_hours": 0.0, "end_time_hours": 0.5}],
     }
@@ -168,7 +172,9 @@ def test_build_comparison_payload_uses_candidate_minus_baseline(patched_api):
             "rem_fraction": 0.30,
             "lucid_event_count": 6,
             "narrative_quality_mean": 0.65,
+            "narrative_memory_grounding_mean": 0.18,
             "llm_fallback_segments": 3,
+            "llm_total_invocations": 10,
         },
         "segments": [{"stage": "REM", "start_time_hours": 0.0, "end_time_hours": 0.5}],
     }
@@ -180,6 +186,11 @@ def test_build_comparison_payload_uses_candidate_minus_baseline(patched_api):
     assert payload["delta"]["rem_fraction"] == 0.1
     assert payload["delta"]["lucid_event_count"] == 4
     assert payload["delta"]["narrative_quality_mean"] == 0.15
+    assert payload["delta"]["narrative_memory_grounding_mean"] == -0.17
+    assert payload["delta"]["llm_fallback_rate"] == 0.2
+    assert "memory_grounding_drop" in payload["anomaly_flags"]
+    assert "llm_fallback_spike" in payload["anomaly_flags"]
+    assert payload["methodology"]["delta_formula"] == "candidate - baseline"
 
 
 def test_simulation_crud_and_counterfactual(patched_api):
@@ -218,6 +229,18 @@ def test_simulation_crud_and_counterfactual(patched_api):
         report = client.get(f"/api/simulation/{sim_id}/report")
         assert report.status_code == 200
         assert report.json()["simulation_id"] == sim_id
+        assert "metric_definitions" in report.json()["methodology"]
+        assert "release_targets" in report.json()["methodology"]
+
+        bundle = client.get(f"/api/simulation/{sim_id}/report/bundle")
+        assert bundle.status_code == 200
+        assert bundle.headers["content-type"].startswith("application/zip")
+        with zipfile.ZipFile(io.BytesIO(bundle.content)) as archive:
+            names = set(archive.namelist())
+            assert "report.json" in names
+            assert "summary.json" in names
+            assert "segments_overview.csv" in names
+            assert "methodology.txt" in names
 
         counter = client.post(
             "/api/simulation/counterfactual",
@@ -251,6 +274,7 @@ def test_simulation_crud_and_counterfactual(patched_api):
         assert "delta" in compare.json()
         assert "confidence" in compare.json()
         assert "anomaly_flags" in compare.json()
+        assert "methodology" in compare.json()
 
 
 def test_simulation_stream_and_missing_id(patched_api):
@@ -290,6 +314,10 @@ def test_metrics_and_narrative_quality_integration(patched_api):
         assert release_gate.status_code == 200
         assert "pass" in release_gate.json()
         assert "checks" in release_gate.json()
+        assert "quality_window" in release_gate.json()
+        assert "narrative_quality_pass" in release_gate.json()["checks"]
+        assert "llm_fallback_sla_pass" in release_gate.json()["checks"]
+        assert "memory_grounding_pass" in release_gate.json()["checks"]
 
         prom = client.get("/metrics/prometheus")
         assert prom.status_code == 200
@@ -347,13 +375,18 @@ def test_async_simulation_job_flow(patched_api):
         job_id = submit.json()["job_id"]
 
         final_status = None
+        last_progress = 0.0
         for _ in range(20):
             resp = client.get(f"/api/simulation/jobs/{job_id}")
             assert resp.status_code == 200
             body = resp.json()
             assert "progress_percent" in body
+            assert "phase" in body
             assert "eta_seconds" in body
+            assert "eta_margin_seconds" in body
             assert "estimated_duration_seconds" in body
+            assert float(body["progress_percent"]) >= last_progress
+            last_progress = float(body["progress_percent"])
             status_val = body["status"]
             if status_val in {"completed", "failed"}:
                 final_status = status_val

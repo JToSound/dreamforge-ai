@@ -23,6 +23,9 @@ ReDoc      : http://localhost:8000/redoc
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import csv
+import io
 import json
 import logging
 import os
@@ -31,9 +34,10 @@ import re
 import threading
 import time
 import uuid
+import zipfile
 from collections import defaultdict, deque
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request, status
@@ -252,6 +256,9 @@ _rate_limit_lock = threading.Lock()
 _jobs_lock = threading.Lock()
 _simulation_jobs: Dict[str, Dict[str, Any]] = {}
 _simulation_job_tasks: Dict[str, asyncio.Task[Any]] = {}
+_simulation_progress_callback_var: contextvars.ContextVar[
+    Optional[Callable[[Dict[str, Any]], None]]
+] = contextvars.ContextVar("simulation_progress_callback", default=None)
 _audit_events: deque[Dict[str, Any]] = deque(maxlen=2000)
 _redis_lock = threading.Lock()
 _redis_client: Any = None
@@ -579,6 +586,7 @@ def _build_release_gate_status(metrics_snapshot: Dict[str, Any]) -> Dict[str, An
     )
     latency_proxy = float(metrics_snapshot.get("simulation_duration_seconds_avg", 0.0))
     export_success_rate = float(metrics_snapshot.get("export_success_rate", 0.0))
+    quality_snapshot = _recent_simulation_quality_snapshot()
 
     checks = {
         "api_success_rate_pass": api_success_rate
@@ -589,6 +597,18 @@ def _build_release_gate_status(metrics_snapshot: Dict[str, Any]) -> Dict[str, An
         <= float(SLO_TARGETS["simulation_p95_latency_seconds_max"]),
         "export_success_rate_pass": export_success_rate
         >= float(SLO_TARGETS["export_success_rate_min"]),
+        "narrative_quality_pass": float(
+            quality_snapshot.get("narrative_quality_mean", 0.0)
+        )
+        >= 0.55,
+        "llm_fallback_sla_pass": float(
+            quality_snapshot.get("llm_fallback_rate_mean", 1.0)
+        )
+        <= 0.35,
+        "memory_grounding_pass": float(
+            quality_snapshot.get("memory_grounding_mean", 0.0)
+        )
+        >= 0.10,
     }
     breaches = [name for name, ok in checks.items() if not ok]
     return {
@@ -597,10 +617,52 @@ def _build_release_gate_status(metrics_snapshot: Dict[str, Any]) -> Dict[str, An
         "breaches": breaches,
         "targets": SLO_TARGETS,
         "current": metrics_snapshot,
+        "quality_window": quality_snapshot,
         "notes": [
             "simulation_latency_proxy_pass uses average latency until p95 histograms are wired.",
+            "narrative_quality_pass, llm_fallback_sla_pass, and memory_grounding_pass use recent simulation summaries.",
             "Release gate should fail when any check is false.",
         ],
+    }
+
+
+def _recent_simulation_quality_snapshot(max_runs: int = 20) -> Dict[str, Any]:
+    simulation_ids = sorted(_simulations.keys())
+    if not simulation_ids:
+        simulation_ids = sorted(_list_persisted_sim_ids())
+    recent_ids = simulation_ids[-max_runs:]
+    quality_vals: List[float] = []
+    grounding_vals: List[float] = []
+    fallback_rates: List[float] = []
+    for sim_id in recent_ids:
+        payload = _resolve_simulation(str(sim_id))
+        if not isinstance(payload, dict):
+            continue
+        summary = payload.get("summary") or {}
+        if not isinstance(summary, dict):
+            continue
+        quality_vals.append(float(summary.get("narrative_quality_mean", 0.0)))
+        grounding_vals.append(
+            float(summary.get("narrative_memory_grounding_mean", 0.0))
+        )
+        fallback_segments = float(summary.get("llm_fallback_segments", 0.0))
+        llm_total = float(
+            summary.get("llm_total_invocations", summary.get("llm_calls_total", 0.0))
+        )
+        fallback_rates.append((fallback_segments / llm_total) if llm_total > 0 else 0.0)
+    count = len(quality_vals)
+    if count == 0:
+        return {
+            "window_size": 0,
+            "narrative_quality_mean": 0.0,
+            "memory_grounding_mean": 0.0,
+            "llm_fallback_rate_mean": 1.0,
+        }
+    return {
+        "window_size": count,
+        "narrative_quality_mean": round(sum(quality_vals) / float(count), 4),
+        "memory_grounding_mean": round(sum(grounding_vals) / float(count), 4),
+        "llm_fallback_rate_mean": round(sum(fallback_rates) / float(count), 4),
     }
 
 
@@ -710,7 +772,9 @@ class AsyncSimulationJobResponse(BaseModel):
     status: str
     created_at: float
     progress_percent: float = 0.0
+    phase: Optional[str] = None
     eta_seconds: Optional[int] = None
+    eta_margin_seconds: Optional[int] = None
     estimated_duration_seconds: Optional[float] = None
     started_at: Optional[float] = None
     completed_at: Optional[float] = None
@@ -1171,7 +1235,7 @@ def _build_memory_outputs(
         }
 
     nodes = list(node_map.values())
-    edges: List[Dict[str, Any]] = []
+    weighted_edges: List[Dict[str, Any]] = []
     for i, src in enumerate(nodes):
         for dst in nodes[i + 1 :]:
             src_vec = np.array(
@@ -1198,14 +1262,29 @@ def _build_memory_outputs(
             if denom <= 0:
                 continue
             weight = float(np.dot(src_vec, dst_vec) / denom)
-            if weight >= 0.15:
-                edges.append(
+            same_category = src["category"] == dst["category"]
+            valence_gap = abs(float(src["valence"]) - float(dst["valence"]))
+            if weight >= 0.22 and (same_category or valence_gap <= 0.7):
+                weighted_edges.append(
                     {
                         "source": src["id"],
                         "target": dst["id"],
                         "weight": round(weight, 4),
                     }
                 )
+    # Keep graph sparse enough for meaningful communities in dashboard rendering.
+    # We cap node degree while preserving strongest semantic links.
+    max_degree = 5
+    degree_count: Dict[str, int] = defaultdict(int)
+    edges: List[Dict[str, Any]] = []
+    for edge in sorted(weighted_edges, key=lambda e: float(e["weight"]), reverse=True):
+        src_id = str(edge.get("source"))
+        dst_id = str(edge.get("target"))
+        if degree_count[src_id] >= max_degree or degree_count[dst_id] >= max_degree:
+            continue
+        edges.append(edge)
+        degree_count[src_id] += 1
+        degree_count[dst_id] += 1
 
     prev_time = 0.0
     for idx, seg in enumerate(segments):
@@ -1229,10 +1308,10 @@ def _build_memory_outputs(
                 :2
             ]
             for node in ranked:
-                boost = float(node["salience"]) * ach * 0.4
-                node["activation"] = round(
-                    min(1.0, float(node["activation"]) + boost), 4
-                )
+                current_activation = float(node["activation"])
+                headroom = max(0.0, 0.95 - current_activation)
+                boost = float(node["salience"]) * ach * 0.35 * (headroom**1.2)
+                node["activation"] = round(min(0.95, current_activation + boost), 4)
 
         target_valence = (
             -1.0
@@ -1241,8 +1320,10 @@ def _build_memory_outputs(
         )
         for node in nodes:
             if target_valence != 0.0 and float(node["valence"]) * target_valence > 0:
+                current_activation = float(node["activation"])
+                headroom = max(0.0, 0.92 - current_activation)
                 node["activation"] = round(
-                    min(1.0, float(node["activation"]) + 0.15), 4
+                    min(0.92, current_activation + (0.12 * headroom)), 4
                 )
 
         active_ids = [
@@ -1545,6 +1626,30 @@ def _build_comparison_payload(
         - float(b_summary.get("narrative_quality_mean", 0.0)),
         4,
     )
+    delta_memory_grounding = round(
+        float(c_summary.get("narrative_memory_grounding_mean", 0.0))
+        - float(b_summary.get("narrative_memory_grounding_mean", 0.0)),
+        4,
+    )
+    baseline_llm_fallback_segments = int(b_summary.get("llm_fallback_segments", 0))
+    candidate_llm_fallback_segments = int(c_summary.get("llm_fallback_segments", 0))
+    baseline_llm_total = int(
+        b_summary.get("llm_total_invocations", b_summary.get("llm_calls_total", 0))
+    )
+    candidate_llm_total = int(
+        c_summary.get("llm_total_invocations", c_summary.get("llm_calls_total", 0))
+    )
+    baseline_fallback_rate = (
+        float(baseline_llm_fallback_segments) / float(baseline_llm_total)
+        if baseline_llm_total > 0
+        else 0.0
+    )
+    candidate_fallback_rate = (
+        float(candidate_llm_fallback_segments) / float(candidate_llm_total)
+        if candidate_llm_total > 0
+        else 0.0
+    )
+    delta_llm_fallback_rate = round(candidate_fallback_rate - baseline_fallback_rate, 4)
     segment_count = max(
         1,
         min(
@@ -1562,6 +1667,10 @@ def _build_comparison_payload(
         anomaly_flags.append("narrative_quality_shift")
     if abs(delta_lucid_event_count) >= 3:
         anomaly_flags.append("lucid_event_spike")
+    if delta_llm_fallback_rate >= 0.20:
+        anomaly_flags.append("llm_fallback_spike")
+    if delta_memory_grounding <= -0.10:
+        anomaly_flags.append("memory_grounding_drop")
     return {
         "baseline_id": baseline.get("id"),
         "candidate_id": candidate.get("id"),
@@ -1570,6 +1679,8 @@ def _build_comparison_payload(
             "rem_fraction": delta_rem_fraction,
             "lucid_event_count": delta_lucid_event_count,
             "narrative_quality_mean": delta_narrative_quality,
+            "narrative_memory_grounding_mean": delta_memory_grounding,
+            "llm_fallback_rate": delta_llm_fallback_rate,
         },
         "confidence": {
             "sample_size": segment_count,
@@ -1578,6 +1689,8 @@ def _build_comparison_payload(
                 "rem_fraction": sample_confidence,
                 "lucid_event_count": sample_confidence,
                 "narrative_quality_mean": sample_confidence,
+                "narrative_memory_grounding_mean": sample_confidence,
+                "llm_fallback_rate": sample_confidence,
             },
         },
         "stage_minutes": {
@@ -1591,12 +1704,30 @@ def _build_comparison_payload(
         "event_markers": {
             "baseline_lucid_events": int(b_summary.get("lucid_event_count", 0)),
             "candidate_lucid_events": int(c_summary.get("lucid_event_count", 0)),
-            "baseline_llm_fallback_segments": int(
-                b_summary.get("llm_fallback_segments", 0)
-            ),
-            "candidate_llm_fallback_segments": int(
-                c_summary.get("llm_fallback_segments", 0)
-            ),
+            "baseline_llm_fallback_segments": baseline_llm_fallback_segments,
+            "candidate_llm_fallback_segments": candidate_llm_fallback_segments,
+            "baseline_llm_fallback_rate": round(baseline_fallback_rate, 4),
+            "candidate_llm_fallback_rate": round(candidate_fallback_rate, 4),
+        },
+        "methodology": {
+            "delta_formula": "candidate - baseline",
+            "metrics": {
+                "mean_bizarreness": "summary.mean_bizarreness",
+                "rem_fraction": "summary.rem_fraction",
+                "lucid_event_count": "summary.lucid_event_count",
+                "narrative_quality_mean": "summary.narrative_quality_mean",
+                "narrative_memory_grounding_mean": "summary.narrative_memory_grounding_mean",
+                "llm_fallback_rate": "llm_fallback_segments / llm_total_invocations",
+            },
+            "thresholds": {
+                "bizarreness_shift_abs": 0.2,
+                "rem_fraction_shift_abs": 0.08,
+                "narrative_quality_shift_abs": 0.15,
+                "lucid_event_spike_abs": 3,
+                "llm_fallback_spike_delta_min": 0.20,
+                "memory_grounding_drop_delta_max": -0.10,
+            },
+            "confidence_proxy": "sqrt(sample_size / 240), capped at 1.0",
         },
         "anomaly_flags": anomaly_flags,
         "generated_at_unix": time.time(),
@@ -1619,6 +1750,16 @@ def _estimate_job_duration_seconds(config: SimulationConfig) -> float:
     return max(8.0, estimate)
 
 
+def _emit_simulation_progress_event(event: Dict[str, Any]) -> None:
+    progress_callback = _simulation_progress_callback_var.get()
+    if progress_callback is None:
+        return
+    try:
+        progress_callback(event)
+    except Exception as exc:
+        logger.debug("Progress callback error ignored: %s", exc)
+
+
 def _job_progress_snapshot(
     job: dict[str, Any], status_value: str
 ) -> tuple[float, Optional[int]]:
@@ -1627,6 +1768,15 @@ def _job_progress_snapshot(
         return 100.0, 0
     if status_norm in {"failed", "cancelled"}:
         return 100.0, None
+
+    explicit_progress = job.get("progress_percent")
+    explicit_eta = job.get("eta_seconds")
+    if explicit_progress is not None:
+        progress = float(explicit_progress)
+        if status_norm == "cancelling":
+            progress = min(99.0, max(95.0, progress))
+        eta = int(explicit_eta) if explicit_eta is not None else None
+        return round(progress, 2), eta
 
     estimated = float(job.get("estimated_duration_seconds") or 0.0)
     if estimated <= 0.0:
@@ -1646,13 +1796,52 @@ def _job_progress_snapshot(
 
 
 async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
+    last_persist_ts = 0.0
+    last_phase = ""
+    last_progress = -1.0
+
+    def _on_progress(event: Dict[str, Any]) -> None:
+        nonlocal last_persist_ts, last_phase, last_progress
+        now_ts = time.time()
+        progress = max(0.0, min(99.0, float(event.get("progress_percent", 0.0))))
+        phase = str(event.get("phase") or "running")
+        eta_seconds_raw = event.get("eta_seconds")
+        eta_margin_raw = event.get("eta_margin_seconds")
+        should_persist = (
+            abs(progress - last_progress) >= 1.0
+            or phase != last_phase
+            or (now_ts - last_persist_ts) >= 0.5
+        )
+        with _jobs_lock:
+            job = _simulation_jobs.get(job_id)
+            if not job:
+                return
+            job["progress_percent"] = round(progress, 2)
+            job["phase"] = phase
+            if eta_seconds_raw is not None:
+                job["eta_seconds"] = max(0, int(eta_seconds_raw))
+            if eta_margin_raw is not None:
+                job["eta_margin_seconds"] = max(0, int(eta_margin_raw))
+            if event.get("estimated_duration_seconds") is not None:
+                job["estimated_duration_seconds"] = round(
+                    float(event["estimated_duration_seconds"]), 2
+                )
+            if should_persist:
+                _persist_job(job_id, dict(job))
+                last_persist_ts = now_ts
+                last_phase = phase
+                last_progress = progress
+
     with _jobs_lock:
         job = _simulation_jobs.get(job_id)
         if not job:
             return
         job["status"] = "running"
         job["started_at"] = time.time()
+        job["phase"] = "physics"
+        job["progress_percent"] = 1.0
         _persist_job(job_id, dict(job))
+    token = _simulation_progress_callback_var.set(_on_progress)
     try:
         result = await simulate_night(config)
         payload = result.model_dump() if hasattr(result, "model_dump") else dict(result)
@@ -1664,6 +1853,10 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
             job["completed_at"] = time.time()
             job["simulation_id"] = payload.get("id")
             job["result"] = payload
+            job["progress_percent"] = 100.0
+            job["phase"] = "complete"
+            job["eta_seconds"] = 0
+            job["eta_margin_seconds"] = 0
             _persist_job(job_id, dict(job))
     except asyncio.CancelledError:
         logger.info("Async simulation job cancelled: %s", job_id)
@@ -1674,6 +1867,8 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
                 job["completed_at"] = time.time()
                 job["error_code"] = "cancelled"
                 job["error_message"] = "Simulation cancelled by user."
+                job["phase"] = "cancelled"
+                job["progress_percent"] = float(job.get("progress_percent") or 0.0)
                 _persist_job(job_id, dict(job))
         _audit("simulation_job_cancelled", job_id=job_id)
         raise
@@ -1688,8 +1883,11 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
             job["completed_at"] = time.time()
             job["error_code"] = "internal_error"
             job["error_message"] = str(exc)
+            job["phase"] = "failed"
+            job["progress_percent"] = float(job.get("progress_percent") or 0.0)
             _persist_job(job_id, dict(job))
     finally:
+        _simulation_progress_callback_var.reset(token)
         with _jobs_lock:
             _simulation_job_tasks.pop(job_id, None)
 
@@ -1934,6 +2132,16 @@ async def simulate_night(config: SimulationConfig):
         dt_minutes=config.dt_minutes,
         llm=config.use_llm,
     )
+    initial_estimate_seconds = _estimate_job_duration_seconds(config)
+    _emit_simulation_progress_event(
+        {
+            "phase": "physics",
+            "progress_percent": 1.0,
+            "eta_seconds": int(round(initial_estimate_seconds)),
+            "eta_margin_seconds": int(round(max(3.0, initial_estimate_seconds * 0.2))),
+            "estimated_duration_seconds": initial_estimate_seconds,
+        }
+    )
 
     # Step 1: biophysical simulation
     raw_segments = _simulate_night_physics(config)
@@ -1942,6 +2150,20 @@ async def simulate_night(config: SimulationConfig):
     )
     lucidity_threshold = LucidityModel.from_settings().threshold
     lucid_events = _annotate_lucid_events(raw_segments, lucidity_threshold)
+    _emit_simulation_progress_event(
+        {
+            "phase": "physics",
+            "progress_percent": 20.0,
+            "eta_seconds": int(
+                round(max(3.0, len(raw_segments) * (0.06 if config.use_llm else 0.002)))
+            ),
+            "eta_margin_seconds": int(
+                round(
+                    max(2.0, len(raw_segments) * (0.015 if config.use_llm else 0.001))
+                )
+            ),
+        }
+    )
 
     # Step 2: narrative generation
     client = get_llm_client()
@@ -2002,7 +2224,53 @@ async def simulate_night(config: SimulationConfig):
             style_preset=config.style_preset,
             prompt_profile=config.prompt_profile,
         )
-        await generator.generate_batch(raw_segments)
+        _emit_simulation_progress_event(
+            {
+                "phase": "narrative",
+                "progress_percent": 20.0,
+            }
+        )
+
+        def _on_narrative_progress(event: Dict[str, Any]) -> None:
+            completed = int(event.get("completed", 0))
+            total = max(1, int(event.get("total", 1)))
+            eligible_completed = int(event.get("eligible_completed", 0))
+            eligible_total = int(event.get("eligible_total", 0))
+            elapsed = max(0.0, float(event.get("batch_elapsed_seconds", 0.0)))
+
+            if eligible_total > 0 and eligible_completed > 0:
+                ratio = min(1.0, float(eligible_completed) / float(eligible_total))
+                avg = elapsed / float(max(1, eligible_completed))
+                remaining_units = max(0, eligible_total - eligible_completed)
+            else:
+                ratio = min(1.0, float(completed) / float(total))
+                avg = elapsed / float(max(1, completed))
+                remaining_units = max(0, total - completed)
+            progress_percent = 20.0 + (65.0 * ratio)
+            eta_core = avg * float(remaining_units)
+            eta_post = 4.0
+            eta_seconds = int(round(max(0.0, eta_core + eta_post)))
+            eta_margin = int(round(max(2.0, eta_seconds * 0.25)))
+            _emit_simulation_progress_event(
+                {
+                    "phase": "narrative",
+                    "progress_percent": progress_percent,
+                    "eta_seconds": eta_seconds,
+                    "eta_margin_seconds": eta_margin,
+                }
+            )
+
+        await generator.generate_batch(
+            raw_segments, progress_callback=_on_narrative_progress
+        )
+    _emit_simulation_progress_event(
+        {
+            "phase": "postprocess",
+            "progress_percent": 85.0,
+            "eta_seconds": 4,
+            "eta_margin_seconds": 2,
+        }
+    )
 
     # Fill remaining segments with templates
     for i, seg in enumerate(raw_segments):
@@ -2049,6 +2317,14 @@ async def simulate_night(config: SimulationConfig):
     quality_scores, quality_summary = summarize_narrative_quality(raw_segments)
     for seg, score in zip(raw_segments, quality_scores):
         seg["narrative_quality"] = score
+    _emit_simulation_progress_event(
+        {
+            "phase": "postprocess",
+            "progress_percent": 92.0,
+            "eta_seconds": 2,
+            "eta_margin_seconds": 1,
+        }
+    )
 
     # Step 3: build response
     neuro_ticks = _build_neurochemistry_ticks(raw_segments)
@@ -2117,6 +2393,14 @@ async def simulate_night(config: SimulationConfig):
         llm_model=client.config.model if llm_used else None,
     )
     result_payload = result.model_dump()
+    _emit_simulation_progress_event(
+        {
+            "phase": "persist_export",
+            "progress_percent": 96.0,
+            "eta_seconds": 1,
+            "eta_margin_seconds": 1,
+        }
+    )
 
     output_dir = _resolve_output_dir(sim_id)
     try:
@@ -2139,6 +2423,14 @@ async def simulate_night(config: SimulationConfig):
     # Persist to in-memory store
     _simulations[sim_id] = result_payload
     _persist_simulation(sim_id, result_payload)
+    _emit_simulation_progress_event(
+        {
+            "phase": "finalizing",
+            "progress_percent": 99.0,
+            "eta_seconds": 0,
+            "eta_margin_seconds": 0,
+        }
+    )
     _record_simulation_completion(
         duration_seconds=time.perf_counter() - started_at,
         llm_invocations=llm_total_invocations,
@@ -2175,6 +2467,12 @@ async def submit_simulation_night_async(config: SimulationConfig):
             "job_id": job_id,
             "status": "pending",
             "created_at": time.time(),
+            "phase": "queued",
+            "progress_percent": 0.0,
+            "eta_seconds": int(round(estimated_duration_seconds)),
+            "eta_margin_seconds": int(
+                round(max(3.0, estimated_duration_seconds * 0.2))
+            ),
             "estimated_duration_seconds": round(estimated_duration_seconds, 2),
         }
         _persist_job(job_id, dict(_simulation_jobs[job_id]))
@@ -2224,7 +2522,13 @@ async def get_simulation_job(job_id: str):
         status=status_val,
         created_at=float(job.get("created_at", 0.0)),
         progress_percent=float(progress_percent),
+        phase=(str(job["phase"]) if job.get("phase") is not None else None),
         eta_seconds=eta_seconds,
+        eta_margin_seconds=(
+            int(job["eta_margin_seconds"])
+            if job.get("eta_margin_seconds") is not None
+            else None
+        ),
         estimated_duration_seconds=(
             float(job["estimated_duration_seconds"])
             if job.get("estimated_duration_seconds") is not None
@@ -2290,8 +2594,10 @@ async def cancel_simulation_job(job_id: str):
         if task and not task.done():
             task.cancel()
             job["status"] = "cancelling"
+            job["phase"] = "cancelling"
             job["error_code"] = "cancelled"
             job["error_message"] = "Cancellation requested by user."
+            job["eta_seconds"] = None
             _persist_job(job_id, dict(job))
             _audit("simulation_job_cancellation_requested", job_id=job_id)
             return AsyncSimulationCancelResponse(
@@ -2305,6 +2611,8 @@ async def cancel_simulation_job(job_id: str):
         job["completed_at"] = time.time()
         job["error_code"] = "cancelled"
         job["error_message"] = "Simulation cancelled by user."
+        job["phase"] = "cancelled"
+        job["eta_seconds"] = None
         _persist_job(job_id, dict(job))
     _audit("simulation_job_cancelled_without_task", job_id=job_id)
     return AsyncSimulationCancelResponse(
@@ -2499,6 +2807,110 @@ async def compare_simulations(req: CompareRequest):
 @app.get("/api/v1/simulation/{sim_id}/report", tags=["Simulation"])
 async def get_simulation_report(sim_id: str):
     sim = await get_simulation(sim_id)
+    return _build_simulation_report_payload(sim_id=sim_id, sim=sim)
+
+
+@app.get("/api/simulation/{sim_id}/report/bundle", tags=["Simulation"])
+@app.get("/api/v1/simulation/{sim_id}/report/bundle", tags=["Simulation"])
+async def get_simulation_report_bundle(sim_id: str):
+    sim = await get_simulation(sim_id)
+    report = _build_simulation_report_payload(sim_id=sim_id, sim=sim)
+    segments = sim.get("segments", [])
+    if not isinstance(segments, list):
+        segments = []
+
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(
+        zip_buf, mode="w", compression=zipfile.ZIP_DEFLATED
+    ) as archive:
+        archive.writestr(
+            "report.json",
+            json.dumps(report, ensure_ascii=False, indent=2),
+        )
+        archive.writestr(
+            "summary.json",
+            json.dumps(sim.get("summary", {}), ensure_ascii=False, indent=2),
+        )
+        csv_buf = io.StringIO()
+        writer = csv.writer(csv_buf)
+        writer.writerow(
+            [
+                "segment_index",
+                "start_time_hours",
+                "end_time_hours",
+                "stage",
+                "dominant_emotion",
+                "bizarreness_score",
+                "lucidity_probability",
+                "is_lucid",
+                "generation_mode",
+                "llm_fallback_reason",
+                "narrative_quality_overall",
+            ]
+        )
+        for idx, seg in enumerate(segments):
+            if not isinstance(seg, dict):
+                continue
+            narrative_quality = seg.get("narrative_quality")
+            narrative_quality_overall = (
+                float(narrative_quality.get("overall", 0.0))
+                if isinstance(narrative_quality, dict)
+                else 0.0
+            )
+            writer.writerow(
+                [
+                    idx,
+                    seg.get("start_time_hours"),
+                    seg.get("end_time_hours"),
+                    seg.get("stage"),
+                    seg.get("dominant_emotion"),
+                    seg.get("bizarreness_score"),
+                    seg.get("lucidity_probability"),
+                    bool(seg.get("is_lucid", False)),
+                    seg.get("generation_mode"),
+                    seg.get("llm_fallback_reason"),
+                    narrative_quality_overall,
+                ]
+            )
+        archive.writestr("segments_overview.csv", csv_buf.getvalue())
+
+        methodology = report.get("methodology", {})
+        methodology_lines = [
+            "# DreamForge Simulation Methodology",
+            "",
+            f"Simulation ID: {sim_id}",
+            "",
+            f"- Sleep model: {methodology.get('sleep_model', '')}",
+            f"- Narrative model: {methodology.get('narrative_model', '')}",
+            f"- Quality scoring: {methodology.get('quality_scoring', '')}",
+            "",
+            "## Metric definitions",
+        ]
+        metric_defs = methodology.get("metric_definitions", {})
+        if isinstance(metric_defs, dict):
+            for key, value in metric_defs.items():
+                methodology_lines.append(f"- {key}: {value}")
+        methodology_lines.extend(["", "## Release targets"])
+        release_targets = methodology.get("release_targets", {})
+        if isinstance(release_targets, dict):
+            for key, value in release_targets.items():
+                methodology_lines.append(f"- {key}: {value}")
+        archive.writestr("methodology.txt", "\n".join(methodology_lines).strip() + "\n")
+
+    return Response(
+        content=zip_buf.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="dreamforge-report-bundle-{sim_id[:8]}.zip"'
+            )
+        },
+    )
+
+
+def _build_simulation_report_payload(
+    sim_id: str, sim: dict[str, Any]
+) -> dict[str, Any]:
     summary = sim.get("summary", {})
     quality = {
         "narrative_quality_mean": summary.get("narrative_quality_mean", 0.0),
@@ -2523,6 +2935,16 @@ async def get_simulation_report(sim_id: str):
             "sleep_model": "Borbély two-process + stage scheduler",
             "narrative_model": "Template/LLM hybrid with sanitization and fallback taxonomy",
             "quality_scoring": "Length compliance, artifact score, memory grounding, coherence proxy",
+            "metric_definitions": {
+                "narrative_quality_mean": "Mean of per-segment weighted quality score.",
+                "narrative_memory_grounding_mean": "Mean token-overlap grounding confidence vs active memory IDs.",
+                "llm_fallback_rate": "llm_fallback_segments / max(llm_total_invocations, 1).",
+            },
+            "release_targets": {
+                "narrative_quality_min": 0.55,
+                "memory_grounding_min": 0.10,
+                "llm_fallback_rate_max": 0.35,
+            },
         },
         "notes": [
             "This report is for product analytics and research exploration only.",

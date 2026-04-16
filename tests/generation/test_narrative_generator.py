@@ -158,6 +158,9 @@ async def test_n3_fallback_narrative_has_terminal_punctuation() -> None:
     await gen.generate_batch([seg])
     assert seg.get("_llm_fallback") is True
     assert seg["narrative"].endswith((".", "!", "?"))
+    assert "a anxious" not in seg["narrative"].lower()
+    assert ";." not in seg["narrative"]
+    assert " and." not in seg["narrative"].lower()
 
 
 @pytest.mark.asyncio
@@ -244,3 +247,69 @@ async def test_style_preset_and_prompt_profile_are_injected() -> None:
     joined = "\n".join(capture.prompts)
     assert "Style preset: cinematic" in joined
     assert "Prompt profile: B" in joined
+
+
+@pytest.mark.asyncio
+async def test_generate_batch_progress_callback_reports_counts() -> None:
+    segs = [
+        {
+            "stage": "REM",
+            "dominant_emotion": "neutral",
+            "bizarreness_score": 0.7,
+            "lucidity_probability": 0.2,
+            "active_memory_ids": [],
+            "start_time_hours": 1.0 + i * 0.1,
+            "narrative": "",
+        }
+        for i in range(3)
+    ]
+    events: list[dict[str, int]] = []
+    gen = NarrativeGenerator(
+        llm_client=_StaticLLM(),
+        config=NarrativeGeneratorConfig(llm_enabled=True),
+    )
+    await gen.generate_batch(
+        segs,
+        progress_callback=lambda e: events.append(
+            {
+                "completed": int(e.get("completed", 0)),
+                "total": int(e.get("total", 0)),
+                "eligible_completed": int(e.get("eligible_completed", 0)),
+                "eligible_total": int(e.get("eligible_total", 0)),
+            }
+        ),
+    )
+    assert events
+    assert events[-1]["completed"] == 3
+    assert events[-1]["total"] == 3
+    assert events[-1]["eligible_completed"] == 3
+    assert events[-1]["eligible_total"] == 3
+
+
+@pytest.mark.asyncio
+async def test_timeout_circuit_shortcuts_subsequent_segments() -> None:
+    segs = [
+        {
+            "stage": "REM",
+            "dominant_emotion": "anxious",
+            "bizarreness_score": 0.9,
+            "lucidity_probability": 0.3,
+            "active_memory_ids": [],
+            "start_time_hours": 2.0 + i * 0.1,
+            "narrative": "",
+        }
+        for i in range(4)
+    ]
+    gen = NarrativeGenerator(
+        llm_client=_TimeoutLLM(),
+        config=NarrativeGeneratorConfig(
+            llm_enabled=True,
+            timeout_seconds=0.01,
+            timeout_circuit_breaker=1,
+            concurrency=1,
+        ),
+    )
+    await gen.generate_batch(segs)
+    assert all(bool(s.get("_llm_fallback")) for s in segs)
+    assert segs[0]["_llm_latency_ms"] is not None
+    assert segs[1]["_llm_latency_ms"] == 0.0

@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 import pytest
@@ -46,6 +47,10 @@ def test_llm_config_from_env(monkeypatch):
     monkeypatch.setenv("LLM_RETRIES", "2")
     monkeypatch.setenv("LLM_BACKOFF_BASE", "0.1")
     monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "33.0")
+    monkeypatch.setenv("LLM_CONNECT_TIMEOUT_SECONDS", "4.0")
+    monkeypatch.setenv("LLM_READ_TIMEOUT_SECONDS", "55.0")
+    monkeypatch.setenv("LLM_WRITE_TIMEOUT_SECONDS", "12.0")
+    monkeypatch.setenv("LLM_POOL_TIMEOUT_SECONDS", "3.0")
 
     cfg = llm_client.LLMConfig.from_env()
     assert cfg.provider == "ollama"
@@ -57,6 +62,10 @@ def test_llm_config_from_env(monkeypatch):
     assert cfg.timeout_seconds == 33.0
     assert cfg.retries == 2
     assert cfg.backoff_base == 0.1
+    assert cfg.connect_timeout_seconds == 4.0
+    assert cfg.read_timeout_seconds == 55.0
+    assert cfg.write_timeout_seconds == 12.0
+    assert cfg.pool_timeout_seconds == 3.0
 
 
 class _FakeResponse:
@@ -249,6 +258,42 @@ async def test_llm_client_learns_compatible_payload_after_400(monkeypatch):
     assert "response_format" in calls[0]
     assert "response_format" not in calls[1]
     assert "response_format" not in calls[2]
+
+
+@pytest.mark.asyncio
+async def test_llm_client_does_not_retry_timeout_on_local_provider(monkeypatch):
+    calls = 0
+
+    class TimeoutClient:
+        def __init__(self, *args, **kwargs):
+            return None
+
+        async def post(self, path, json):
+            nonlocal calls
+            calls += 1
+            raise asyncio.TimeoutError("slow local model")
+
+        async def get(self, path, timeout=5):
+            return _FakeResponse(payload={"data": [{"id": "model-a"}]})
+
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", TimeoutClient)
+    client = llm_client.LLMClient(
+        llm_client.LLMConfig(
+            provider="lmstudio",
+            base_url="http://fake",
+            model="x",
+            api_key="k",
+            retries=3,
+            backoff_base=0.0,
+            timeout_seconds=0.01,
+        )
+    )
+    out = await client.chat(system="sys", user="usr")
+    assert out.startswith("[LLM unavailable:")
+    assert calls == 1
 
 
 def test_get_llm_client_singleton_reset(monkeypatch):

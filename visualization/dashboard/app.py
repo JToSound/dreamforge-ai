@@ -118,6 +118,20 @@ def _api_post_json(
         return False, {"error": str(exc)}
 
 
+def _api_get_bytes(
+    path: str,
+    timeout: float = 12.0,
+    success_codes: tuple[int, ...] = (200,),
+) -> tuple[bool, bytes, dict]:
+    try:
+        resp = httpx.get(f"{API_BASE}{path}", timeout=timeout)
+        if resp.status_code in success_codes:
+            return True, resp.content, dict(resp.headers)
+        return False, b"", {"status_code": resp.status_code, "body": resp.text[:400]}
+    except Exception as exc:
+        return False, b"", {"error": str(exc)}
+
+
 # ── Custom CSS ────────────────────────────────────────────────────────────────
 st.markdown(
     """
@@ -526,6 +540,29 @@ def _format_eta_mmss(eta_seconds: Optional[int]) -> str:
     return f"{minutes:02d}:{seconds:02d}"
 
 
+def _format_eta_with_margin(
+    eta_seconds: Optional[int], margin_seconds: Optional[int]
+) -> str:
+    base = _format_eta_mmss(eta_seconds)
+    if margin_seconds is None:
+        return base
+    return f"{base} ± {_format_eta_mmss(margin_seconds)}"
+
+
+def _phase_label(phase: str) -> str:
+    phase_map = {
+        "queued": "Queued",
+        "physics": "Physics",
+        "narrative": "Narrative",
+        "postprocess": "Postprocess",
+        "persist_export": "Persist/Export",
+        "finalizing": "Finalizing",
+        "complete": "Complete",
+        "cancelling": "Cancelling",
+    }
+    return phase_map.get(str(phase), str(phase).replace("_", " ").title())
+
+
 # ── Run & display ─────────────────────────────────────────────────────────────
 if run_btn:
     if not check_api():
@@ -583,11 +620,19 @@ if active_job_id:
         job_status = str(job_payload.get("status", "pending"))
         if job_status in {"pending", "running", "cancelling"}:
             progress_percent = float(job_payload.get("progress_percent") or 0.0)
-            eta_text = _format_eta_mmss(
-                int(job_payload["eta_seconds"])
-                if job_payload.get("eta_seconds") is not None
-                else None
+            eta_text = _format_eta_with_margin(
+                (
+                    int(job_payload["eta_seconds"])
+                    if job_payload.get("eta_seconds") is not None
+                    else None
+                ),
+                (
+                    int(job_payload["eta_margin_seconds"])
+                    if job_payload.get("eta_margin_seconds") is not None
+                    else None
+                ),
             )
+            phase_text = _phase_label(str(job_payload.get("phase") or job_status))
             status_map = {
                 "pending": "⏳ Simulation queued",
                 "running": "🧬 Simulation running",
@@ -595,11 +640,11 @@ if active_job_id:
             }
             status_placeholder.info(
                 f"{status_map.get(job_status, '🧬 Simulation running')}: "
-                f"{progress_percent:.1f}% · ETA {eta_text}"
+                f"{progress_percent:.1f}% · {phase_text} · ETA {eta_text}"
             )
             progress_placeholder.progress(
                 max(0, min(100, int(round(progress_percent)))),
-                text=f"{progress_percent:.1f}% · ETA {eta_text}",
+                text=f"{progress_percent:.1f}% · {phase_text} · ETA {eta_text}",
             )
             time.sleep(1)
             st.rerun()
@@ -610,6 +655,7 @@ if active_job_id:
                 st.session_state.pop("active_sim_job_id", None)
                 st.rerun()
             else:
+                progress_placeholder.progress(99, text="99.0% · Finalizing report...")
                 ok_result, result_payload = _api_get_json(
                     f"/api/simulation/{sim_id}",
                     timeout=float(simulation_request_timeout_seconds),
@@ -1073,6 +1119,25 @@ else:
             mime="text/plain",
             key=f"download_txt_{sim_key}",
         )
+
+        sim_id_str = str(sim_id)
+        ok_bundle, report_bundle_bytes, report_bundle_meta = _api_get_bytes(
+            f"/api/simulation/{sim_id_str}/report/bundle",
+            timeout=30.0,
+        )
+        if ok_bundle and report_bundle_bytes:
+            st.download_button(
+                "Download product report bundle (ZIP)",
+                data=report_bundle_bytes,
+                file_name=f"dreamforge-report-bundle-{sim_id_str[:8]}.zip",
+                mime="application/zip",
+                key=f"download_report_bundle_{sim_key}",
+            )
+        else:
+            st.caption(
+                "Report bundle unavailable: "
+                f"{report_bundle_meta.get('status_code', report_bundle_meta.get('error', ''))}"
+            )
 
         # ZIP with CSVs for analysis
         # Prepare hypnogram
@@ -1957,6 +2022,8 @@ else:
                                 "rem_fraction_shift": "REM fraction changed beyond configured threshold.",
                                 "narrative_quality_shift": "Narrative quality mean changed strongly.",
                                 "lucid_event_spike": "Lucid event count delta is large.",
+                                "llm_fallback_spike": "LLM fallback rate increased materially.",
+                                "memory_grounding_drop": "Narrative memory grounding dropped materially.",
                             }
                             st.warning(
                                 "Anomaly flags: "
@@ -1971,6 +2038,12 @@ else:
                         markers = compare_payload.get("event_markers", {})
                         if isinstance(markers, dict) and markers:
                             st.json({"event_markers": markers})
+
+                        methodology = compare_payload.get("methodology", {})
+                        if isinstance(methodology, dict) and methodology:
+                            st.caption("Comparison methodology")
+                            with st.expander("Methodology details", expanded=False):
+                                st.json(methodology)
 
                         st.download_button(
                             tr(_locale, "compare_report"),

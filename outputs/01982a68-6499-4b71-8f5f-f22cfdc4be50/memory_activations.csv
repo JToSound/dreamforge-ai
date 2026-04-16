@@ -1,0 +1,433 @@
+time_hours,node_id,node_label,activation
+0.0,event::quiet_reading,quiet reading,0.4752
+0.0,mem::flying,flying,0.3897
+0.0,mem::falling,falling,0.3788
+0.0,mem::wonder,wonder,0.3767
+0.0,mem::loud_crowd,loud_crowd,0.3693
+0.0,mem::teeth_loosening,teeth_loosening,0.3476
+0.0,event::deep_relaxation,deep relaxation,0.3476
+0.0,mem::recurring_journey,recurring_journey,0.3456
+0.0,mem::being_late,being_late,0.3335
+0.0,mem::joy,joy,0.3136
+0.0,mem::cold_water,cold_water,0.2902
+0.0,mem::grief,grief,0.2767
+0.083333,event::quiet_reading,quiet reading,0.624
+0.083333,mem::falling,falling,0.5699
+0.083333,mem::loud_crowd,loud_crowd,0.5646
+0.083333,mem::teeth_loosening,teeth_loosening,0.5524
+0.083333,mem::being_late,being_late,0.5445
+0.083333,mem::cold_water,cold_water,0.5203
+0.083333,mem::grief,grief,0.5127
+0.083333,mem::dread,dread,0.4805
+0.083333,mem::school_corridor,school_corridor,0.4761
+0.083333,mem::being_chased,being_chased,0.4547
+0.083333,mem::flying,flying,0.4297
+0.083333,mem::childhood_home,childhood_home,0.4268
+0.166667,event::quiet_reading,quiet reading,0.6496
+0.166667,mem::falling,falling,0.6104
+0.166667,mem::loud_crowd,loud_crowd,0.6064
+0.166667,mem::teeth_loosening,teeth_loosening,0.5977
+0.166667,mem::being_late,being_late,0.5919
+0.166667,mem::cold_water,cold_water,0.5745
+0.166667,mem::grief,grief,0.5689
+0.166667,mem::flying,flying,0.5642
+0.166667,mem::wonder,wonder,0.5573
+0.166667,mem::dread,dread,0.5456
+0.166667,mem::school_corridor,school_corridor,0.5423
+0.166667,event::deep_relaxation,deep relaxation,0.542
+0.25,event::quiet_reading,quiet reading,0.7429
+0.25,mem::falling,falling,0.7235
+0.25,mem::loud_crowd,loud_crowd,0.7218
+0.25,mem::teeth_loosening,teeth_loosening,0.7174
+0.25,mem::being_late,being_late,0.7145
+0.25,mem::cold_water,cold_water,0.706
+0.25,mem::grief,grief,0.7032
+0.25,mem::dread,dread,0.6917
+0.25,mem::school_corridor,school_corridor,0.69
+0.25,mem::being_chased,being_chased,0.6825
+0.25,mem::childhood_home,childhood_home,0.6725
+0.25,mem::flying,flying,0.5727
+0.333333,event::quiet_reading,quiet reading,0.7387
+0.333333,mem::falling,falling,0.7247
+0.333333,mem::loud_crowd,loud_crowd,0.7234
+0.333333,mem::teeth_loosening,teeth_loosening,0.7202
+0.333333,mem::being_late,being_late,0.718
+0.333333,mem::cold_water,cold_water,0.7119
+0.333333,mem::grief,grief,0.7099
+0.333333,mem::dread,dread,0.7014
+0.333333,mem::school_corridor,school_corridor,0.7004
+0.333333,mem::being_chased,being_chased,0.6949
+0.333333,mem::childhood_home,childhood_home,0.6876
+0.333333,mem::flying,flying,0.6158
+0.416667,event::quiet_reading,quiet reading,0.7599
+0.416667,mem::falling,falling,0.751
+0.416667,mem::loud_crowd,loud_crowd,0.7501
+0.416667,mem::teeth_loosening,teeth_loosening,0.748
+0.416667,mem::being_late,being_late,0.7467
+0.416667,mem::cold_water,cold_water,0.7429
+0.416667,mem::grief,grief,0.7415
+0.416667,mem::dread,dread,0.7361
+0.416667,mem::school_corridor,school_corridor,0.7354
+0.416667,mem::being_chased,being_chased,0.7319
+0.416667,mem::childhood_home,childhood_home,0.7274
+0.416667,mem::flying,flying,0.6109
+0.5,event::quiet_reading,quiet reading,0.7109
+0.5,mem::falling,falling,0.7025
+0.5,mem::loud_crowd,loud_crowd,0.7016
+0.5,mem::teeth_loosening,teeth_loosening,0.6998
+0.5,mem::being_late,being_late,0.6985
+0.5,mem::cold_water,cold_water,0.6951
+0.5,mem::grief,grief,0.6937
+0.5,mem::dread,dread,0.6886
+0.5,mem::school_corridor,school_corridor,0.6879
+0.5,mem::being_chased,being_chased,0.6847
+0.5,mem::childhood_home,childhood_home,0.6805
+0.5,mem::flying,flying,0.6772
+0.583333,mem::flying,flying,0.6947
+0.583333,mem::wonder,wonder,0.6933
+0.583333,event::deep_relaxation,deep relaxation,0.6897
+0.583333,event::quiet_reading,quiet reading,0.6893
+0.583333,mem::joy,joy,0.6857
+0.583333,mem::falling,falling,0.6822
+0.583333,mem::loud_crowd,loud_crowd,0.6815
+0.583333,mem::teeth_loosening,teeth_loosening,0.6802
+0.583333,mem::being_late,being_late,0.679
+0.583333,mem::cold_water,cold_water,0.6762
+0.583333,mem::grief,grief,0.6751
+0.583333,mem::familiar_face,familiar_face,0.6709
+0.666667,event::quiet_reading,quiet reading,0.7255
+0.666667,mem::falling,falling,0.7209
+0.666667,mem::loud_crowd,loud_crowd,0.7205
+0.666667,mem::teeth_loosening,teeth_loosening,0.7196
+0.666667,mem::being_late,being_late,0.7188
+0.666667,mem::cold_water,cold_water,0.717
+0.666667,mem::grief,grief,0.7163
+0.666667,mem::dread,dread,0.7137
+0.666667,mem::school_corridor,school_corridor,0.7132
+0.666667,mem::being_chased,being_chased,0.7116
+0.666667,mem::childhood_home,childhood_home,0.7095
+0.666667,mem::flying,flying,0.6794
+0.75,event::quiet_reading,quiet reading,0.768
+0.75,mem::falling,falling,0.7653
+0.75,mem::loud_crowd,loud_crowd,0.765
+0.75,mem::teeth_loosening,teeth_loosening,0.7646
+0.75,mem::being_late,being_late,0.7642
+0.75,mem::cold_water,cold_water,0.7631
+0.75,mem::grief,grief,0.7627
+0.75,mem::school_corridor,school_corridor,0.7612
+0.75,mem::dread,dread,0.7612
+0.75,mem::being_chased,being_chased,0.7602
+0.75,mem::childhood_home,childhood_home,0.759
+0.75,mem::flying,flying,0.6897
+0.833333,event::quiet_reading,quiet reading,0.7918
+0.833333,mem::falling,falling,0.7902
+0.833333,mem::loud_crowd,loud_crowd,0.7901
+0.833333,mem::teeth_loosening,teeth_loosening,0.7899
+0.833333,mem::being_late,being_late,0.7897
+0.833333,mem::cold_water,cold_water,0.789
+0.833333,mem::grief,grief,0.7887
+0.833333,mem::school_corridor,school_corridor,0.7879
+0.833333,mem::dread,dread,0.7879
+0.833333,mem::being_chased,being_chased,0.7875
+0.833333,mem::childhood_home,childhood_home,0.7869
+0.833333,mem::flying,flying,0.7019
+0.916667,event::quiet_reading,quiet reading,0.8026
+0.916667,mem::falling,falling,0.8017
+0.916667,mem::teeth_loosening,teeth_loosening,0.8016
+0.916667,mem::loud_crowd,loud_crowd,0.8016
+0.916667,mem::being_late,being_late,0.8014
+0.916667,mem::cold_water,cold_water,0.8012
+0.916667,mem::grief,grief,0.8009
+0.916667,mem::school_corridor,school_corridor,0.8006
+0.916667,mem::dread,dread,0.8006
+0.916667,mem::being_chased,being_chased,0.8002
+0.916667,mem::childhood_home,childhood_home,0.7999
+0.916667,mem::flying,flying,0.75
+1.0,event::quiet_reading,quiet reading,0.7816
+1.0,mem::falling,falling,0.7809
+1.0,mem::teeth_loosening,teeth_loosening,0.7808
+1.0,mem::loud_crowd,loud_crowd,0.7808
+1.0,mem::being_late,being_late,0.7807
+1.0,mem::cold_water,cold_water,0.7805
+1.0,mem::grief,grief,0.7802
+1.0,mem::school_corridor,school_corridor,0.7801
+1.0,mem::dread,dread,0.7801
+1.0,mem::being_chased,being_chased,0.7798
+1.0,mem::childhood_home,childhood_home,0.7796
+1.0,mem::flying,flying,0.7015
+1.083333,event::quiet_reading,quiet reading,0.7687
+1.083333,mem::falling,falling,0.7682
+1.083333,mem::teeth_loosening,teeth_loosening,0.7681
+1.083333,mem::loud_crowd,loud_crowd,0.7681
+1.083333,mem::being_late,being_late,0.768
+1.083333,mem::cold_water,cold_water,0.7679
+1.083333,mem::grief,grief,0.7677
+1.083333,mem::school_corridor,school_corridor,0.7676
+1.083333,mem::dread,dread,0.7676
+1.083333,mem::being_chased,being_chased,0.7674
+1.083333,mem::childhood_home,childhood_home,0.7672
+1.083333,mem::flying,flying,0.7083
+1.166667,event::quiet_reading,quiet reading,0.7732
+1.166667,mem::falling,falling,0.7728
+1.166667,mem::teeth_loosening,teeth_loosening,0.7728
+1.166667,mem::loud_crowd,loud_crowd,0.7728
+1.166667,mem::being_late,being_late,0.7727
+1.166667,mem::cold_water,cold_water,0.7726
+1.166667,mem::grief,grief,0.7725
+1.166667,mem::school_corridor,school_corridor,0.7724
+1.166667,mem::dread,dread,0.7724
+1.166667,mem::childhood_home,childhood_home,0.7722
+1.166667,mem::being_chased,being_chased,0.7722
+1.166667,mem::flying,flying,0.7394
+1.25,event::quiet_reading,quiet reading,0.8219
+1.25,mem::falling,falling,0.8096
+1.25,mem::teeth_loosening,teeth_loosening,0.7962
+1.25,mem::loud_crowd,loud_crowd,0.7962
+1.25,mem::being_late,being_late,0.7961
+1.25,mem::cold_water,cold_water,0.796
+1.25,mem::childhood_home,childhood_home,0.7959
+1.25,mem::school_corridor,school_corridor,0.7959
+1.25,mem::being_chased,being_chased,0.7959
+1.25,mem::grief,grief,0.7959
+1.25,mem::dread,dread,0.7959
+1.25,mem::flying,flying,0.7185
+1.333333,event::quiet_reading,quiet reading,0.9175
+1.333333,mem::falling,falling,0.8907
+1.333333,mem::being_late,being_late,0.8185
+1.333333,mem::teeth_loosening,teeth_loosening,0.8185
+1.333333,mem::loud_crowd,loud_crowd,0.8185
+1.333333,mem::cold_water,cold_water,0.8184
+1.333333,mem::childhood_home,childhood_home,0.8183
+1.333333,mem::school_corridor,school_corridor,0.8183
+1.333333,mem::being_chased,being_chased,0.8183
+1.333333,mem::grief,grief,0.8183
+1.333333,mem::dread,dread,0.8183
+1.333333,mem::flying,flying,0.7479
+1.416667,event::quiet_reading,quiet reading,0.8989
+1.416667,mem::falling,falling,0.8821
+1.416667,mem::being_late,being_late,0.8201
+1.416667,mem::teeth_loosening,teeth_loosening,0.8201
+1.416667,mem::cold_water,cold_water,0.8201
+1.416667,mem::loud_crowd,loud_crowd,0.8201
+1.416667,mem::childhood_home,childhood_home,0.82
+1.416667,mem::school_corridor,school_corridor,0.82
+1.416667,mem::being_chased,being_chased,0.82
+1.416667,mem::grief,grief,0.82
+1.416667,mem::dread,dread,0.82
+1.416667,mem::flying,flying,0.7726
+1.5,event::quiet_reading,quiet reading,0.8561
+1.5,mem::falling,falling,0.844
+1.5,mem::being_late,being_late,0.7992
+1.5,mem::teeth_loosening,teeth_loosening,0.7992
+1.5,mem::cold_water,cold_water,0.7992
+1.5,mem::loud_crowd,loud_crowd,0.7992
+1.5,mem::childhood_home,childhood_home,0.7991
+1.5,mem::school_corridor,school_corridor,0.7991
+1.5,mem::being_chased,being_chased,0.7991
+1.5,mem::grief,grief,0.7991
+1.5,mem::dread,dread,0.7991
+1.5,mem::flying,flying,0.762
+1.583333,event::quiet_reading,quiet reading,0.8137
+1.583333,mem::falling,falling,0.8037
+1.583333,mem::flying,flying,0.8007
+1.583333,mem::joy,joy,0.8007
+1.583333,mem::wonder,wonder,0.8007
+1.583333,event::deep_relaxation,deep relaxation,0.8007
+1.583333,mem::familiar_face,familiar_face,0.8003
+1.583333,mem::bright_light,bright_light,0.8003
+1.583333,mem::being_late,being_late,0.7669
+1.583333,mem::teeth_loosening,teeth_loosening,0.7669
+1.583333,mem::cold_water,cold_water,0.7669
+1.583333,mem::loud_crowd,loud_crowd,0.7669
+1.666667,mem::flying,flying,0.7797
+1.666667,mem::joy,joy,0.7797
+1.666667,mem::wonder,wonder,0.7797
+1.666667,event::deep_relaxation,deep relaxation,0.7797
+1.666667,mem::familiar_face,familiar_face,0.7794
+1.666667,mem::bright_light,bright_light,0.7794
+1.666667,event::quiet_reading,quiet reading,0.7612
+1.666667,mem::falling,falling,0.7519
+1.666667,mem::being_late,being_late,0.7174
+1.666667,mem::teeth_loosening,teeth_loosening,0.7174
+1.666667,mem::cold_water,cold_water,0.7174
+1.666667,mem::loud_crowd,loud_crowd,0.7174
+1.75,mem::flying,flying,0.7624
+1.75,mem::joy,joy,0.7624
+1.75,mem::wonder,wonder,0.7624
+1.75,event::deep_relaxation,deep relaxation,0.7624
+1.75,mem::familiar_face,familiar_face,0.7622
+1.75,mem::bright_light,bright_light,0.7622
+1.75,event::quiet_reading,quiet reading,0.7562
+1.75,mem::falling,falling,0.7496
+1.75,mem::being_late,being_late,0.7247
+1.75,mem::teeth_loosening,teeth_loosening,0.7247
+1.75,mem::cold_water,cold_water,0.7247
+1.75,mem::loud_crowd,loud_crowd,0.7247
+1.833333,event::quiet_reading,quiet reading,0.7527
+1.833333,mem::flying,flying,0.7498
+1.833333,mem::joy,joy,0.7498
+1.833333,mem::wonder,wonder,0.7498
+1.833333,event::deep_relaxation,deep relaxation,0.7498
+1.833333,mem::familiar_face,familiar_face,0.7497
+1.833333,mem::bright_light,bright_light,0.7497
+1.833333,mem::falling,falling,0.748
+1.833333,mem::being_late,being_late,0.7299
+1.833333,mem::teeth_loosening,teeth_loosening,0.7299
+1.833333,mem::cold_water,cold_water,0.7299
+1.833333,mem::loud_crowd,loud_crowd,0.7299
+1.916667,mem::flying,flying,0.7464
+1.916667,mem::joy,joy,0.7464
+1.916667,mem::wonder,wonder,0.7464
+1.916667,event::deep_relaxation,deep relaxation,0.7464
+1.916667,mem::familiar_face,familiar_face,0.7463
+1.916667,mem::bright_light,bright_light,0.7463
+1.916667,event::quiet_reading,quiet reading,0.7456
+1.916667,mem::falling,falling,0.7423
+1.916667,mem::childhood_home,childhood_home,0.7292
+1.916667,mem::school_corridor,school_corridor,0.7292
+1.916667,mem::being_chased,being_chased,0.7292
+1.916667,mem::being_late,being_late,0.7292
+2.0,event::quiet_reading,quiet reading,0.7885
+2.0,mem::falling,falling,0.7868
+2.0,mem::childhood_home,childhood_home,0.7804
+2.0,mem::school_corridor,school_corridor,0.7804
+2.0,mem::being_chased,being_chased,0.7804
+2.0,mem::being_late,being_late,0.7804
+2.0,mem::teeth_loosening,teeth_loosening,0.7804
+2.0,mem::cold_water,cold_water,0.7804
+2.0,mem::loud_crowd,loud_crowd,0.7804
+2.0,mem::grief,grief,0.7804
+2.0,mem::dread,dread,0.7804
+2.0,mem::familiar_face,familiar_face,0.7457
+2.083333,event::quiet_reading,quiet reading,0.7859
+2.083333,mem::falling,falling,0.7849
+2.083333,mem::childhood_home,childhood_home,0.7807
+2.083333,mem::school_corridor,school_corridor,0.7807
+2.083333,mem::being_chased,being_chased,0.7807
+2.083333,mem::being_late,being_late,0.7807
+2.083333,mem::teeth_loosening,teeth_loosening,0.7807
+2.083333,mem::cold_water,cold_water,0.7807
+2.083333,mem::loud_crowd,loud_crowd,0.7807
+2.083333,mem::grief,grief,0.7807
+2.083333,mem::dread,dread,0.7807
+2.083333,mem::familiar_face,familiar_face,0.7566
+2.166667,event::quiet_reading,quiet reading,0.7662
+2.166667,mem::falling,falling,0.7654
+2.166667,mem::childhood_home,childhood_home,0.7624
+2.166667,mem::school_corridor,school_corridor,0.7624
+2.166667,mem::being_chased,being_chased,0.7624
+2.166667,mem::being_late,being_late,0.7624
+2.166667,mem::teeth_loosening,teeth_loosening,0.7624
+2.166667,mem::cold_water,cold_water,0.7624
+2.166667,mem::loud_crowd,loud_crowd,0.7624
+2.166667,mem::grief,grief,0.7624
+2.166667,mem::dread,dread,0.7624
+2.166667,mem::familiar_face,familiar_face,0.753
+2.25,mem::familiar_face,familiar_face,0.7793
+2.25,mem::flying,flying,0.7793
+2.25,mem::bright_light,bright_light,0.7793
+2.25,mem::joy,joy,0.7793
+2.25,mem::wonder,wonder,0.7793
+2.25,event::deep_relaxation,deep relaxation,0.7793
+2.25,event::quiet_reading,quiet reading,0.758
+2.25,mem::falling,falling,0.7574
+2.25,mem::childhood_home,childhood_home,0.7553
+2.25,mem::school_corridor,school_corridor,0.7553
+2.25,mem::being_chased,being_chased,0.7553
+2.25,mem::being_late,being_late,0.7553
+2.333333,mem::familiar_face,familiar_face,0.7978
+2.333333,mem::flying,flying,0.7978
+2.333333,mem::bright_light,bright_light,0.7978
+2.333333,mem::joy,joy,0.7978
+2.333333,mem::wonder,wonder,0.7978
+2.333333,event::deep_relaxation,deep relaxation,0.7978
+2.333333,event::quiet_reading,quiet reading,0.7092
+2.333333,mem::falling,falling,0.7086
+2.333333,mem::childhood_home,childhood_home,0.7065
+2.333333,mem::school_corridor,school_corridor,0.7065
+2.333333,mem::being_chased,being_chased,0.7065
+2.333333,mem::being_late,being_late,0.7065
+2.416667,mem::familiar_face,familiar_face,0.7656
+2.416667,mem::flying,flying,0.7656
+2.416667,mem::bright_light,bright_light,0.7656
+2.416667,mem::joy,joy,0.7656
+2.416667,mem::wonder,wonder,0.7656
+2.416667,event::deep_relaxation,deep relaxation,0.7656
+2.416667,event::quiet_reading,quiet reading,0.758
+2.416667,mem::falling,falling,0.7576
+2.416667,mem::childhood_home,childhood_home,0.7565
+2.416667,mem::school_corridor,school_corridor,0.7565
+2.416667,mem::being_chased,being_chased,0.7565
+2.416667,mem::being_late,being_late,0.7565
+2.5,mem::familiar_face,familiar_face,0.7535
+2.5,mem::flying,flying,0.7535
+2.5,mem::bright_light,bright_light,0.7535
+2.5,mem::joy,joy,0.7535
+2.5,mem::wonder,wonder,0.7535
+2.5,event::deep_relaxation,deep relaxation,0.7535
+2.5,event::quiet_reading,quiet reading,0.751
+2.5,mem::falling,falling,0.7508
+2.5,mem::childhood_home,childhood_home,0.7499
+2.5,mem::school_corridor,school_corridor,0.7499
+2.5,mem::being_chased,being_chased,0.7499
+2.5,mem::being_late,being_late,0.7499
+2.583333,mem::familiar_face,familiar_face,0.777
+2.583333,mem::flying,flying,0.777
+2.583333,mem::bright_light,bright_light,0.777
+2.583333,mem::joy,joy,0.777
+2.583333,mem::wonder,wonder,0.777
+2.583333,event::deep_relaxation,deep relaxation,0.777
+2.583333,event::quiet_reading,quiet reading,0.7025
+2.583333,mem::falling,falling,0.7023
+2.583333,mem::childhood_home,childhood_home,0.7015
+2.583333,mem::school_corridor,school_corridor,0.7015
+2.583333,mem::being_chased,being_chased,0.7015
+2.583333,mem::being_late,being_late,0.7015
+2.666667,mem::familiar_face,familiar_face,0.7768
+2.666667,mem::flying,flying,0.7768
+2.666667,mem::bright_light,bright_light,0.7768
+2.666667,mem::joy,joy,0.7768
+2.666667,mem::wonder,wonder,0.7768
+2.666667,event::deep_relaxation,deep relaxation,0.7768
+2.666667,event::quiet_reading,quiet reading,0.7119
+2.666667,mem::falling,falling,0.7117
+2.666667,mem::childhood_home,childhood_home,0.7111
+2.666667,mem::school_corridor,school_corridor,0.7111
+2.666667,mem::being_chased,being_chased,0.7111
+2.666667,mem::being_late,being_late,0.7111
+2.75,mem::familiar_face,familiar_face,0.7462
+2.75,mem::flying,flying,0.7462
+2.75,mem::bright_light,bright_light,0.7462
+2.75,mem::joy,joy,0.7462
+2.75,mem::wonder,wonder,0.7462
+2.75,event::deep_relaxation,deep relaxation,0.7462
+2.75,event::quiet_reading,quiet reading,0.7381
+2.75,mem::falling,falling,0.738
+2.75,mem::childhood_home,childhood_home,0.7376
+2.75,mem::school_corridor,school_corridor,0.7376
+2.75,mem::being_chased,being_chased,0.7376
+2.75,mem::being_late,being_late,0.7376
+2.833333,event::quiet_reading,quiet reading,0.7365
+2.833333,mem::falling,falling,0.7364
+2.833333,mem::childhood_home,childhood_home,0.7361
+2.833333,mem::school_corridor,school_corridor,0.7361
+2.833333,mem::being_chased,being_chased,0.7361
+2.833333,mem::being_late,being_late,0.7361
+2.833333,mem::teeth_loosening,teeth_loosening,0.7361
+2.833333,mem::cold_water,cold_water,0.7361
+2.833333,mem::loud_crowd,loud_crowd,0.7361
+2.833333,mem::grief,grief,0.7361
+2.833333,mem::dread,dread,0.7361
+2.833333,mem::familiar_face,familiar_face,0.698
+2.916667,event::quiet_reading,quiet reading,0.8743
+2.916667,mem::falling,falling,0.8351
+2.916667,mem::childhood_home,childhood_home,0.7673
+2.916667,mem::school_corridor,school_corridor,0.7673
+2.916667,mem::being_chased,being_chased,0.7673
+2.916667,mem::being_late,being_late,0.7673
+2.916667,mem::teeth_loosening,teeth_loosening,0.7673
+2.916667,mem::cold_water,cold_water,0.7673
+2.916667,mem::loud_crowd,loud_crowd,0.7673
+2.916667,mem::grief,grief,0.7673
+2.916667,mem::dread,dread,0.7673
+2.916667,mem::familiar_face,familiar_face,0.7433

@@ -213,11 +213,21 @@ def test_dashboard_memory_controls_and_compare_guards_are_stable() -> None:
     assert '"/api/simulation/night/async"' in src
     assert 'f"/api/simulation/jobs/{active_job_id}/cancel"' in src
     assert "def _format_eta_mmss" in src
+    assert "def _api_get_bytes" in src
+    assert "def _format_eta_with_margin" in src
+    assert "def _phase_label" in src
     assert "progress_percent" in src
     assert "ETA" in src
+    assert "Finalizing report..." in src
     assert "Baseline and candidate are the same run." in src
     assert "Delta formula: candidate - baseline" in src
     assert "anomaly_explanations = {" in src
+    assert "llm_fallback_spike" in src
+    assert "memory_grounding_drop" in src
+    assert "Comparison methodology" in src
+    assert "Methodology details" in src
+    assert "/api/simulation/{sim_id_str}/report/bundle" in src
+    assert "Download product report bundle (ZIP)" in src
 
 
 def test_memory_graph_exports_activation_snapshots() -> None:

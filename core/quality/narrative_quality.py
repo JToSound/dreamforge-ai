@@ -21,6 +21,47 @@ def _stage_word_bounds(stage: str, bizarreness: float) -> tuple[int, int]:
     return (10, 35)
 
 
+def _tokenize(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", str(text or "").lower())
+
+
+def _repetition_ratio(text: str) -> float:
+    tokens = _tokenize(text)
+    if len(tokens) < 8:
+        return 0.0
+    unique = len(set(tokens))
+    return max(0.0, 1.0 - (float(unique) / float(len(tokens))))
+
+
+def _memory_grounding_details(
+    active_ids: list[str], narrative_text: str
+) -> tuple[float, int, int, float]:
+    if not active_ids:
+        return 1.0, 0, 0, 1.0
+    text_tokens = set(_tokenize(narrative_text))
+    if not text_tokens:
+        unmatched = len(active_ids)
+        return 0.0, 0, unmatched, 0.0
+
+    matched = 0
+    best_partial = 0.0
+    for mem_id in active_ids:
+        canonical = str(mem_id).split("::")[-1].replace("active_memory_", "")
+        label_tokens = [tok for tok in _tokenize(canonical) if len(tok) >= 2]
+        if not label_tokens:
+            continue
+        overlap = len([tok for tok in label_tokens if tok in text_tokens])
+        ratio = float(overlap) / float(len(label_tokens))
+        best_partial = max(best_partial, ratio)
+        if ratio >= 0.5:
+            matched += 1
+    total = max(1, len(active_ids))
+    unmatched = max(0, total - matched)
+    coverage = float(matched) / float(total)
+    confidence = min(1.0, (0.7 * coverage) + (0.3 * best_partial))
+    return confidence, matched, unmatched, confidence
+
+
 def score_narrative_segment(segment: dict[str, Any]) -> dict[str, float]:
     stage = str(segment.get("stage") or "N2")
     biz = float(segment.get("bizarreness_score") or 0.0)
@@ -45,19 +86,27 @@ def score_narrative_segment(segment: dict[str, Any]) -> dict[str, float]:
         1 if re.search(r"\b(scene:|scene description:|scene text:)\b", lower) else 0
     )
     artifact_hits += 1 if "active_memory_" in lower else 0
-    artifact_score = max(0.0, 1.0 - 0.25 * float(artifact_hits))
+    artifact_hits += 1 if " and." in lower or " or." in lower or " but." in lower else 0
+    artifact_hits += 1 if ";." in lower or ":." in lower or ",." in lower else 0
+    repetition_penalty = _repetition_ratio(text)
+    artifact_score = max(
+        0.0,
+        1.0 - 0.18 * float(artifact_hits) - 0.35 * float(repetition_penalty),
+    )
 
     active_ids = segment.get("active_memory_ids") or []
     if not isinstance(active_ids, list) or not active_ids:
         memory_grounding = 1.0
+        matched_terms = 0
+        unmatched_terms = 0
+        grounding_confidence = 1.0
     else:
-        labels = [
-            str(mem_id).split("::")[-1].replace("active_memory_", "").lower()
-            for mem_id in active_ids
-        ]
-        memory_grounding = (
-            1.0 if any(label and label in lower for label in labels) else 0.0
-        )
+        (
+            memory_grounding,
+            matched_terms,
+            unmatched_terms,
+            grounding_confidence,
+        ) = _memory_grounding_details([str(mem_id) for mem_id in active_ids], text)
 
     sentence_count = max(1, len(re.findall(r"[.!?]", text)))
     coherence_proxy = min(1.0, float(sentence_count) / 3.0)
@@ -74,6 +123,10 @@ def score_narrative_segment(segment: dict[str, Any]) -> dict[str, float]:
         "artifact_score": round(float(artifact_score), 4),
         "memory_grounding": round(float(memory_grounding), 4),
         "coherence_proxy": round(float(coherence_proxy), 4),
+        "memory_grounding_matched_terms": float(matched_terms),
+        "memory_grounding_unmatched_terms": float(unmatched_terms),
+        "memory_grounding_confidence": round(float(grounding_confidence), 4),
+        "repetition_penalty": round(float(repetition_penalty), 4),
     }
 
 
