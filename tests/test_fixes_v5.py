@@ -196,8 +196,18 @@ def test_dashboard_segments_csv_preserves_zero_values() -> None:
     assert "scene_prefix_pattern" in src
     assert "pasted_content_pattern" in src
     assert "Export HTML" in src
-    assert "Static image export is unavailable in this runtime." in src
+    assert "Static image export is unavailable in this runtime." not in src
     assert 'artifact_prefix = f"dreamforge-sim-{sim_id}"' in src
+
+
+def test_dashboard_memory_controls_and_compare_guards_are_stable() -> None:
+    src = Path("visualization/dashboard/app.py").read_text(encoding="utf-8")
+    assert "sim_key = sim_id_val" in src
+    assert "sim_ts = int(time.time())" not in src
+    assert 'key=f"mem_nodes_limit_{sim_key}"' in src
+    assert 'key=f"mem_heat_top_nodes_{sim_key}"' in src
+    assert "Baseline and candidate are the same run." in src
+    assert "anomaly_explanations = {" in src
 
 
 def test_memory_graph_exports_activation_snapshots() -> None:

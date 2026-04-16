@@ -416,11 +416,6 @@ def _render_chart_with_exports(title: str, fig: go.Figure, key_prefix: str) -> N
         mime="text/html",
         key=f"{key_prefix}_html",
     )
-    if png_bytes is None or svg_bytes is None:
-        st.caption(
-            "Static image export is unavailable in this runtime. "
-            "Use the interactive HTML export or chart camera icon."
-        )
 
 
 # ── Helper: run simulation ────────────────────────────────────────────────────
@@ -542,9 +537,8 @@ else:
     )
 
     # Unique simulation key to avoid Streamlit element ID collisions across runs
-    sim_id_val = result.get("id") or result.get("simulation_id") or int(time.time())
-    sim_ts = int(time.time())
-    sim_key = f"{sim_id_val}_{sim_ts}"
+    sim_id_val = str(result.get("id") or result.get("simulation_id") or "simulation")
+    sim_key = sim_id_val
 
     # ── KPI row ───────────────────────────────────────────────────────────────
     k1, k2, k3, k4 = st.columns(4)
@@ -1322,12 +1316,15 @@ else:
             "surprise": OKABE_ITO["purple"],
         }
         if nodes:
+            total_nodes = len(nodes)
+            max_node_limit = max(1, min(300, total_nodes))
+            node_step = 1 if max_node_limit <= 20 else 5
             max_graph_nodes = st.slider(
                 "Visible memory nodes",
-                min_value=20,
-                max_value=max(20, min(300, len(nodes))),
-                value=min(80, len(nodes)),
-                step=10,
+                min_value=1,
+                max_value=max_node_limit,
+                value=min(80, max_node_limit),
+                step=node_step,
                 key=f"mem_nodes_limit_{sim_key}",
             )
             min_activation = st.slider(
@@ -1493,12 +1490,14 @@ else:
 
         if heatmap_rows:
             heat_df = pd.DataFrame(heatmap_rows)
+            unique_node_count = max(1, len(heat_df["node_label"].unique()))
+            max_top_nodes = min(120, unique_node_count)
             top_memory_nodes = st.slider(
                 "Heatmap top memory nodes",
-                min_value=10,
-                max_value=min(120, max(10, len(heat_df["node_label"].unique()))),
-                value=min(40, max(10, len(heat_df["node_label"].unique()))),
-                step=5,
+                min_value=1,
+                max_value=max_top_nodes,
+                value=min(40, max_top_nodes),
+                step=1 if max_top_nodes <= 20 else 5,
                 key=f"mem_heat_top_nodes_{sim_key}",
             )
             top_nodes = (
@@ -1692,94 +1691,115 @@ else:
                 key="compare_candidate_id",
             )
             if st.button(tr(_locale, "compare_action"), key="compare_generate_btn"):
-                ok_cmp, compare_payload = _api_post_json(
-                    "/api/simulation/compare",
-                    {
-                        "baseline_simulation_id": baseline_id,
-                        "candidate_simulation_id": candidate_id,
-                    },
-                    timeout=20.0,
-                )
-                if not ok_cmp:
-                    st.error(
-                        "Compare API failed: "
-                        f"{compare_payload.get('status_code', '')} "
-                        f"{compare_payload.get('body', compare_payload.get('error', ''))}"
+                if baseline_id == candidate_id:
+                    st.warning(
+                        "Baseline and candidate are the same run. "
+                        "Choose two different runs for meaningful comparison."
                     )
                 else:
-                    delta = compare_payload.get("delta", {})
-                    confidence_map = compare_payload.get("confidence", {}).get(
-                        "metric_confidence", {}
+                    ok_cmp, compare_payload = _api_post_json(
+                        "/api/simulation/compare",
+                        {
+                            "baseline_simulation_id": baseline_id,
+                            "candidate_simulation_id": candidate_id,
+                        },
+                        timeout=20.0,
                     )
-                    compare_df = pd.DataFrame(
-                        [
-                            {
-                                "metric": metric,
-                                "delta": float(value),
-                                "confidence": float(confidence_map.get(metric, 0.0)),
-                            }
-                            for metric, value in delta.items()
-                        ]
-                    )
-                    if not compare_df.empty:
-                        score_cols = st.columns(min(4, len(compare_df)))
-                        for idx, row in compare_df.iterrows():
-                            col = score_cols[idx % len(score_cols)]
-                            col.metric(
-                                str(row["metric"]),
-                                f"{float(row['delta']):+.4f}",
-                                delta=f"conf={float(row['confidence']):.2f}",
-                            )
-                        fig_compare = go.Figure(
-                            data=[
-                                go.Bar(
-                                    x=compare_df["metric"],
-                                    y=compare_df["delta"],
-                                    marker_color=[
-                                        "#10b981" if float(v) >= 0 else "#ef4444"
-                                        for v in compare_df["delta"]
-                                    ],
-                                    customdata=compare_df["confidence"],
-                                    hovertemplate=(
-                                        "metric=%{x}<br>"
-                                        "delta=%{y:.4f}<br>"
-                                        "confidence=%{customdata:.3f}<extra></extra>"
+                    if not ok_cmp:
+                        st.error(
+                            "Compare API failed: "
+                            f"{compare_payload.get('status_code', '')} "
+                            f"{compare_payload.get('body', compare_payload.get('error', ''))}"
+                        )
+                    else:
+                        delta = compare_payload.get("delta", {})
+                        confidence_map = compare_payload.get("confidence", {}).get(
+                            "metric_confidence", {}
+                        )
+                        compare_df = pd.DataFrame(
+                            [
+                                {
+                                    "metric": metric,
+                                    "delta": float(value),
+                                    "confidence": float(
+                                        confidence_map.get(metric, 0.0)
                                     ),
-                                )
+                                }
+                                for metric, value in delta.items()
                             ]
                         )
-                        fig_compare.update_layout(
-                            title="Comparison Delta Overview",
-                            xaxis_title="Metric",
-                            yaxis_title="Candidate - Baseline",
-                            template="plotly_dark",
-                            paper_bgcolor="#0d0d14",
-                            plot_bgcolor="#12121e",
-                            height=340,
-                        )
-                        st.plotly_chart(
-                            fig_compare,
-                            use_container_width=True,
-                            key=f"compare_delta_{baseline_id}_{candidate_id}",
-                        )
-                    st.dataframe(compare_df, use_container_width=True)
-                    anomaly_flags = compare_payload.get("anomaly_flags", [])
-                    if isinstance(anomaly_flags, list) and anomaly_flags:
-                        st.warning(
-                            "Anomaly flags: "
-                            + ", ".join(str(flag) for flag in anomaly_flags)
-                        )
+                        if not compare_df.empty:
+                            score_cols = st.columns(min(4, len(compare_df)))
+                            for idx, row in compare_df.iterrows():
+                                col = score_cols[idx % len(score_cols)]
+                                col.metric(
+                                    str(row["metric"]),
+                                    f"{float(row['delta']):+.4f}",
+                                    delta=f"conf={float(row['confidence']):.2f}",
+                                )
+                            fig_compare = go.Figure(
+                                data=[
+                                    go.Bar(
+                                        x=compare_df["metric"],
+                                        y=compare_df["delta"],
+                                        marker_color=[
+                                            "#10b981" if float(v) >= 0 else "#ef4444"
+                                            for v in compare_df["delta"]
+                                        ],
+                                        customdata=compare_df["confidence"],
+                                        hovertemplate=(
+                                            "metric=%{x}<br>"
+                                            "delta=%{y:.4f}<br>"
+                                            "confidence=%{customdata:.3f}<extra></extra>"
+                                        ),
+                                    )
+                                ]
+                            )
+                            fig_compare.update_layout(
+                                title="Comparison Delta Overview",
+                                xaxis_title="Metric",
+                                yaxis_title="Candidate - Baseline",
+                                template="plotly_dark",
+                                paper_bgcolor="#0d0d14",
+                                plot_bgcolor="#12121e",
+                                height=340,
+                            )
+                            st.plotly_chart(
+                                fig_compare,
+                                use_container_width=True,
+                                key=f"compare_delta_{baseline_id}_{candidate_id}",
+                            )
+                        st.dataframe(compare_df, use_container_width=True)
+                        anomaly_flags = compare_payload.get("anomaly_flags", [])
+                        if isinstance(anomaly_flags, list) and anomaly_flags:
+                            anomaly_explanations = {
+                                "bizarreness_shift": "Mean bizarreness delta crossed threshold.",
+                                "rem_fraction_shift": "REM fraction changed beyond configured threshold.",
+                                "narrative_quality_shift": "Narrative quality mean changed strongly.",
+                                "lucid_event_spike": "Lucid event count delta is large.",
+                            }
+                            st.warning(
+                                "Anomaly flags: "
+                                + ", ".join(str(flag) for flag in anomaly_flags)
+                            )
+                            for flag in anomaly_flags:
+                                note = anomaly_explanations.get(
+                                    str(flag), "Threshold alert."
+                                )
+                                st.caption(f"- {flag}: {note}")
 
-                    markers = compare_payload.get("event_markers", {})
-                    if isinstance(markers, dict) and markers:
-                        st.json({"event_markers": markers})
+                        markers = compare_payload.get("event_markers", {})
+                        if isinstance(markers, dict) and markers:
+                            st.json({"event_markers": markers})
 
-                    st.download_button(
-                        tr(_locale, "compare_report"),
-                        data=json.dumps(compare_payload, ensure_ascii=False, indent=2),
-                        file_name=f"dreamforge-compare-{baseline_id[:8]}-{candidate_id[:8]}.json",
-                        mime="application/json",
-                        key="download_compare_report",
-                    )
+                        st.download_button(
+                            tr(_locale, "compare_report"),
+                            data=json.dumps(
+                                compare_payload, ensure_ascii=False, indent=2
+                            ),
+                            file_name=f"dreamforge-compare-{baseline_id[:8]}-{candidate_id[:8]}.json",
+                            mime="application/json",
+                            key="download_compare_report",
+                        )
     else:
         st.caption(tr(_locale, "compare_need_two"))
