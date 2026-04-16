@@ -212,6 +212,9 @@ def test_dashboard_memory_controls_and_compare_guards_are_stable() -> None:
     assert "f\"⏹  {tr(_locale, 'stop_simulation')}\"" in src
     assert '"/api/simulation/night/async"' in src
     assert 'f"/api/simulation/jobs/{active_job_id}/cancel"' in src
+    assert "def _format_eta_mmss" in src
+    assert "progress_percent" in src
+    assert "ETA" in src
     assert "Baseline and candidate are the same run." in src
     assert "Delta formula: candidate - baseline" in src
     assert "anomaly_explanations = {" in src

@@ -350,7 +350,11 @@ def test_async_simulation_job_flow(patched_api):
         for _ in range(20):
             resp = client.get(f"/api/simulation/jobs/{job_id}")
             assert resp.status_code == 200
-            status_val = resp.json()["status"]
+            body = resp.json()
+            assert "progress_percent" in body
+            assert "eta_seconds" in body
+            assert "estimated_duration_seconds" in body
+            status_val = body["status"]
             if status_val in {"completed", "failed"}:
                 final_status = status_val
                 break

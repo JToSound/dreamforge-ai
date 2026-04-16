@@ -62,6 +62,9 @@
   - added chart export API (`/api/charts/export`, plus `/api/v1` alias) and compare-delta validation coverage.
 - Dependency hardening:
   - standardized on `kaleido>=1.2.0` and added Chromium to Docker images (`BROWSER_PATH=/usr/bin/chromium`) for stable containerized static exports.
+- Async simulation UX:
+  - job status payload now includes `progress_percent`, `eta_seconds`, and `estimated_duration_seconds`,
+  - dashboard displays a live progress bar with percentage and ETA (`mm:ss`) during `Simulation running...`.
 
 ## [Round 6]
 

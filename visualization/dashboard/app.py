@@ -369,6 +369,7 @@ with col_run:
     )
 
 status_placeholder = col_status.empty()
+progress_placeholder = col_status.empty()
 
 
 # ── Helper: check API health ──────────────────────────────────────────────────
@@ -517,6 +518,14 @@ def _build_simulation_payload() -> dict:
     }
 
 
+def _format_eta_mmss(eta_seconds: Optional[int]) -> str:
+    if eta_seconds is None:
+        return "--:--"
+    total = max(0, int(eta_seconds))
+    minutes, seconds = divmod(total, 60)
+    return f"{minutes:02d}:{seconds:02d}"
+
+
 # ── Run & display ─────────────────────────────────────────────────────────────
 if run_btn:
     if not check_api():
@@ -533,6 +542,7 @@ if run_btn:
             status_placeholder.info(
                 f"⏳ Simulation started (job {str(submit_payload['job_id'])[:8]}...)."
             )
+            progress_placeholder.progress(0, text="0.0% · ETA --:--")
             st.rerun()
         else:
             st.error(
@@ -572,13 +582,24 @@ if active_job_id:
     if ok_job:
         job_status = str(job_payload.get("status", "pending"))
         if job_status in {"pending", "running", "cancelling"}:
+            progress_percent = float(job_payload.get("progress_percent") or 0.0)
+            eta_text = _format_eta_mmss(
+                int(job_payload["eta_seconds"])
+                if job_payload.get("eta_seconds") is not None
+                else None
+            )
             status_map = {
-                "pending": "⏳ Simulation queued...",
-                "running": "🧬 Simulation running...",
-                "cancelling": "🛑 Cancelling simulation...",
+                "pending": "⏳ Simulation queued",
+                "running": "🧬 Simulation running",
+                "cancelling": "🛑 Cancelling simulation",
             }
             status_placeholder.info(
-                status_map.get(job_status, "⏳ Simulation running...")
+                f"{status_map.get(job_status, '🧬 Simulation running')}: "
+                f"{progress_percent:.1f}% · ETA {eta_text}"
+            )
+            progress_placeholder.progress(
+                max(0, min(100, int(round(progress_percent)))),
+                text=f"{progress_percent:.1f}% · ETA {eta_text}",
             )
             time.sleep(1)
             st.rerun()
@@ -608,6 +629,7 @@ if active_job_id:
                         history.append(result_payload)
                     st.session_state["simulation_history"] = history
                     status_placeholder.success("✅ Simulation complete!")
+                    progress_placeholder.progress(100, text="100.0% · ETA 00:00")
                 st.session_state.pop("active_sim_job_id", None)
                 st.rerun()
         elif job_status == "failed":
@@ -619,10 +641,12 @@ if active_job_id:
                     or "unknown_error"
                 )
             )
+            progress_placeholder.empty()
             st.session_state.pop("active_sim_job_id", None)
             st.rerun()
         elif job_status == "cancelled":
             status_placeholder.warning("🛑 Simulation stopped.")
+            progress_placeholder.empty()
             st.session_state.pop("active_sim_job_id", None)
             st.rerun()
     else:

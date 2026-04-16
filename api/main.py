@@ -709,6 +709,9 @@ class AsyncSimulationJobResponse(BaseModel):
     job_id: str
     status: str
     created_at: float
+    progress_percent: float = 0.0
+    eta_seconds: Optional[int] = None
+    estimated_duration_seconds: Optional[float] = None
     started_at: Optional[float] = None
     completed_at: Optional[float] = None
     error_code: Optional[str] = None
@@ -1600,6 +1603,48 @@ def _build_comparison_payload(
     }
 
 
+def _estimate_job_duration_seconds(config: SimulationConfig) -> float:
+    with _metrics_lock:
+        historical_avg = float(
+            _runtime_metrics.get("simulation_duration_seconds_avg", 0.0)
+        )
+    if historical_avg > 0.0:
+        return max(8.0, historical_avg)
+
+    dt = max(0.1, float(config.dt_minutes))
+    ticks = max(1.0, (float(config.duration_hours) * 60.0) / dt)
+    physics_seconds = max(5.0, ticks * 0.02)
+    llm_multiplier = 5.0 if bool(config.use_llm) else 1.5
+    estimate = physics_seconds * llm_multiplier
+    return max(8.0, estimate)
+
+
+def _job_progress_snapshot(
+    job: dict[str, Any], status_value: str
+) -> tuple[float, Optional[int]]:
+    status_norm = str(status_value).lower()
+    if status_norm == "completed":
+        return 100.0, 0
+    if status_norm in {"failed", "cancelled"}:
+        return 100.0, None
+
+    estimated = float(job.get("estimated_duration_seconds") or 0.0)
+    if estimated <= 0.0:
+        estimated = 60.0
+    now_ts = time.time()
+    if status_norm == "pending":
+        eta = max(0, int(round(estimated)))
+        return 0.0, eta
+
+    started_at = float(job.get("started_at") or now_ts)
+    elapsed = max(0.0, now_ts - started_at)
+    progress = min(95.0, (elapsed / estimated) * 100.0)
+    eta = max(0, int(round(estimated - elapsed)))
+    if status_norm == "cancelling":
+        progress = min(99.0, max(progress, 95.0))
+    return round(progress, 2), eta
+
+
 async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
     with _jobs_lock:
         job = _simulation_jobs.get(job_id)
@@ -2124,11 +2169,13 @@ async def simulate_night(config: SimulationConfig):
 )
 async def submit_simulation_night_async(config: SimulationConfig):
     job_id = str(uuid.uuid4())
+    estimated_duration_seconds = _estimate_job_duration_seconds(config)
     with _jobs_lock:
         _simulation_jobs[job_id] = {
             "job_id": job_id,
             "status": "pending",
             "created_at": time.time(),
+            "estimated_duration_seconds": round(estimated_duration_seconds, 2),
         }
         _persist_job(job_id, dict(_simulation_jobs[job_id]))
     task = asyncio.create_task(_run_simulation_job(job_id, config))
@@ -2170,10 +2217,19 @@ async def get_simulation_job(job_id: str):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Job '{job_id}' not found.",
         )
+    status_val = str(job.get("status", "pending"))
+    progress_percent, eta_seconds = _job_progress_snapshot(job, status_val)
     return AsyncSimulationJobResponse(
         job_id=job_id,
-        status=str(job.get("status", "pending")),
+        status=status_val,
         created_at=float(job.get("created_at", 0.0)),
+        progress_percent=float(progress_percent),
+        eta_seconds=eta_seconds,
+        estimated_duration_seconds=(
+            float(job["estimated_duration_seconds"])
+            if job.get("estimated_duration_seconds") is not None
+            else None
+        ),
         started_at=(
             float(job["started_at"]) if job.get("started_at") is not None else None
         ),
