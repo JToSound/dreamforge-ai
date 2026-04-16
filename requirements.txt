@@ -20,6 +20,7 @@ langgraph>=0.0.20
 # Visualization
 streamlit>=1.32.0
 plotly>=5.20.0
+kaleido>=0.2.1
 pandas>=2.2.0
 
 # Testing

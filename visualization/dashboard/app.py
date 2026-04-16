@@ -373,9 +373,20 @@ def _render_chart_with_exports(title: str, fig: go.Figure, key_prefix: str) -> N
         config=chart_export_config(),
     )
 
-    col_png, col_svg = st.columns(2)
+    col_png, col_svg, col_html = st.columns(3)
+    png_bytes: Optional[bytes] = None
+    svg_bytes: Optional[bytes] = None
     try:
         png_bytes = pio.to_image(fig, format="png", scale=2)
+    except Exception:
+        png_bytes = None
+
+    try:
+        svg_bytes = pio.to_image(fig, format="svg")
+    except Exception:
+        svg_bytes = None
+
+    if png_bytes is not None:
         col_png.download_button(
             "Export PNG",
             data=png_bytes,
@@ -383,11 +394,10 @@ def _render_chart_with_exports(title: str, fig: go.Figure, key_prefix: str) -> N
             mime="image/png",
             key=f"{key_prefix}_png",
         )
-    except Exception:
-        col_png.caption("PNG export requires kaleido.")
+    else:
+        col_png.button("Export PNG", key=f"{key_prefix}_png_disabled", disabled=True)
 
-    try:
-        svg_bytes = pio.to_image(fig, format="svg")
+    if svg_bytes is not None:
         col_svg.download_button(
             "Export SVG",
             data=svg_bytes,
@@ -395,8 +405,22 @@ def _render_chart_with_exports(title: str, fig: go.Figure, key_prefix: str) -> N
             mime="image/svg+xml",
             key=f"{key_prefix}_svg",
         )
-    except Exception:
-        col_svg.caption("SVG export requires kaleido.")
+    else:
+        col_svg.button("Export SVG", key=f"{key_prefix}_svg_disabled", disabled=True)
+
+    html_payload = pio.to_html(fig, include_plotlyjs="cdn", full_html=True)
+    col_html.download_button(
+        "Export HTML",
+        data=html_payload,
+        file_name=f"{key_prefix}.html",
+        mime="text/html",
+        key=f"{key_prefix}_html",
+    )
+    if png_bytes is None or svg_bytes is None:
+        st.caption(
+            "Static image export is unavailable in this runtime. "
+            "Use the interactive HTML export or chart camera icon."
+        )
 
 
 # ── Helper: run simulation ────────────────────────────────────────────────────
@@ -1109,11 +1133,14 @@ else:
                 go.Scatter(
                     x=times,
                     y=y_vals,
-                    mode="lines",
+                    mode="lines+markers",
                     line=dict(color=OKABE_ITO["purple"], width=2),
+                    marker=dict(color=colors, size=4),
                     fill="tozeroy",
                     fillcolor="rgba(167,139,250,0.15)",
                     name="Sleep Stage",
+                    customdata=stages,
+                    hovertemplate="t=%{x:.2f}h<br>stage=%{customdata}<extra></extra>",
                 )
             )
             fig.update_layout(
@@ -1128,9 +1155,62 @@ else:
                 paper_bgcolor="#0d0d14",
                 plot_bgcolor="#12121e",
             )
+            fig.add_hrect(
+                y0=2.5,
+                y1=3.5,
+                fillcolor="rgba(204,121,167,0.12)",
+                line_width=0,
+                annotation_text="REM band",
+                annotation_position="top left",
+            )
+            fig.add_hrect(
+                y0=-0.5,
+                y1=0.5,
+                fillcolor="rgba(0,114,178,0.10)",
+                line_width=0,
+                annotation_text="Deep sleep band",
+                annotation_position="bottom left",
+            )
             st.plotly_chart(
                 fig, use_container_width=True, key=f"hypnogram_tab_{sim_key}"
             )
+            stage_counts = Counter(stages)
+            stage_names = [
+                name
+                for name in ["WAKE", "N1", "N2", "N3", "REM"]
+                if name in stage_counts
+            ]
+            if stage_names:
+                pct = [
+                    100.0 * stage_counts[name] / max(1, len(stages))
+                    for name in stage_names
+                ]
+                fig_stage_mix = go.Figure(
+                    data=[
+                        go.Bar(
+                            x=stage_names,
+                            y=pct,
+                            marker_color=[
+                                stage_color.get(name, "#777") for name in stage_names
+                            ],
+                            text=[f"{value:.1f}%" for value in pct],
+                            textposition="outside",
+                        )
+                    ]
+                )
+                fig_stage_mix.update_layout(
+                    title="Stage Mix (%)",
+                    yaxis_title="Share of timeline",
+                    template="plotly_dark",
+                    height=260,
+                    paper_bgcolor="#0d0d14",
+                    plot_bgcolor="#12121e",
+                )
+                st.plotly_chart(
+                    fig_stage_mix,
+                    use_container_width=True,
+                    key=f"stage_mix_{sim_key}",
+                )
         else:
             st.info("No segment data to display.")
 
@@ -1152,6 +1232,8 @@ else:
                             y=df_n[col],
                             name=name,
                             line=dict(color=color, width=2),
+                            mode="lines",
+                            hovertemplate=f"{name}: %{{y:.3f}}<br>t=%{{x:.2f}}h<extra></extra>",
                         )
                     )
             fig2.update_layout(
@@ -1191,7 +1273,17 @@ else:
                     mode="lines",
                     name="Lucidity",
                     line=dict(color=OKABE_ITO["yellow"], width=2),
+                    fill="tozeroy",
+                    fillcolor="rgba(240,228,66,0.12)",
                 )
+            )
+            fig_lucid.add_hline(
+                y=0.5,
+                line_dash="dot",
+                line_width=1,
+                line_color=OKABE_ITO["sky"],
+                annotation_text="lucid threshold",
+                annotation_position="top left",
             )
             for ev in lucid_events:
                 t0 = float(ev.get("time_hours", 0.0))
@@ -1205,6 +1297,7 @@ else:
                 title="Lucidity Probability Timeline",
                 xaxis_title="Time (hours)",
                 yaxis_title="Lucidity probability",
+                yaxis=dict(range=[0.0, 1.0]),
                 template="plotly_dark",
                 height=300,
                 paper_bgcolor="#0d0d14",
@@ -1229,30 +1322,82 @@ else:
             "surprise": OKABE_ITO["purple"],
         }
         if nodes:
-            import math
+            max_graph_nodes = st.slider(
+                "Visible memory nodes",
+                min_value=20,
+                max_value=max(20, min(300, len(nodes))),
+                value=min(80, len(nodes)),
+                step=10,
+                key=f"mem_nodes_limit_{sim_key}",
+            )
+            min_activation = st.slider(
+                "Minimum activation filter",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.0,
+                step=0.05,
+                key=f"mem_activation_filter_{sim_key}",
+            )
+            filtered_nodes = []
+            for nd in nodes:
+                activation = float(nd.get("activation", 0.0) or 0.0)
+                if activation >= min_activation:
+                    filtered_nodes.append(nd)
+            filtered_nodes.sort(
+                key=lambda nd: float(nd.get("activation", 0.0) or 0.0), reverse=True
+            )
+            filtered_nodes = filtered_nodes[:max_graph_nodes]
+            filtered_ids = {str(nd.get("id")) for nd in filtered_nodes if nd.get("id")}
+            filtered_edges = [
+                e
+                for e in edges
+                if str(e.get("source")) in filtered_ids
+                and str(e.get("target")) in filtered_ids
+            ]
 
-            n = len(nodes)
-            angle_step = 2 * math.pi / max(n, 1)
-            pos = {
-                nd["id"]: (math.cos(i * angle_step), math.sin(i * angle_step))
-                for i, nd in enumerate(nodes)
-            }
+            graph_nx = nx.Graph()
+            for nd in filtered_nodes:
+                graph_nx.add_node(str(nd.get("id")))
+            for edge in filtered_edges:
+                graph_nx.add_edge(str(edge.get("source")), str(edge.get("target")))
+
+            if graph_nx.number_of_nodes() > 1:
+                pos = nx.spring_layout(
+                    graph_nx,
+                    seed=42,
+                    k=max(0.2, 2.0 / max(1.0, graph_nx.number_of_nodes() ** 0.5)),
+                    iterations=80,
+                )
+            else:
+                pos = {
+                    str(nd.get("id")): (math.cos(i), math.sin(i))
+                    for i, nd in enumerate(filtered_nodes)
+                }
 
             edge_x, edge_y = [], []
-            for e in edges:
-                x0, y0 = pos.get(e.get("source", ""), (0, 0))
-                x1, y1 = pos.get(e.get("target", ""), (0, 0))
+            for e in filtered_edges:
+                x0, y0 = pos.get(str(e.get("source", "")), (0, 0))
+                x1, y1 = pos.get(str(e.get("target", "")), (0, 0))
                 edge_x += [x0, x1, None]
                 edge_y += [y0, y1, None]
 
-            node_x = [pos[nd["id"]][0] for nd in nodes]
-            node_y = [pos[nd["id"]][1] for nd in nodes]
+            node_x = [pos[str(nd["id"])][0] for nd in filtered_nodes if nd.get("id")]
+            node_y = [pos[str(nd["id"])][1] for nd in filtered_nodes if nd.get("id")]
             node_colors = [
                 emotion_color.get(nd.get("emotion", "neutral"), "#94a3b8")
-                for nd in nodes
+                for nd in filtered_nodes
             ]
-            node_sizes = [max(10, nd.get("activation", 0.5) * 40) for nd in nodes]
-            node_labels = [nd.get("label", nd["id"])[:30] for nd in nodes]
+            node_sizes = [
+                max(
+                    10,
+                    float(nd.get("activation", 0.5) or 0.5) * 35
+                    + float(nd.get("salience", 0.0) or 0.0) * 20,
+                )
+                for nd in filtered_nodes
+            ]
+            node_labels = [
+                str(nd.get("label", nd.get("id", "")))[:30] for nd in filtered_nodes
+            ]
 
             fig3 = go.Figure()
             fig3.add_trace(
@@ -1277,7 +1422,13 @@ else:
                     text=node_labels,
                     textposition="top center",
                     hovertext=[
-                        f"{nd.get('label','')} | {nd.get('emotion','')}" for nd in nodes
+                        (
+                            f"{nd.get('label','')}<br>"
+                            f"emotion={nd.get('emotion','neutral')}<br>"
+                            f"activation={float(nd.get('activation', 0.0) or 0.0):.3f}<br>"
+                            f"salience={float(nd.get('salience', 0.0) or 0.0):.3f}"
+                        )
+                        for nd in filtered_nodes
                     ],
                 )
             )
@@ -1292,6 +1443,10 @@ else:
                 yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
             )
             st.plotly_chart(fig3, use_container_width=True, key=f"memory_tab_{sim_key}")
+            st.caption(
+                f"Showing {len(filtered_nodes)} nodes / {len(filtered_edges)} edges "
+                f"(activation filter ≥ {min_activation:.2f})."
+            )
         else:
             st.info(
                 "Memory graph structure unavailable; showing activation heatmap when data exists."
@@ -1338,15 +1493,31 @@ else:
 
         if heatmap_rows:
             heat_df = pd.DataFrame(heatmap_rows)
-            pivot_df = (
-                heat_df.pivot_table(
-                    index="node_label",
-                    columns="time_hours",
-                    values="activation",
-                    aggfunc="max",
-                )
-                .fillna(0.0)
-                .sort_index(axis=0)
+            top_memory_nodes = st.slider(
+                "Heatmap top memory nodes",
+                min_value=10,
+                max_value=min(120, max(10, len(heat_df["node_label"].unique()))),
+                value=min(40, max(10, len(heat_df["node_label"].unique()))),
+                step=5,
+                key=f"mem_heat_top_nodes_{sim_key}",
+            )
+            top_nodes = (
+                heat_df.groupby("node_label")["activation"]
+                .sum()
+                .sort_values(ascending=False)
+                .head(top_memory_nodes)
+                .index
+            )
+            heat_df = heat_df[heat_df["node_label"].isin(top_nodes)]
+            pivot_df = heat_df.pivot_table(
+                index="node_label",
+                columns="time_hours",
+                values="activation",
+                aggfunc="max",
+            ).fillna(0.0)
+            pivot_df["__activity_sum__"] = pivot_df.sum(axis=1)
+            pivot_df = pivot_df.sort_values("__activity_sum__", ascending=False).drop(
+                columns=["__activity_sum__"]
             )
             fig_heat = go.Figure(
                 data=go.Heatmap(
@@ -1355,14 +1526,19 @@ else:
                     y=list(pivot_df.index),
                     colorscale="Viridis",
                     colorbar=dict(title="Activation"),
+                    hovertemplate=(
+                        "node=%{y}<br>"
+                        "time=%{x}h<br>"
+                        "activation=%{z:.3f}<extra></extra>"
+                    ),
                 )
             )
             fig_heat.update_layout(
                 title="Memory Activation Heatmap",
-                xaxis_title="snapshot_time_hours",
-                yaxis_title="memory_node_label",
+                xaxis_title="Snapshot time (hours)",
+                yaxis_title="Memory node label",
                 template="plotly_dark",
-                height=520,
+                height=max(420, min(860, 18 * len(pivot_df.index) + 180)),
                 paper_bgcolor="#0d0d14",
                 plot_bgcolor="#12121e",
             )
@@ -1382,9 +1558,15 @@ else:
                 r"^(scene:|scene description:|scene text:|/no_think|no_think)\s*",
                 re.IGNORECASE,
             )
+            pasted_content_pattern = re.compile(
+                r"(?is)<\s*/?\s*pasted_content\b[^>]*\/?>"
+            )
+            code_block_pattern = re.compile(r"(?is)```.*?```")
 
             def _clean_scene(raw: str) -> str:
-                cleaned = " ".join(str(raw or "").split()).strip()
+                cleaned = html.unescape(str(raw or ""))
+                cleaned = pasted_content_pattern.sub(" ", cleaned)
+                cleaned = " ".join(cleaned.split()).strip()
                 for _ in range(6):
                     updated = scene_prefix_pattern.sub("", cleaned).strip()
                     if updated == cleaned:
@@ -1393,10 +1575,20 @@ else:
                 return cleaned
 
             def _clean_narrative(raw: str) -> str:
-                cleaned = re.sub(r"(?is)<[^>]+>", " ", str(raw or ""))
+                cleaned = html.unescape(str(raw or ""))
+                cleaned = code_block_pattern.sub(" ", cleaned)
+                cleaned = pasted_content_pattern.sub(" ", cleaned)
+                cleaned = re.sub(r"(?is)<[^>]+>", " ", cleaned)
+                cleaned = re.sub(
+                    r"(?i)pasted_content\s+file\s*=\s*\"[^\"]+\"", " ", cleaned
+                )
                 cleaned = " ".join(cleaned.split()).strip()
                 if cleaned.lower().startswith("narrative:"):
                     cleaned = cleaned[len("narrative:") :].strip()
+                if "pasted_content" in cleaned.lower():
+                    return ""
+                if len(cleaned.split()) > 160:
+                    cleaned = " ".join(cleaned.split()[:160]).strip() + "..."
                 return cleaned
 
             for i, seg in enumerate(segments):
@@ -1428,37 +1620,19 @@ else:
                 st.caption(
                     "REM narrative viewer. Lucid segments are highlighted in gold."
                 )
-                cards: list[str] = []
                 for seg in rem_segments:
-                    border_color = "#d4af37" if seg["is_lucid"] else "#4c3f8f"
-                    lucid_badge = " · [LUCID]" if seg["is_lucid"] else ""
-                    emotion_text = html.escape(seg["emotion"])
-                    mode_text = html.escape(seg["mode"])
-                    narrative_text = html.escape(seg["narrative"])
-                    scene_text = html.escape(seg["scene"])
-                    cards.append(
-                        f"""
-                    <div style="background:#1a1a2e; border-left:4px solid {border_color};
-                         border-radius:8px; padding:0.8rem 1rem; margin-bottom:0.8rem;">
-                      <div style="font-size:0.75rem; color:#9090c0; margin-bottom:0.3rem;">
-                        REM Segment {seg["idx"]} · t={seg["time"]:.2f}h · Emotion: {emotion_text}
-                        · Bizarreness: {seg["biz"]:.2f} · Mode: {mode_text}{lucid_badge}
-                      </div>
-                      <div style="color:#d8d8ef; font-size:0.95rem; line-height:1.6; margin-bottom:0.35rem;">
-                        {narrative_text}
-                      </div>
-                      <div style="color:#aab0d8; font-size:0.82rem;">
-                        Scene: {scene_text}
-                      </div>
-                    </div>
-                    """
+                    lucid_badge = " [LUCID]" if seg["is_lucid"] else ""
+                    title = (
+                        f"REM #{seg['idx']} · t={seg['time']:.2f}h · "
+                        f"{seg['emotion']} · biz={seg['biz']:.2f} · {seg['mode']}{lucid_badge}"
                     )
-                st.markdown(
-                    '<div style="max-height:540px; overflow-y:auto; padding-right:0.35rem;">'
-                    + "".join(cards)
-                    + "</div>",
-                    unsafe_allow_html=True,
-                )
+                    with st.expander(title, expanded=bool(seg["is_lucid"])):
+                        st.markdown(
+                            f"<div class='soft-panel'>{html.escape(seg['narrative'])}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        if seg["scene"]:
+                            st.caption(f"Scene: {seg['scene']}")
             else:
                 st.info("No narrative segments found in simulation result.")
         else:
@@ -1547,6 +1721,47 @@ else:
                             for metric, value in delta.items()
                         ]
                     )
+                    if not compare_df.empty:
+                        score_cols = st.columns(min(4, len(compare_df)))
+                        for idx, row in compare_df.iterrows():
+                            col = score_cols[idx % len(score_cols)]
+                            col.metric(
+                                str(row["metric"]),
+                                f"{float(row['delta']):+.4f}",
+                                delta=f"conf={float(row['confidence']):.2f}",
+                            )
+                        fig_compare = go.Figure(
+                            data=[
+                                go.Bar(
+                                    x=compare_df["metric"],
+                                    y=compare_df["delta"],
+                                    marker_color=[
+                                        "#10b981" if float(v) >= 0 else "#ef4444"
+                                        for v in compare_df["delta"]
+                                    ],
+                                    customdata=compare_df["confidence"],
+                                    hovertemplate=(
+                                        "metric=%{x}<br>"
+                                        "delta=%{y:.4f}<br>"
+                                        "confidence=%{customdata:.3f}<extra></extra>"
+                                    ),
+                                )
+                            ]
+                        )
+                        fig_compare.update_layout(
+                            title="Comparison Delta Overview",
+                            xaxis_title="Metric",
+                            yaxis_title="Candidate - Baseline",
+                            template="plotly_dark",
+                            paper_bgcolor="#0d0d14",
+                            plot_bgcolor="#12121e",
+                            height=340,
+                        )
+                        st.plotly_chart(
+                            fig_compare,
+                            use_container_width=True,
+                            key=f"compare_delta_{baseline_id}_{candidate_id}",
+                        )
                     st.dataframe(compare_df, use_container_width=True)
                     anomaly_flags = compare_payload.get("anomaly_flags", [])
                     if isinstance(anomaly_flags, list) and anomaly_flags:

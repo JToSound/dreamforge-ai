@@ -171,6 +171,10 @@ environment variables. The most useful overrides are:
 - `API_ACCESS_TOKEN` or `API_TOKEN_ROLE_MAP` (role/scope auth policy)
 - `ENTERPRISE_WAITLIST_URL`, `PRO_TRIAL_URL`, `ENTERPRISE_SLA_URL`
 
+Chart export note:
+- `kaleido` is included in requirements for PNG/SVG chart export.
+- If static image export is unavailable in a specific runtime, dashboard still supports interactive HTML export.
+
 ## Docker (development)
 
 We provide a cache-friendly dashboard Dockerfile and compose setup. For local development use the editable install build (default DEV=1 in `docker-compose.yml`). Build with BuildKit enabled for best caching:

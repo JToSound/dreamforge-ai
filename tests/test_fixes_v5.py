@@ -194,6 +194,9 @@ def test_dashboard_segments_csv_preserves_zero_values() -> None:
     assert '"memory_activations.csv"' in src
     assert "html.escape(" in src
     assert "scene_prefix_pattern" in src
+    assert "pasted_content_pattern" in src
+    assert "Export HTML" in src
+    assert "Static image export is unavailable in this runtime." in src
     assert 'artifact_prefix = f"dreamforge-sim-{sim_id}"' in src
 
 

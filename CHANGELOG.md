@@ -47,6 +47,10 @@
 - Updated defaults and positioning:
   - `docker-compose.yml` API `LLM_MAX_TOKENS` default aligned to `2048`,
   - README wording and docs references aligned to productization direction.
+- Dashboard presentation and export hardening:
+  - static analytics export now provides graceful runtime fallback with interactive HTML export when image renderer is unavailable,
+  - REM narrative viewer sanitizes pasted-content/code artifacts and uses product-style expandable cards,
+  - hypnogram/neuro/lucidity/memory/heatmap visualizations upgraded with clearer annotations, filters, and compare delta charting.
 
 ## [Round 6]
 
