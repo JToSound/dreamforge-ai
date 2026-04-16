@@ -32,6 +32,21 @@
   - switched dashboard LLM status + test flow to API-backed config/health checks (no local demo-only detection),
   - updated runtime and compose default simulation request timeout to `3600` seconds.
 - Added regression coverage for mixed parameter/pharmacology/event combinations and nap/early-start scenarios.
+- Reliability/productization hardening:
+  - Redis-backed persistence fallback for simulations/jobs/audit events in `api/main.py`,
+  - release gate endpoint (`/api/release-gate`) with SLO check summary,
+  - audit query endpoint (`/api/audit/events`) and enterprise metadata endpoint (`/api/enterprise`),
+  - token role/scope policy support via `API_TOKEN_ROLE_MAP`.
+- Narrative quality controls:
+  - style presets (`scientific/cinematic/minimal/therapeutic`) and prompt profile A/B controls wired into narrative generation.
+- Dashboard compare/report upgraded to call API compare endpoint, with confidence/anomaly/event marker display.
+- Dashboard i18n expanded with additional key coverage and `zh-CN` locale baseline.
+- Added operational/product docs:
+  - `docs/INCIDENT_RUNBOOKS.md`
+  - `docs/ENTERPRISE.md`
+- Updated defaults and positioning:
+  - `docker-compose.yml` API `LLM_MAX_TOKENS` default aligned to `2048`,
+  - README wording and docs references aligned to productization direction.
 
 ## [Round 6]
 

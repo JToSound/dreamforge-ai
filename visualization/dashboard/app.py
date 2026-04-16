@@ -156,7 +156,7 @@ st.markdown(
 
 # ── Sidebar — LLM Settings ────────────────────────────────────────────────────
 with st.sidebar:
-    locale = st.selectbox("Language", ["en", "zh-HK"], index=0)
+    locale = st.selectbox("Language", ["en", "zh-HK", "zh-CN"], index=0)
     st.session_state["locale"] = locale
     st.markdown(f"## 🧠 {tr(locale, 'sidebar_title')}")
     st.markdown("---")
@@ -173,14 +173,14 @@ with st.sidebar:
     default_provider_label = _PROVIDER_VALUE_TO_LABEL.get(cfg_provider, "LM Studio")
     provider_options = list(_PROVIDER_LABEL_TO_VALUE.keys())
     llm_provider_label = st.selectbox(
-        "Provider",
+        tr(locale, "sidebar_provider"),
         options=provider_options,
         index=provider_options.index(default_provider_label),
     )
     llm_provider = _PROVIDER_LABEL_TO_VALUE[llm_provider_label]
 
     llm_base_url = st.text_input(
-        "Base URL",
+        tr(locale, "sidebar_base_url"),
         value=(
             str(llm_cfg.get("base_url") or "")
             if (llm_cfg_ok and cfg_provider == llm_provider)
@@ -188,7 +188,7 @@ with st.sidebar:
         ),
     )
     llm_model = st.text_input(
-        "Model",
+        tr(locale, "sidebar_model"),
         value=(
             str(llm_cfg.get("model") or _RUNTIME_CONFIG.llm_model)
             if llm_cfg_ok
@@ -196,13 +196,13 @@ with st.sidebar:
         ),
     )
     llm_api_key = st.text_input(
-        "API Key",
+        tr(locale, "sidebar_api_key"),
         value="",
         type="password",
         help="Used when provider requires authentication (for local LM Studio keep default if not needed).",
     )
     llm_timeout = st.number_input(
-        "LLM timeout (seconds)",
+        tr(locale, "sidebar_llm_timeout"),
         min_value=10,
         max_value=600,
         value=int(
@@ -226,11 +226,12 @@ with st.sidebar:
         status_color = "#f59e0b"
 
     st.markdown(
-        f"**Status:** <span style='color:{status_color}; font-weight:700'>{status_text}</span>",
+        f"**{tr(locale, 'sidebar_status')}:** "
+        f"<span style='color:{status_color}; font-weight:700'>{status_text}</span>",
         unsafe_allow_html=True,
     )
 
-    if st.button("Test Connection"):
+    if st.button(tr(locale, "sidebar_test_connection")):
         with st.spinner("Testing provider connection against API backend..."):
             update_payload = {
                 "provider": llm_provider,
@@ -268,31 +269,35 @@ with st.sidebar:
                     )
 
     st.markdown("---")
-    st.markdown("### 🌙 Simulation Parameters")
+    st.markdown(f"### 🌙 {tr(locale, 'sidebar_sim_params')}")
 
     duration_hours = st.slider(
-        "Night Duration (hours)",
+        tr(locale, "sidebar_duration"),
         1.0,
         12.0,
         _RUNTIME_CONFIG.simulation_duration_hours,
         0.5,
     )
     dt_minutes = st.slider(
-        "dt (minutes)", 0.1, 2.0, _RUNTIME_CONFIG.simulation_dt_minutes, 0.1
+        tr(locale, "sidebar_dt"), 0.1, 2.0, _RUNTIME_CONFIG.simulation_dt_minutes, 0.1
     )
     stress_level = st.slider(
-        "Stress Level", 0.0, 1.0, _RUNTIME_CONFIG.simulation_stress_level, 0.05
+        tr(locale, "sidebar_stress"),
+        0.0,
+        1.0,
+        _RUNTIME_CONFIG.simulation_stress_level,
+        0.05,
     )
     sleep_start = st.slider(
-        "Sleep Start (clock hour, supports naps/early morning)",
+        tr(locale, "sidebar_sleep_start"),
         0.0,
         26.0,
         _RUNTIME_CONFIG.simulation_sleep_start_hour,
         0.5,
     )
-    use_llm = st.checkbox("Use LLM narrative generation", value=True)
+    use_llm = st.checkbox(tr(locale, "sidebar_use_llm"), value=True)
     simulation_request_timeout_seconds = st.number_input(
-        "Simulation request timeout (seconds)",
+        tr(locale, "sidebar_req_timeout"),
         min_value=30,
         max_value=7200,
         value=int(_RUNTIME_CONFIG.simulation_request_timeout_seconds),
@@ -301,22 +306,37 @@ with st.sidebar:
     )
 
     st.markdown("---")
-    st.markdown("### 💊 Pharmacology")
+    st.markdown(f"### 💊 {tr(locale, 'sidebar_pharmacology')}")
     ssri_strength = st.slider(
-        "SSRI Factor", 1.0, 3.0, 1.0, 0.1, help="1.0 = no medication; >1 = SSRI effect"
+        tr(locale, "sidebar_ssri"),
+        1.0,
+        3.0,
+        1.0,
+        0.1,
+        help="1.0 = no medication; >1 = SSRI effect",
     )
-    melatonin = st.checkbox("Melatonin")
-    cannabis = st.checkbox("Cannabis (THC)")
+    melatonin = st.checkbox(tr(locale, "sidebar_melatonin"))
+    cannabis = st.checkbox(tr(locale, "sidebar_cannabis"))
     emotional_state = st.selectbox(
-        "Emotional baseline",
+        tr(locale, "sidebar_emotion"),
         options=["neutral", "calm", "anxious", "focused", "melancholic"],
+        index=0,
+    )
+    style_preset = st.selectbox(
+        tr(locale, "sidebar_style"),
+        options=["scientific", "cinematic", "minimal", "therapeutic"],
+        index=0,
+    )
+    prompt_profile = st.selectbox(
+        tr(locale, "sidebar_prompt_profile"),
+        options=["A", "B"],
         index=0,
     )
 
     st.markdown("---")
-    st.markdown("### 📝 Prior Day Events")
+    st.markdown(f"### 📝 {tr(locale, 'sidebar_events')}")
     events_text = st.text_area(
-        "Describe today's events",
+        tr(locale, "sidebar_events_input"),
         placeholder="e.g. Had an argument with a colleague. Watched a sci-fi film. Felt anxious about the presentation.",
         height=100,
     )
@@ -391,6 +411,8 @@ def run_simulation() -> Optional[dict]:
         "melatonin": melatonin,
         "cannabis": cannabis,
         "emotional_state": emotional_state,
+        "style_preset": style_preset,
+        "prompt_profile": prompt_profile,
         "use_llm": use_llm,
         "prior_day_events": events_list,
     }
@@ -1496,76 +1518,53 @@ else:
                 key="compare_candidate_id",
             )
             if st.button(tr(_locale, "compare_action"), key="compare_generate_btn"):
-                base = next(
-                    (item for item in history if str(item.get("id")) == baseline_id),
-                    None,
+                ok_cmp, compare_payload = _api_post_json(
+                    "/api/simulation/compare",
+                    {
+                        "baseline_simulation_id": baseline_id,
+                        "candidate_simulation_id": candidate_id,
+                    },
+                    timeout=20.0,
                 )
-                cand = next(
-                    (item for item in history if str(item.get("id")) == candidate_id),
-                    None,
-                )
-                if base is None or cand is None:
-                    st.error("Could not resolve selected simulation IDs.")
+                if not ok_cmp:
+                    st.error(
+                        "Compare API failed: "
+                        f"{compare_payload.get('status_code', '')} "
+                        f"{compare_payload.get('body', compare_payload.get('error', ''))}"
+                    )
                 else:
-                    base_summary = base.get("summary", {})
-                    cand_summary = cand.get("summary", {})
+                    delta = compare_payload.get("delta", {})
+                    confidence_map = compare_payload.get("confidence", {}).get(
+                        "metric_confidence", {}
+                    )
                     compare_df = pd.DataFrame(
                         [
                             {
-                                "metric": "mean_bizarreness",
-                                "baseline": float(
-                                    base_summary.get("mean_bizarreness", 0.0)
-                                ),
-                                "candidate": float(
-                                    cand_summary.get("mean_bizarreness", 0.0)
-                                ),
-                            },
-                            {
-                                "metric": "rem_fraction",
-                                "baseline": float(
-                                    base_summary.get("rem_fraction", 0.0)
-                                ),
-                                "candidate": float(
-                                    cand_summary.get("rem_fraction", 0.0)
-                                ),
-                            },
-                            {
-                                "metric": "lucid_event_count",
-                                "baseline": float(
-                                    base_summary.get("lucid_event_count", 0.0)
-                                ),
-                                "candidate": float(
-                                    cand_summary.get("lucid_event_count", 0.0)
-                                ),
-                            },
-                            {
-                                "metric": "narrative_quality_mean",
-                                "baseline": float(
-                                    base_summary.get("narrative_quality_mean", 0.0)
-                                ),
-                                "candidate": float(
-                                    cand_summary.get("narrative_quality_mean", 0.0)
-                                ),
-                            },
+                                "metric": metric,
+                                "delta": float(value),
+                                "confidence": float(confidence_map.get(metric, 0.0)),
+                            }
+                            for metric, value in delta.items()
                         ]
                     )
-                    compare_df["delta"] = (
-                        compare_df["candidate"] - compare_df["baseline"]
-                    )
                     st.dataframe(compare_df, use_container_width=True)
+                    anomaly_flags = compare_payload.get("anomaly_flags", [])
+                    if isinstance(anomaly_flags, list) and anomaly_flags:
+                        st.warning(
+                            "Anomaly flags: "
+                            + ", ".join(str(flag) for flag in anomaly_flags)
+                        )
 
-                    report_payload = {
-                        "baseline_id": baseline_id,
-                        "candidate_id": candidate_id,
-                        "generated_at_unix": time.time(),
-                        "metrics": compare_df.to_dict(orient="records"),
-                    }
+                    markers = compare_payload.get("event_markers", {})
+                    if isinstance(markers, dict) and markers:
+                        st.json({"event_markers": markers})
+
                     st.download_button(
-                        "Download compare report (JSON)",
-                        data=json.dumps(report_payload, ensure_ascii=False, indent=2),
+                        tr(_locale, "compare_report"),
+                        data=json.dumps(compare_payload, ensure_ascii=False, indent=2),
                         file_name=f"dreamforge-compare-{baseline_id[:8]}-{candidate_id[:8]}.json",
                         mime="application/json",
                         key="download_compare_report",
                     )
     else:
-        st.caption("Run at least two simulations to enable compare/report center.")
+        st.caption(tr(_locale, "compare_need_two"))

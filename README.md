@@ -132,7 +132,9 @@ For detailed equations, parameter choices, and literature references, see `RESEA
   - `POST /api/simulation/compare` – compare two stored runs and compute deltas.
   - `GET /api/simulation/{id}/report` – generate a structured run report payload.
   - `GET /api/llm/registry` – prompt/model registry and capability matrix.
-  - `GET /api/slo`, `GET /api/error-taxonomy`, `GET /metrics/prometheus` – operational readiness surfaces.
+  - `GET /api/slo`, `GET /api/release-gate`, `GET /api/error-taxonomy`, `GET /metrics/prometheus` – operational readiness surfaces.
+  - `GET /api/audit/events` – audit trail query endpoint (scope-gated when auth is enabled).
+  - `GET /api/enterprise` – enterprise conversion metadata and waitlist/trial/SLA links.
   - `GET /api/version` – API contract metadata (`v1`).
   - `GET /health` – simple health check.
 
@@ -166,6 +168,8 @@ environment variables. The most useful overrides are:
 - `OLLAMA_BASE_URL`, `LMSTUDIO_BASE_URL`
 - `SIM_DURATION_HOURS`, `SIM_DT_MINUTES`, `SIM_STRESS_LEVEL`, `SIM_SLEEP_START_HOUR`
 - `SIM_REQUEST_TIMEOUT_SECONDS` (default `3600`)
+- `API_ACCESS_TOKEN` or `API_TOKEN_ROLE_MAP` (role/scope auth policy)
+- `ENTERPRISE_WAITLIST_URL`, `PRO_TRIAL_URL`, `ENTERPRISE_SLA_URL`
 
 ## Docker (development)
 
@@ -221,10 +225,12 @@ By default, frames are captured from `http://localhost:8501` and assembled into
 - `docs/OSS_ROADMAP.md`
 - `docs/RFC_PROCESS.md`
 - `docs/EDITIONS_AND_PRICING.md`
+- `docs/INCIDENT_RUNBOOKS.md`
+- `docs/ENTERPRISE.md`
 
 ## Contributing
 
-DreamForge is at an early research-prototype stage and we welcome contributions from:
+DreamForge is in active productization and global scaling, and we welcome contributions from:
 
 - Computational neuroscientists (sleep, dreaming, neuromodulators).
 - ML researchers and LLM practitioners.

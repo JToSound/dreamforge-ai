@@ -23,6 +23,8 @@ dream narrative for a single sleep segment with these properties:
   Lucidity probability: {lucidity:.2f}
   Active memories : {memory_summary}
   Prior segment summary: {prior_summary}
+  Style preset: {style_preset}
+  Prompt profile: {prompt_profile}
 
 Rules:
 - REM, bizarreness >= 0.8 -> surreal, non-linear, sensory-rich (60-90 words)
@@ -33,6 +35,8 @@ Rules:
 - Lucidity >= 0.5 -> dreamer gains partial self-awareness mid-narrative
 - Incorporate >= 1 active memory node label into the narrative if available
 - Output ONLY the narrative text, no labels, no metadata
+- Style directive: {style_directive}
+- Profile directive: {profile_directive}
 """
 
 SCENE_PROMPT_TEMPLATE = """
@@ -40,6 +44,18 @@ Generate one concise visual scene description (max 25 words) for this segment.
 Stage={stage}, Emotion={emotion}, Bizarreness={bizarreness:.2f}, Lucidity={lucidity:.2f}.
 Output ONLY scene text.
 """
+
+STYLE_PRESET_DIRECTIVES: dict[str, str] = {
+    "scientific": "Use concrete phenomenology, restrained tone, and low metaphor density.",
+    "cinematic": "Use vivid sensory detail and dynamic camera-like scene transitions.",
+    "minimal": "Use sparse and clean language with short clauses and minimal adjectives.",
+    "therapeutic": "Use compassionate tone, emotional safety, and gentle meaning integration.",
+}
+
+PROMPT_PROFILE_DIRECTIVES: dict[str, str] = {
+    "A": "Favor immediate sensory grounding first, then emotional interpretation.",
+    "B": "Favor symbolic continuity and causal links across memory fragments.",
+}
 
 
 def _load_settings() -> dict[str, Any]:
@@ -75,10 +91,14 @@ class NarrativeGenerator:
         *,
         memory_labeler: Callable[[str], str] | None = None,
         config: NarrativeGeneratorConfig | None = None,
+        style_preset: str = "scientific",
+        prompt_profile: str = "A",
     ) -> None:
         self.llm_client = llm_client
         self.memory_labeler = memory_labeler or (lambda node_id: str(node_id))
         self.config = config or NarrativeGeneratorConfig.from_settings()
+        self.style_preset = str(style_preset or "scientific").strip().lower()
+        self.prompt_profile = str(prompt_profile or "A").strip().upper()
 
     async def generate_batch(self, segments: list[dict[str, Any]]) -> None:
         semaphore = asyncio.Semaphore(self.config.concurrency)
@@ -127,6 +147,12 @@ class NarrativeGenerator:
             return
 
         memory_summary = self._memory_summary(segment.get("active_memory_ids", []))
+        style_directive = STYLE_PRESET_DIRECTIVES.get(
+            self.style_preset, STYLE_PRESET_DIRECTIVES["scientific"]
+        )
+        profile_directive = PROMPT_PROFILE_DIRECTIVES.get(
+            self.prompt_profile, PROMPT_PROFILE_DIRECTIVES["A"]
+        )
         prompt = NARRATIVE_PROMPT_TEMPLATE.format(
             stage=stage,
             emotion=str(segment.get("dominant_emotion", "neutral")),
@@ -134,6 +160,10 @@ class NarrativeGenerator:
             lucidity=float(segment.get("lucidity_probability", 0.0)),
             memory_summary=memory_summary,
             prior_summary=prior_summary or "none",
+            style_preset=self.style_preset,
+            prompt_profile=self.prompt_profile,
+            style_directive=style_directive,
+            profile_directive=profile_directive,
         )
         if bool(segment.get("is_lucid", False)):
             prompt = "[LUCID]\n" + prompt

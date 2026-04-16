@@ -11,7 +11,7 @@ services:
       LLM_TIMEOUT:      "120"
       LLM_TIMEOUT_SECONDS: "45.0"
       LLM_JSON_MODE:   "false"
-      LLM_MAX_TOKENS:   "512"
+      LLM_MAX_TOKENS:   "2048"
       LLM_TEMPERATURE:  "0.85"
       REDIS_URL:        redis://redis:6379
     depends_on:

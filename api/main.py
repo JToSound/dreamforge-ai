@@ -79,6 +79,42 @@ ERROR_TAXONOMY: Dict[str, str] = {
     "internal_error": "Unhandled server-side failure.",
 }
 _API_ACCESS_TOKEN = os.getenv("API_ACCESS_TOKEN", "").strip()
+_REDIS_URL = os.getenv("REDIS_URL", "").strip()
+
+
+def _load_token_role_map() -> Dict[str, Dict[str, Any]]:
+    raw = os.getenv("API_TOKEN_ROLE_MAP", "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        logger.warning("Invalid API_TOKEN_ROLE_MAP JSON: %s", exc)
+        return {}
+    if not isinstance(parsed, dict):
+        logger.warning("API_TOKEN_ROLE_MAP must be a JSON object mapping token->policy")
+        return {}
+
+    role_map: Dict[str, Dict[str, Any]] = {}
+    for token, policy in parsed.items():
+        token_str = str(token).strip()
+        if not token_str:
+            continue
+        if not isinstance(policy, dict):
+            continue
+        role = str(policy.get("role", "viewer")).strip().lower() or "viewer"
+        scopes_raw = policy.get("scopes", [])
+        if isinstance(scopes_raw, list):
+            scopes = [str(scope).strip() for scope in scopes_raw if str(scope).strip()]
+        elif isinstance(scopes_raw, str) and scopes_raw.strip():
+            scopes = [scopes_raw.strip()]
+        else:
+            scopes = []
+        role_map[token_str] = {"role": role, "scopes": scopes}
+    return role_map
+
+
+_API_TOKEN_ROLE_MAP = _load_token_role_map()
 try:
     _API_RATE_LIMIT_PER_MINUTE = max(
         10, int(os.getenv("API_RATE_LIMIT_PER_MINUTE", "240"))
@@ -210,11 +246,169 @@ _request_windows: Dict[str, deque[float]] = defaultdict(deque)
 _rate_limit_lock = threading.Lock()
 _jobs_lock = threading.Lock()
 _simulation_jobs: Dict[str, Dict[str, Any]] = {}
+_audit_events: deque[Dict[str, Any]] = deque(maxlen=2000)
+_redis_lock = threading.Lock()
+_redis_client: Any = None
+_redis_disabled = False
+
+_REDIS_KEY_SIMULATION_PREFIX = "dreamforge:simulation:"
+_REDIS_KEY_SIMULATION_INDEX = "dreamforge:simulations"
+_REDIS_KEY_JOB_PREFIX = "dreamforge:job:"
+_REDIS_KEY_AUDIT_EVENTS = "dreamforge:audit:events"
+
+
+def _get_redis_client():
+    global _redis_client, _redis_disabled
+    if _redis_disabled or not _REDIS_URL:
+        return None
+    with _redis_lock:
+        if _redis_client is not None:
+            return _redis_client
+        try:
+            import redis
+
+            client = redis.Redis.from_url(
+                _REDIS_URL,
+                decode_responses=True,
+                socket_connect_timeout=1.0,
+                socket_timeout=1.0,
+            )
+            client.ping()
+            _redis_client = client
+            return _redis_client
+        except (ImportError, RuntimeError, ValueError) as exc:
+            logger.warning("Redis disabled: %s", exc)
+            _redis_disabled = True
+            return None
+        except Exception as exc:
+            logger.warning("Redis unavailable at %s: %s", _REDIS_URL, exc)
+            _redis_disabled = True
+            return None
+
+
+def _persist_simulation(sim_id: str, payload: Dict[str, Any]) -> None:
+    client = _get_redis_client()
+    if client is None:
+        return
+    try:
+        raw = json.dumps(payload, ensure_ascii=False)
+        client.set(f"{_REDIS_KEY_SIMULATION_PREFIX}{sim_id}", raw)
+        client.sadd(_REDIS_KEY_SIMULATION_INDEX, sim_id)
+    except Exception as exc:
+        logger.warning("Failed to persist simulation %s to Redis: %s", sim_id, exc)
+
+
+def _load_persisted_simulation(sim_id: str) -> Optional[Dict[str, Any]]:
+    client = _get_redis_client()
+    if client is None:
+        return None
+    try:
+        raw = client.get(f"{_REDIS_KEY_SIMULATION_PREFIX}{sim_id}")
+        if not raw:
+            return None
+        payload = json.loads(raw)
+        return payload if isinstance(payload, dict) else None
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        logger.warning("Invalid persisted simulation payload for %s: %s", sim_id, exc)
+        return None
+    except Exception as exc:
+        logger.warning("Failed loading simulation %s from Redis: %s", sim_id, exc)
+        return None
+
+
+def _persist_job(job_id: str, payload: Dict[str, Any]) -> None:
+    client = _get_redis_client()
+    if client is None:
+        return
+    try:
+        client.set(
+            f"{_REDIS_KEY_JOB_PREFIX}{job_id}", json.dumps(payload, ensure_ascii=False)
+        )
+    except Exception as exc:
+        logger.warning("Failed to persist job %s to Redis: %s", job_id, exc)
+
+
+def _load_persisted_job(job_id: str) -> Optional[Dict[str, Any]]:
+    client = _get_redis_client()
+    if client is None:
+        return None
+    try:
+        raw = client.get(f"{_REDIS_KEY_JOB_PREFIX}{job_id}")
+        if not raw:
+            return None
+        payload = json.loads(raw)
+        return payload if isinstance(payload, dict) else None
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        logger.warning("Invalid persisted job payload for %s: %s", job_id, exc)
+        return None
+    except Exception as exc:
+        logger.warning("Failed loading job %s from Redis: %s", job_id, exc)
+        return None
+
+
+def _list_persisted_sim_ids() -> List[str]:
+    client = _get_redis_client()
+    if client is None:
+        return []
+    try:
+        values = client.smembers(_REDIS_KEY_SIMULATION_INDEX) or []
+        return [str(item) for item in values if str(item)]
+    except Exception as exc:
+        logger.warning("Failed listing persisted simulation IDs: %s", exc)
+        return []
+
+
+def _persist_audit_event(entry: Dict[str, Any]) -> None:
+    client = _get_redis_client()
+    if client is None:
+        return
+    try:
+        client.lpush(_REDIS_KEY_AUDIT_EVENTS, json.dumps(entry, ensure_ascii=False))
+        client.ltrim(_REDIS_KEY_AUDIT_EVENTS, 0, 1999)
+    except Exception as exc:
+        logger.warning("Failed to persist audit event: %s", exc)
+
+
+def _load_persisted_audit_events(limit: int = 200) -> List[Dict[str, Any]]:
+    client = _get_redis_client()
+    if client is None:
+        return []
+    try:
+        rows = client.lrange(_REDIS_KEY_AUDIT_EVENTS, 0, max(0, int(limit) - 1))
+    except Exception as exc:
+        logger.warning("Failed loading audit events from Redis: %s", exc)
+        return []
+    parsed: List[Dict[str, Any]] = []
+    for row in rows:
+        try:
+            item = json.loads(row)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if isinstance(item, dict):
+            parsed.append(item)
+    return parsed
+
+
+def _resolve_simulation(sim_id: str) -> Optional[Dict[str, Any]]:
+    cached = _simulations.get(sim_id)
+    if isinstance(cached, dict):
+        return cached
+    persisted = _load_persisted_simulation(sim_id)
+    if isinstance(persisted, dict):
+        _simulations[sim_id] = persisted
+    return persisted
 
 
 def _audit(event: str, **fields: Any) -> None:
     payload = " ".join(f"{k}={fields[k]}" for k in sorted(fields))
     logger.info("AUDIT %s %s", event, payload)
+    entry = {
+        "event": str(event),
+        "timestamp": time.time(),
+        "fields": {str(k): fields[k] for k in fields},
+    }
+    _audit_events.append(entry)
+    _persist_audit_event(entry)
 
 
 def _record_simulation_request() -> None:
@@ -283,6 +477,37 @@ def _extract_auth_token(request: Request) -> str:
     return ""
 
 
+def _resolve_token_policy(token: str) -> tuple[str, set[str]]:
+    token_value = str(token or "").strip()
+    if not token_value:
+        return ("anonymous", set())
+    policy = _API_TOKEN_ROLE_MAP.get(token_value)
+    if isinstance(policy, dict):
+        role = str(policy.get("role", "viewer")).strip().lower() or "viewer"
+        scopes_raw = policy.get("scopes", [])
+        scopes = {
+            str(scope).strip()
+            for scope in (scopes_raw if isinstance(scopes_raw, list) else [])
+            if str(scope).strip()
+        }
+        return role, scopes
+    if _API_ACCESS_TOKEN and token_value == _API_ACCESS_TOKEN:
+        return ("admin", {"*"})
+    return ("anonymous", set())
+
+
+def _scope_allowed(request: Request, scope: str) -> bool:
+    if not (_API_ACCESS_TOKEN or _API_TOKEN_ROLE_MAP):
+        return True
+    required = str(scope).strip()
+    if not required:
+        return True
+    scopes = getattr(request.state, "scopes", set())
+    if not isinstance(scopes, set):
+        scopes = set()
+    return "*" in scopes or required in scopes
+
+
 def _is_auth_exempt_path(path: str) -> bool:
     if path in {"/", "/health", "/metrics", "/metrics/prometheus"}:
         return True
@@ -308,6 +533,7 @@ def _read_runtime_metrics() -> Dict[str, float]:
     duration_total = snapshot.get("simulation_duration_seconds_total", 0.0)
     fallback_total = snapshot.get("llm_fallback_segments_total", 0.0)
     llm_total = snapshot.get("llm_invocations_total", 0.0)
+    export_failures_total = snapshot.get("export_failures_total", 0.0)
     api_requests = snapshot.get("api_requests_total", 0.0)
     api_errors = snapshot.get("api_errors_total", 0.0)
     with _jobs_lock:
@@ -330,11 +556,46 @@ def _read_runtime_metrics() -> Dict[str, float]:
     snapshot["api_success_rate"] = round(
         ((api_requests - api_errors) / api_requests) if api_requests > 0 else 0.0, 6
     )
+    snapshot["export_success_rate"] = round(
+        (1.0 - (export_failures_total / completed)) if completed > 0 else 1.0, 6
+    )
     snapshot["job_queue_pending"] = float(jobs_pending)
     snapshot["job_queue_running"] = float(jobs_running)
     snapshot["job_queue_failed"] = float(jobs_failed)
     snapshot["error_codes"] = error_codes
     return snapshot
+
+
+def _build_release_gate_status(metrics_snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    api_success_rate = float(metrics_snapshot.get("api_success_rate", 0.0))
+    simulation_completion_rate = float(
+        metrics_snapshot.get("simulation_completion_rate", 0.0)
+    )
+    latency_proxy = float(metrics_snapshot.get("simulation_duration_seconds_avg", 0.0))
+    export_success_rate = float(metrics_snapshot.get("export_success_rate", 0.0))
+
+    checks = {
+        "api_success_rate_pass": api_success_rate
+        >= float(SLO_TARGETS["api_success_rate_min"]),
+        "simulation_completion_rate_pass": simulation_completion_rate
+        >= float(SLO_TARGETS["simulation_completion_rate_min"]),
+        "simulation_latency_proxy_pass": latency_proxy
+        <= float(SLO_TARGETS["simulation_p95_latency_seconds_max"]),
+        "export_success_rate_pass": export_success_rate
+        >= float(SLO_TARGETS["export_success_rate_min"]),
+    }
+    breaches = [name for name, ok in checks.items() if not ok]
+    return {
+        "pass": len(breaches) == 0,
+        "checks": checks,
+        "breaches": breaches,
+        "targets": SLO_TARGETS,
+        "current": metrics_snapshot,
+        "notes": [
+            "simulation_latency_proxy_pass uses average latency until p95 histograms are wired.",
+            "Release gate should fail when any check is false.",
+        ],
+    }
 
 
 # ── Pydantic schemas (inline — no dependency on api/schemas.py) ───────────────
@@ -379,6 +640,8 @@ class SimulationConfig(BaseModel):
     cannabis: bool = Field(False)
     prior_day_events: List[str] = Field(default_factory=list)
     emotional_state: str = Field("neutral")
+    style_preset: str = Field("scientific")
+    prompt_profile: str = Field("A")
     use_llm: bool = Field(True)
     llm_segments_only: bool = Field(False)
 
@@ -483,12 +746,17 @@ app.add_middleware(
 async def _security_and_telemetry_middleware(request: Request, call_next):
     path = request.url.path
     request_id = uuid.uuid4().hex
+    started_at = time.perf_counter()
     request.state.request_id = request_id
+    request.state.role = "anonymous"
+    request.state.scopes = set()
 
     if path.startswith("/api") and not _is_auth_exempt_path(path):
-        if _API_ACCESS_TOKEN:
-            token = _extract_auth_token(request)
-            if token != _API_ACCESS_TOKEN:
+        token = _extract_auth_token(request)
+        auth_enabled = bool(_API_ACCESS_TOKEN or _API_TOKEN_ROLE_MAP)
+        if auth_enabled:
+            role, scopes = _resolve_token_policy(token)
+            if role == "anonymous":
                 with _metrics_lock:
                     _runtime_metrics["api_unauthorized_total"] += 1.0
                 _record_error_code("unauthorized")
@@ -501,6 +769,11 @@ async def _security_and_telemetry_middleware(request: Request, call_next):
                         "request_id": request_id,
                     },
                 )
+            request.state.role = role
+            request.state.scopes = scopes
+        elif token:
+            request.state.role = "admin"
+            request.state.scopes = {"*"}
 
         if _rate_limited(_api_client_key(request)):
             with _metrics_lock:
@@ -517,6 +790,16 @@ async def _security_and_telemetry_middleware(request: Request, call_next):
             )
 
     response = await call_next(request)
+    duration_ms = round((time.perf_counter() - started_at) * 1000.0, 3)
+    logger.info(
+        "TRACE request path=%s method=%s status=%s duration_ms=%s request_id=%s role=%s",
+        path,
+        request.method,
+        response.status_code,
+        duration_ms,
+        request_id,
+        getattr(request.state, "role", "anonymous"),
+    )
     _record_api_request(response.status_code)
     response.headers["X-Request-ID"] = request_id
     return response
@@ -527,7 +810,7 @@ async def _http_exception_handler(request: Request, exc: HTTPException):
     status_code = int(exc.status_code)
     if status_code == 404:
         code = "not_found"
-    elif status_code == 401:
+    elif status_code in {401, 403}:
         code = "unauthorized"
     elif status_code == 422:
         code = "validation_error"
@@ -1223,27 +1506,58 @@ def _build_comparison_payload(
     c_summary = candidate.get("summary", {})
     b_segments = baseline.get("segments", [])
     c_segments = candidate.get("segments", [])
+    delta_mean_bizarreness = round(
+        float(c_summary.get("mean_bizarreness", 0.0))
+        - float(b_summary.get("mean_bizarreness", 0.0)),
+        4,
+    )
+    delta_rem_fraction = round(
+        float(c_summary.get("rem_fraction", 0.0))
+        - float(b_summary.get("rem_fraction", 0.0)),
+        4,
+    )
+    delta_lucid_event_count = int(c_summary.get("lucid_event_count", 0)) - int(
+        b_summary.get("lucid_event_count", 0)
+    )
+    delta_narrative_quality = round(
+        float(c_summary.get("narrative_quality_mean", 0.0))
+        - float(b_summary.get("narrative_quality_mean", 0.0)),
+        4,
+    )
+    segment_count = max(
+        1,
+        min(
+            len(b_segments) if isinstance(b_segments, list) else 0,
+            len(c_segments) if isinstance(c_segments, list) else 0,
+        ),
+    )
+    sample_confidence = round(min(1.0, (float(segment_count) / 240.0) ** 0.5), 4)
+    anomaly_flags: List[str] = []
+    if abs(delta_mean_bizarreness) >= 0.2:
+        anomaly_flags.append("bizarreness_shift")
+    if abs(delta_rem_fraction) >= 0.08:
+        anomaly_flags.append("rem_fraction_shift")
+    if abs(delta_narrative_quality) >= 0.15:
+        anomaly_flags.append("narrative_quality_shift")
+    if abs(delta_lucid_event_count) >= 3:
+        anomaly_flags.append("lucid_event_spike")
     return {
         "baseline_id": baseline.get("id"),
         "candidate_id": candidate.get("id"),
         "delta": {
-            "mean_bizarreness": round(
-                float(c_summary.get("mean_bizarreness", 0.0))
-                - float(b_summary.get("mean_bizarreness", 0.0)),
-                4,
-            ),
-            "rem_fraction": round(
-                float(c_summary.get("rem_fraction", 0.0))
-                - float(b_summary.get("rem_fraction", 0.0)),
-                4,
-            ),
-            "lucid_event_count": int(c_summary.get("lucid_event_count", 0))
-            - int(b_summary.get("lucid_event_count", 0)),
-            "narrative_quality_mean": round(
-                float(c_summary.get("narrative_quality_mean", 0.0))
-                - float(b_summary.get("narrative_quality_mean", 0.0)),
-                4,
-            ),
+            "mean_bizarreness": delta_mean_bizarreness,
+            "rem_fraction": delta_rem_fraction,
+            "lucid_event_count": delta_lucid_event_count,
+            "narrative_quality_mean": delta_narrative_quality,
+        },
+        "confidence": {
+            "sample_size": segment_count,
+            "metric_confidence": {
+                "mean_bizarreness": sample_confidence,
+                "rem_fraction": sample_confidence,
+                "lucid_event_count": sample_confidence,
+                "narrative_quality_mean": sample_confidence,
+            },
         },
         "stage_minutes": {
             "baseline": _stage_minutes(
@@ -1253,6 +1567,17 @@ def _build_comparison_payload(
                 c_segments if isinstance(c_segments, list) else []
             ),
         },
+        "event_markers": {
+            "baseline_lucid_events": int(b_summary.get("lucid_event_count", 0)),
+            "candidate_lucid_events": int(c_summary.get("lucid_event_count", 0)),
+            "baseline_llm_fallback_segments": int(
+                b_summary.get("llm_fallback_segments", 0)
+            ),
+            "candidate_llm_fallback_segments": int(
+                c_summary.get("llm_fallback_segments", 0)
+            ),
+        },
+        "anomaly_flags": anomaly_flags,
         "generated_at_unix": time.time(),
     }
 
@@ -1264,6 +1589,7 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
             return
         job["status"] = "running"
         job["started_at"] = time.time()
+        _persist_job(job_id, dict(job))
     try:
         result = await simulate_night(config)
         payload = result.model_dump() if hasattr(result, "model_dump") else dict(result)
@@ -1275,6 +1601,7 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
             job["completed_at"] = time.time()
             job["simulation_id"] = payload.get("id")
             job["result"] = payload
+            _persist_job(job_id, dict(job))
     except Exception as exc:
         logger.exception("Async simulation job failed: %s", exc)
         _record_simulation_failure("internal_error")
@@ -1286,6 +1613,7 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
             job["completed_at"] = time.time()
             job["error_code"] = "internal_error"
             job["error_message"] = str(exc)
+            _persist_job(job_id, dict(job))
 
 
 def _prometheus_metrics_text(metrics: dict[str, Any]) -> str:
@@ -1561,6 +1889,8 @@ async def simulate_night(config: SimulationConfig):
         generator = NarrativeGenerator(
             llm_client=client,
             memory_labeler=lambda node_id: label_map.get(str(node_id), str(node_id)),
+            style_preset=config.style_preset,
+            prompt_profile=config.prompt_profile,
         )
         await generator.generate_batch(raw_segments)
 
@@ -1657,6 +1987,8 @@ async def simulate_night(config: SimulationConfig):
             "melatonin": config.melatonin,
             "cannabis": config.cannabis,
         },
+        "style_preset": config.style_preset,
+        "prompt_profile": config.prompt_profile,
         **quality_summary,
     }
 
@@ -1696,6 +2028,7 @@ async def simulate_night(config: SimulationConfig):
 
     # Persist to in-memory store
     _simulations[sim_id] = result_payload
+    _persist_simulation(sim_id, result_payload)
     _record_simulation_completion(
         duration_seconds=time.perf_counter() - started_at,
         llm_invocations=llm_total_invocations,
@@ -1732,6 +2065,7 @@ async def submit_simulation_night_async(config: SimulationConfig):
             "status": "pending",
             "created_at": time.time(),
         }
+        _persist_job(job_id, dict(_simulation_jobs[job_id]))
     asyncio.create_task(_run_simulation_job(job_id, config))
     _audit("simulation_job_submitted", job_id=job_id)
     return AsyncSimulationSubmitResponse(
@@ -1754,37 +2088,41 @@ async def submit_simulation_night_async(config: SimulationConfig):
 async def get_simulation_job(job_id: str):
     with _jobs_lock:
         job = _simulation_jobs.get(job_id)
-        if not job:
+    if not job:
+        persisted = _load_persisted_job(job_id)
+        if not persisted:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Job '{job_id}' not found.",
             )
-        return AsyncSimulationJobResponse(
-            job_id=job_id,
-            status=str(job.get("status", "pending")),
-            created_at=float(job.get("created_at", 0.0)),
-            started_at=(
-                float(job["started_at"]) if job.get("started_at") is not None else None
-            ),
-            completed_at=(
-                float(job["completed_at"])
-                if job.get("completed_at") is not None
-                else None
-            ),
-            error_code=(
-                str(job["error_code"]) if job.get("error_code") is not None else None
-            ),
-            error_message=(
-                str(job["error_message"])
-                if job.get("error_message") is not None
-                else None
-            ),
-            simulation_id=(
-                str(job["simulation_id"])
-                if job.get("simulation_id") is not None
-                else None
-            ),
+        with _jobs_lock:
+            _simulation_jobs[job_id] = persisted
+            job = persisted
+    if not isinstance(job, dict):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job '{job_id}' not found.",
         )
+    return AsyncSimulationJobResponse(
+        job_id=job_id,
+        status=str(job.get("status", "pending")),
+        created_at=float(job.get("created_at", 0.0)),
+        started_at=(
+            float(job["started_at"]) if job.get("started_at") is not None else None
+        ),
+        completed_at=(
+            float(job["completed_at"]) if job.get("completed_at") is not None else None
+        ),
+        error_code=(
+            str(job["error_code"]) if job.get("error_code") is not None else None
+        ),
+        error_message=(
+            str(job["error_message"]) if job.get("error_message") is not None else None
+        ),
+        simulation_id=(
+            str(job["simulation_id"]) if job.get("simulation_id") is not None else None
+        ),
+    )
 
 
 @app.get(
@@ -1799,12 +2137,13 @@ async def get_simulation_job(job_id: str):
 )
 async def get_simulation(sim_id: str):
     """Retrieve a previously run simulation by ID."""
-    if sim_id not in _simulations:
+    payload = _resolve_simulation(sim_id)
+    if not isinstance(payload, dict):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Simulation '{sim_id}' not found. Run POST /api/simulation/night first.",
         )
-    return _simulations[sim_id]
+    return payload
 
 
 @app.get("/simulation/{sim_id}", response_model=SimulationResponse, tags=["Simulation"])
@@ -1894,7 +2233,11 @@ async def simulate_night_stream(config: SimulationConfig):
 async def list_dreams():
     """List all stored simulation summaries."""
     summaries = []
-    for sim_id, data in _simulations.items():
+    sim_ids = set(_simulations.keys()) | set(_list_persisted_sim_ids())
+    for sim_id in sorted(sim_ids):
+        data = _resolve_simulation(sim_id)
+        if not isinstance(data, dict):
+            continue
         summaries.append(
             {
                 "id": sim_id,
@@ -1919,13 +2262,13 @@ async def counterfactual(req: CounterfactualRequest):
     Applies `perturbations` (parameter overrides) to the original config
     and re-runs the simulation, allowing side-by-side comparison.
     """
-    if req.base_simulation_id not in _simulations:
+    base = _resolve_simulation(req.base_simulation_id)
+    if not isinstance(base, dict):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Base simulation '{req.base_simulation_id}' not found.",
         )
 
-    base = _simulations[req.base_simulation_id]
     base_config_dict = dict(base["config"])
 
     # Apply perturbations
@@ -1942,18 +2285,18 @@ async def counterfactual(req: CounterfactualRequest):
 @app.post("/api/simulation/compare", tags=["Simulation"])
 @app.post("/api/v1/simulation/compare", tags=["Simulation"])
 async def compare_simulations(req: CompareRequest):
-    if req.baseline_simulation_id not in _simulations:
+    baseline = _resolve_simulation(req.baseline_simulation_id)
+    if not isinstance(baseline, dict):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Baseline simulation '{req.baseline_simulation_id}' not found.",
         )
-    if req.candidate_simulation_id not in _simulations:
+    candidate = _resolve_simulation(req.candidate_simulation_id)
+    if not isinstance(candidate, dict):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Candidate simulation '{req.candidate_simulation_id}' not found.",
         )
-    baseline = _simulations[req.baseline_simulation_id]
-    candidate = _simulations[req.candidate_simulation_id]
     payload = _build_comparison_payload(baseline, candidate)
     _audit(
         "simulation_compared",
@@ -2012,7 +2355,7 @@ async def health_check():
         "llm_connected": bool(llm_status.get("ok", False)),
         "llm_provider": client.config.provider,
         "llm_model": client.config.model,
-        "auth_enabled": bool(_API_ACCESS_TOKEN),
+        "auth_enabled": bool(_API_ACCESS_TOKEN or _API_TOKEN_ROLE_MAP),
         "runtime_metrics": _read_runtime_metrics(),
     }
 
@@ -2059,4 +2402,74 @@ async def error_taxonomy():
     return {
         "taxonomy": ERROR_TAXONOMY,
         "observed_counts": metrics_snapshot.get("error_codes", {}),
+    }
+
+
+@app.get("/api/release-gate", tags=["System"])
+@app.get("/api/v1/release-gate", tags=["System"])
+async def release_gate_status():
+    metrics_snapshot = _read_runtime_metrics()
+    return _build_release_gate_status(metrics_snapshot)
+
+
+@app.get("/api/audit/events", tags=["System"])
+@app.get("/api/v1/audit/events", tags=["System"])
+async def audit_events(
+    request: Request,
+    event: Optional[str] = None,
+    since: Optional[float] = None,
+    limit: int = 100,
+):
+    if not _scope_allowed(request, "audit:read"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Missing required scope: audit:read",
+        )
+    max_limit = max(1, min(int(limit), 1000))
+    entries = list(_audit_events)
+    if len(entries) < max_limit:
+        entries.extend(_load_persisted_audit_events(limit=max_limit))
+    filtered: List[Dict[str, Any]] = []
+    event_filter = str(event).strip() if event else ""
+    since_ts = float(since) if since is not None else None
+    for row in entries:
+        if not isinstance(row, dict):
+            continue
+        row_event = str(row.get("event", ""))
+        row_ts = row.get("timestamp")
+        try:
+            row_ts_f = float(row_ts) if row_ts is not None else 0.0
+        except (TypeError, ValueError):
+            row_ts_f = 0.0
+        if event_filter and row_event != event_filter:
+            continue
+        if since_ts is not None and row_ts_f < since_ts:
+            continue
+        filtered.append(row)
+    filtered.sort(
+        key=lambda item: float(item.get("timestamp", 0.0)),
+        reverse=True,
+    )
+    return {
+        "count": len(filtered[:max_limit]),
+        "items": filtered[:max_limit],
+    }
+
+
+@app.get("/api/enterprise", tags=["System"])
+@app.get("/api/v1/enterprise", tags=["System"])
+async def enterprise_surface():
+    return {
+        "status": "active",
+        "editions": ["community", "pro", "enterprise"],
+        "value_props": [
+            "API + dashboard baseline in OSS",
+            "Team collaboration and analytics in Pro",
+            "RBAC, audit, SLA, deployment controls in Enterprise",
+        ],
+        "links": {
+            "waitlist": os.getenv("ENTERPRISE_WAITLIST_URL", ""),
+            "trial": os.getenv("PRO_TRIAL_URL", ""),
+            "sla_sheet": os.getenv("ENTERPRISE_SLA_URL", ""),
+        },
     }

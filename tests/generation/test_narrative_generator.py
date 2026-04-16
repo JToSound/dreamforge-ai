@@ -47,6 +47,17 @@ class _DirtyOutputLLM:
         )
 
 
+class _PromptCaptureLLM:
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    async def chat(self, system: str, user: str) -> str:
+        self.prompts.append(f"{system}\n{user}")
+        if "Scene description generator" in system:
+            return "A reflective hallway."
+        return "The corridor loops while distant voices fade into static."
+
+
 @pytest.mark.asyncio
 async def test_rem_narrative_word_count_gte_40() -> None:
     seg = {
@@ -209,3 +220,27 @@ async def test_narrative_and_scene_outputs_are_sanitized() -> None:
     assert not seg["narrative"].lower().startswith("narrative:")
     assert not seg["scene_description"].lower().startswith("scene:")
     assert "no_think" not in seg["scene_description"].lower()
+
+
+@pytest.mark.asyncio
+async def test_style_preset_and_prompt_profile_are_injected() -> None:
+    seg = {
+        "stage": "REM",
+        "dominant_emotion": "neutral",
+        "bizarreness_score": 0.75,
+        "lucidity_probability": 0.3,
+        "active_memory_ids": ["m1"],
+        "start_time_hours": 2.5,
+        "narrative": "",
+    }
+    capture = _PromptCaptureLLM()
+    gen = NarrativeGenerator(
+        llm_client=capture,
+        style_preset="cinematic",
+        prompt_profile="B",
+        config=NarrativeGeneratorConfig(llm_enabled=True),
+    )
+    await gen.generate_batch([seg])
+    joined = "\n".join(capture.prompts)
+    assert "Style preset: cinematic" in joined
+    assert "Prompt profile: B" in joined

@@ -68,6 +68,8 @@ def _sim_payload(**overrides):
         "cannabis": False,
         "prior_day_events": ["had a long meeting"],
         "emotional_state": "neutral",
+        "style_preset": "scientific",
+        "prompt_profile": "A",
         "use_llm": False,
         "llm_segments_only": False,
     }
@@ -186,6 +188,8 @@ def test_simulation_crud_and_counterfactual(patched_api):
         )
         assert compare.status_code == 200
         assert "delta" in compare.json()
+        assert "confidence" in compare.json()
+        assert "anomaly_flags" in compare.json()
 
 
 def test_simulation_stream_and_missing_id(patched_api):
@@ -220,6 +224,11 @@ def test_metrics_and_narrative_quality_integration(patched_api):
         taxonomy = client.get("/api/error-taxonomy")
         assert taxonomy.status_code == 200
         assert "taxonomy" in taxonomy.json()
+
+        release_gate = client.get("/api/release-gate")
+        assert release_gate.status_code == 200
+        assert "pass" in release_gate.json()
+        assert "checks" in release_gate.json()
 
         prom = client.get("/metrics/prometheus")
         assert prom.status_code == 200
@@ -287,6 +296,22 @@ def test_async_simulation_job_flow(patched_api):
             time.sleep(0.05)
 
         assert final_status == "completed"
+
+
+def test_enterprise_and_audit_surfaces(patched_api):
+    with TestClient(patched_api.app) as client:
+        created = client.post("/api/simulation/night", json=_sim_payload())
+        assert created.status_code == 201
+
+        enterprise = client.get("/api/enterprise")
+        assert enterprise.status_code == 200
+        enterprise_payload = enterprise.json()
+        assert enterprise_payload["status"] == "active"
+        assert "editions" in enterprise_payload
+
+        audit = client.get("/api/audit/events")
+        assert audit.status_code == 200
+        assert "items" in audit.json()
 
 
 @pytest.mark.asyncio
