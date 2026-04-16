@@ -101,11 +101,14 @@ def _api_get_json(path: str, timeout: float = 8.0) -> tuple[bool, dict]:
 
 
 def _api_post_json(
-    path: str, payload: dict, timeout: float = 12.0
+    path: str,
+    payload: dict,
+    timeout: float = 12.0,
+    success_codes: tuple[int, ...] = (200, 201),
 ) -> tuple[bool, dict]:
     try:
         resp = httpx.post(f"{API_BASE}{path}", json=payload, timeout=timeout)
-        if resp.status_code in (200, 201):
+        if resp.status_code in success_codes:
             body = resp.json()
             return (isinstance(body, dict), body if isinstance(body, dict) else {})
         return False, {"status_code": resp.status_code, "body": resp.text[:400]}
@@ -348,9 +351,20 @@ st.markdown(f"# 🌌 {tr(_locale, 'app_title')}")
 st.markdown(f"*{tr(_locale, 'app_tagline')}*")
 
 col_run, col_status = st.columns([2, 5])
+active_job_id = str(st.session_state.get("active_sim_job_id") or "")
 
 with col_run:
-    run_btn = st.button(f"▶  {tr(_locale, 'run_simulation')}", use_container_width=True)
+    run_col, stop_col = st.columns(2)
+    run_btn = run_col.button(
+        f"▶  {tr(_locale, 'run_simulation')}",
+        use_container_width=True,
+        disabled=bool(active_job_id),
+    )
+    stop_btn = stop_col.button(
+        f"⏹  {tr(_locale, 'stop_simulation')}",
+        use_container_width=True,
+        disabled=not bool(active_job_id),
+    )
 
 status_placeholder = col_status.empty()
 
@@ -418,10 +432,10 @@ def _render_chart_with_exports(title: str, fig: go.Figure, key_prefix: str) -> N
     )
 
 
-# ── Helper: run simulation ────────────────────────────────────────────────────
-def run_simulation() -> Optional[dict]:
+# ── Helper: build simulation payload ──────────────────────────────────────────
+def _build_simulation_payload() -> dict:
     events_list = [e.strip() for e in events_text.splitlines() if e.strip()]
-    payload = {
+    return {
         "duration_hours": duration_hours,
         "dt_minutes": dt_minutes,
         "sleep_start_hour": sleep_start,
@@ -435,28 +449,6 @@ def run_simulation() -> Optional[dict]:
         "use_llm": use_llm,
         "prior_day_events": events_list,
     }
-    try:
-        with st.spinner("🧬 Simulating dream cycle…"):
-            r = httpx.post(
-                f"{API_BASE}/api/simulation/night",
-                json=payload,
-                timeout=float(simulation_request_timeout_seconds),
-            )
-        if r.status_code in (200, 201):
-            return r.json()
-        else:
-            st.error(f"API Error {r.status_code}: {r.text[:400]}")
-            return None
-    except httpx.ConnectError:
-        st.error(
-            "❌ Cannot reach API at `http://api:8000`. Is the `api` container running?"
-        )
-        return None
-    except httpx.ReadTimeout:
-        st.error(
-            "⏱ Request timed out. Increase 'Simulation request timeout (seconds)' in the sidebar and try again."
-        )
-        return None
 
 
 # ── Run & display ─────────────────────────────────────────────────────────────
@@ -464,17 +456,107 @@ if run_btn:
     if not check_api():
         st.error("❌ API service not reachable. Check `docker-compose logs api`.")
     else:
-        result = run_simulation()
-        if result:
-            st.session_state["last_result"] = result
-            history = st.session_state.get("simulation_history", [])
-            if not isinstance(history, list):
-                history = []
-            sim_id = str(result.get("id") or "")
-            if sim_id and all(str(item.get("id")) != sim_id for item in history):
-                history.append(result)
-            st.session_state["simulation_history"] = history
-            status_placeholder.success("✅ Simulation complete!")
+        ok_submit, submit_payload = _api_post_json(
+            "/api/simulation/night/async",
+            _build_simulation_payload(),
+            timeout=10.0,
+            success_codes=(202,),
+        )
+        if ok_submit and submit_payload.get("job_id"):
+            st.session_state["active_sim_job_id"] = str(submit_payload["job_id"])
+            status_placeholder.info(
+                f"⏳ Simulation started (job {str(submit_payload['job_id'])[:8]}...)."
+            )
+            st.rerun()
+        else:
+            st.error(
+                "Failed to start simulation job: "
+                f"{submit_payload.get('status_code', '')} "
+                f"{submit_payload.get('body', submit_payload.get('error', ''))}"
+            )
+
+if stop_btn and active_job_id:
+    ok_stop, stop_payload = _api_post_json(
+        f"/api/simulation/jobs/{active_job_id}/cancel",
+        {},
+        timeout=8.0,
+        success_codes=(200,),
+    )
+    if not ok_stop:
+        st.error(
+            "Failed to stop simulation job: "
+            f"{stop_payload.get('status_code', '')} "
+            f"{stop_payload.get('body', stop_payload.get('error', ''))}"
+        )
+    else:
+        status_text = str(stop_payload.get("status", "cancelling"))
+        if status_text == "cancelled":
+            st.session_state.pop("active_sim_job_id", None)
+            status_placeholder.warning("🛑 Simulation stopped.")
+        else:
+            status_placeholder.warning("🛑 Stop requested. Cancelling simulation...")
+    st.rerun()
+
+active_job_id = str(st.session_state.get("active_sim_job_id") or "")
+if active_job_id:
+    ok_job, job_payload = _api_get_json(
+        f"/api/simulation/jobs/{active_job_id}",
+        timeout=10.0,
+    )
+    if ok_job:
+        job_status = str(job_payload.get("status", "pending"))
+        if job_status in {"pending", "running", "cancelling"}:
+            status_map = {
+                "pending": "⏳ Simulation queued...",
+                "running": "🧬 Simulation running...",
+                "cancelling": "🛑 Cancelling simulation...",
+            }
+            status_placeholder.info(
+                status_map.get(job_status, "⏳ Simulation running...")
+            )
+            time.sleep(1)
+            st.rerun()
+        elif job_status == "completed":
+            sim_id = str(job_payload.get("simulation_id") or "")
+            if not sim_id:
+                st.error("Simulation finished but no simulation_id was returned.")
+                st.session_state.pop("active_sim_job_id", None)
+            else:
+                ok_result, result_payload = _api_get_json(
+                    f"/api/simulation/{sim_id}",
+                    timeout=float(simulation_request_timeout_seconds),
+                )
+                if not ok_result:
+                    st.error("Simulation completed, but result fetch failed.")
+                else:
+                    st.session_state["last_result"] = result_payload
+                    history = st.session_state.get("simulation_history", [])
+                    if not isinstance(history, list):
+                        history = []
+                    if sim_id and all(
+                        str(item.get("id")) != sim_id
+                        for item in history
+                        if isinstance(item, dict)
+                    ):
+                        history.append(result_payload)
+                    st.session_state["simulation_history"] = history
+                    status_placeholder.success("✅ Simulation complete!")
+                st.session_state.pop("active_sim_job_id", None)
+        elif job_status == "failed":
+            st.error(
+                "Simulation failed: "
+                + str(
+                    job_payload.get("error_message")
+                    or job_payload.get("error_code")
+                    or "unknown_error"
+                )
+            )
+            st.session_state.pop("active_sim_job_id", None)
+        elif job_status == "cancelled":
+            status_placeholder.warning("🛑 Simulation stopped.")
+            st.session_state.pop("active_sim_job_id", None)
+    else:
+        status_placeholder.warning("Unable to poll simulation job status.")
 
 result = st.session_state.get("last_result")
 if isinstance(result, dict):

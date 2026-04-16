@@ -246,6 +246,7 @@ _request_windows: Dict[str, deque[float]] = defaultdict(deque)
 _rate_limit_lock = threading.Lock()
 _jobs_lock = threading.Lock()
 _simulation_jobs: Dict[str, Dict[str, Any]] = {}
+_simulation_job_tasks: Dict[str, asyncio.Task[Any]] = {}
 _audit_events: deque[Dict[str, Any]] = deque(maxlen=2000)
 _redis_lock = threading.Lock()
 _redis_client: Any = None
@@ -708,6 +709,12 @@ class AsyncSimulationJobResponse(BaseModel):
     error_code: Optional[str] = None
     error_message: Optional[str] = None
     simulation_id: Optional[str] = None
+
+
+class AsyncSimulationCancelResponse(BaseModel):
+    job_id: str
+    status: str
+    message: str
 
 
 # ── FastAPI app ───────────────────────────────────────────────────────────────
@@ -1602,6 +1609,18 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
             job["simulation_id"] = payload.get("id")
             job["result"] = payload
             _persist_job(job_id, dict(job))
+    except asyncio.CancelledError:
+        logger.info("Async simulation job cancelled: %s", job_id)
+        with _jobs_lock:
+            job = _simulation_jobs.get(job_id)
+            if job:
+                job["status"] = "cancelled"
+                job["completed_at"] = time.time()
+                job["error_code"] = "cancelled"
+                job["error_message"] = "Simulation cancelled by user."
+                _persist_job(job_id, dict(job))
+        _audit("simulation_job_cancelled", job_id=job_id)
+        raise
     except Exception as exc:
         logger.exception("Async simulation job failed: %s", exc)
         _record_simulation_failure("internal_error")
@@ -1614,6 +1633,9 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
             job["error_code"] = "internal_error"
             job["error_message"] = str(exc)
             _persist_job(job_id, dict(job))
+    finally:
+        with _jobs_lock:
+            _simulation_job_tasks.pop(job_id, None)
 
 
 def _prometheus_metrics_text(metrics: dict[str, Any]) -> str:
@@ -2066,7 +2088,9 @@ async def submit_simulation_night_async(config: SimulationConfig):
             "created_at": time.time(),
         }
         _persist_job(job_id, dict(_simulation_jobs[job_id]))
-    asyncio.create_task(_run_simulation_job(job_id, config))
+    task = asyncio.create_task(_run_simulation_job(job_id, config))
+    with _jobs_lock:
+        _simulation_job_tasks[job_id] = task
     _audit("simulation_job_submitted", job_id=job_id)
     return AsyncSimulationSubmitResponse(
         job_id=job_id,
@@ -2122,6 +2146,72 @@ async def get_simulation_job(job_id: str):
         simulation_id=(
             str(job["simulation_id"]) if job.get("simulation_id") is not None else None
         ),
+    )
+
+
+@app.post(
+    "/api/simulation/jobs/{job_id}/cancel",
+    response_model=AsyncSimulationCancelResponse,
+    tags=["Simulation"],
+)
+@app.post(
+    "/api/v1/simulation/jobs/{job_id}/cancel",
+    response_model=AsyncSimulationCancelResponse,
+    tags=["Simulation"],
+)
+async def cancel_simulation_job(job_id: str):
+    with _jobs_lock:
+        job = _simulation_jobs.get(job_id)
+    if not job:
+        persisted = _load_persisted_job(job_id)
+        if not persisted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Job '{job_id}' not found.",
+            )
+        with _jobs_lock:
+            _simulation_jobs[job_id] = persisted
+            job = persisted
+    if not isinstance(job, dict):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job '{job_id}' not found.",
+        )
+
+    status_val = str(job.get("status", "pending"))
+    if status_val in {"completed", "failed", "cancelled"}:
+        return AsyncSimulationCancelResponse(
+            job_id=job_id,
+            status=status_val,
+            message=f"Job already {status_val}.",
+        )
+
+    with _jobs_lock:
+        task = _simulation_job_tasks.get(job_id)
+        if task and not task.done():
+            task.cancel()
+            job["status"] = "cancelling"
+            job["error_code"] = "cancelled"
+            job["error_message"] = "Cancellation requested by user."
+            _persist_job(job_id, dict(job))
+            _audit("simulation_job_cancellation_requested", job_id=job_id)
+            return AsyncSimulationCancelResponse(
+                job_id=job_id,
+                status="cancelling",
+                message="Cancellation requested.",
+            )
+
+    with _jobs_lock:
+        job["status"] = "cancelled"
+        job["completed_at"] = time.time()
+        job["error_code"] = "cancelled"
+        job["error_message"] = "Simulation cancelled by user."
+        _persist_job(job_id, dict(job))
+    _audit("simulation_job_cancelled_without_task", job_id=job_id)
+    return AsyncSimulationCancelResponse(
+        job_id=job_id,
+        status="cancelled",
+        message="Job marked as cancelled.",
     )
 
 

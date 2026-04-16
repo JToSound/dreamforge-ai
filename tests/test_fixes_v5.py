@@ -206,6 +206,9 @@ def test_dashboard_memory_controls_and_compare_guards_are_stable() -> None:
     assert "sim_ts = int(time.time())" not in src
     assert 'key=f"mem_nodes_limit_{sim_key}"' in src
     assert 'key=f"mem_heat_top_nodes_{sim_key}"' in src
+    assert "f\"⏹  {tr(_locale, 'stop_simulation')}\"" in src
+    assert '"/api/simulation/night/async"' in src
+    assert 'f"/api/simulation/jobs/{active_job_id}/cancel"' in src
     assert "Baseline and candidate are the same run." in src
     assert "anomaly_explanations = {" in src
 

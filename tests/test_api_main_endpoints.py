@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 import pytest
@@ -45,6 +46,10 @@ def patched_api(monkeypatch):
     api_main._simulations.clear()
     with api_main._jobs_lock:
         api_main._simulation_jobs.clear()
+        for task in api_main._simulation_job_tasks.values():
+            if not task.done():
+                task.cancel()
+        api_main._simulation_job_tasks.clear()
     with api_main._rate_limit_lock:
         api_main._request_windows.clear()
     with api_main._metrics_lock:
@@ -296,6 +301,35 @@ def test_async_simulation_job_flow(patched_api):
             time.sleep(0.05)
 
         assert final_status == "completed"
+
+
+def test_async_simulation_job_can_be_cancelled(patched_api, monkeypatch):
+    async def _slow_simulation(_config):
+        await asyncio.sleep(2.0)
+        return {}
+
+    monkeypatch.setattr(api_main, "simulate_night", _slow_simulation)
+
+    with TestClient(patched_api.app) as client:
+        submit = client.post("/api/simulation/night/async", json=_sim_payload())
+        assert submit.status_code == 202
+        job_id = submit.json()["job_id"]
+
+        cancel = client.post(f"/api/simulation/jobs/{job_id}/cancel")
+        assert cancel.status_code == 200
+        assert cancel.json()["status"] in {"cancelling", "cancelled"}
+
+        final_status = None
+        for _ in range(40):
+            resp = client.get(f"/api/simulation/jobs/{job_id}")
+            assert resp.status_code == 200
+            status_val = resp.json()["status"]
+            if status_val == "cancelled":
+                final_status = status_val
+                break
+            time.sleep(0.05)
+
+        assert final_status == "cancelled"
 
 
 def test_enterprise_and_audit_surfaces(patched_api):

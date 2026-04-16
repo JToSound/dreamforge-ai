@@ -51,6 +51,10 @@
   - static analytics export now provides graceful runtime fallback with interactive HTML export when image renderer is unavailable,
   - REM narrative viewer sanitizes pasted-content/code artifacts and uses product-style expandable cards,
   - hypnogram/neuro/lucidity/memory/heatmap visualizations upgraded with clearer annotations, filters, and compare delta charting.
+- Simulation stop-control hardening:
+  - added async job cancellation API (`/api/simulation/jobs/{job_id}/cancel`, plus `/api/v1` alias),
+  - dashboard run flow now uses async submit/poll so `Stop` can terminate in-flight simulation jobs (including active LLM generation),
+  - added regression coverage for async cancel lifecycle and dashboard stop wiring.
 
 ## [Round 6]
 
