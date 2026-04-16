@@ -58,7 +58,10 @@
 - Dashboard control + export reliability fixes:
   - fixed stop-state UX so one cancel action can return the UI to runnable state without a second stop click,
   - static chart PNG/SVG export now uses layered fallback (local Plotly export + API export endpoint) to improve export success rate,
+  - export fallback now uses JSON-safe figure serialization and includes runtime kaleido bootstrap retry for environments missing local exporter binaries,
   - added chart export API (`/api/charts/export`, plus `/api/v1` alias) and compare-delta validation coverage.
+- Dependency hardening:
+  - standardized on `kaleido>=1.2.0` and added Chromium to Docker images (`BROWSER_PATH=/usr/bin/chromium`) for stable containerized static exports.
 
 ## [Round 6]
 

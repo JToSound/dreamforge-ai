@@ -23,6 +23,11 @@ FROM python:3.11-slim AS runtime
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV BROWSER_PATH=/usr/bin/chromium
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends chromium \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy pre-built wheels from builder stage to speed up install.
 COPY --from=builder /wheels /wheels

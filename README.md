@@ -172,7 +172,8 @@ environment variables. The most useful overrides are:
 - `ENTERPRISE_WAITLIST_URL`, `PRO_TRIAL_URL`, `ENTERPRISE_SLA_URL`
 
 Chart export note:
-- `kaleido` is included in requirements for PNG/SVG chart export.
+- `kaleido>=1.2.0` is included for PNG/SVG chart export.
+- Docker images include Chromium (`BROWSER_PATH=/usr/bin/chromium`) so static export works inside containers.
 - If static image export is unavailable in a specific runtime, dashboard still supports interactive HTML export.
 
 ## Docker (development)

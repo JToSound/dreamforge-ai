@@ -7,6 +7,8 @@ import json
 import time
 import html
 import re
+import subprocess
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Optional
@@ -386,6 +388,36 @@ def _build_export_figure(fig: go.Figure) -> go.Figure:
     return export_fig
 
 
+def _ensure_kaleido_runtime() -> bool:
+    checked = bool(st.session_state.get("_kaleido_runtime_checked", False))
+    if checked:
+        return bool(st.session_state.get("_kaleido_runtime_ready", False))
+
+    st.session_state["_kaleido_runtime_checked"] = True
+    try:
+        import kaleido  # noqa: F401
+
+        st.session_state["_kaleido_runtime_ready"] = True
+        return True
+    except Exception:
+        pass
+
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "kaleido>=1.2.0", "--quiet"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        import kaleido  # noqa: F401
+
+        st.session_state["_kaleido_runtime_ready"] = True
+        return True
+    except Exception:
+        st.session_state["_kaleido_runtime_ready"] = False
+        return False
+
+
 def _export_image_bytes(
     fig: go.Figure, image_format: str, *, scale: float = 2.0
 ) -> Optional[bytes]:
@@ -396,20 +428,28 @@ def _export_image_bytes(
     except Exception:
         pass
 
-    try:
-        response = httpx.post(
-            f"{API_BASE}/api/charts/export",
-            json={
-                "figure": export_fig.to_plotly_json(),
-                "format": image_format,
-                "scale": export_scale,
-            },
-            timeout=30.0,
-        )
-        if response.status_code == 200 and response.content:
-            return bytes(response.content)
-    except Exception:
-        return None
+    if _ensure_kaleido_runtime():
+        try:
+            return pio.to_image(export_fig, format=image_format, scale=export_scale)
+        except Exception:
+            pass
+
+    payload = {
+        "figure": json.loads(pio.to_json(export_fig, validate=False)),
+        "format": image_format,
+        "scale": export_scale,
+    }
+    for export_path in ("/api/charts/export", "/api/v1/charts/export"):
+        try:
+            response = httpx.post(
+                f"{API_BASE}{export_path}",
+                json=payload,
+                timeout=30.0,
+            )
+            if response.status_code == 200 and response.content:
+                return bytes(response.content)
+        except Exception:
+            continue
     return None
 
 
