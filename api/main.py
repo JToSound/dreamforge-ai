@@ -22,24 +22,30 @@ ReDoc      : http://localhost:8000/redoc
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import random
 import re
+import threading
+import time
 import uuid
+from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from core.data.template_loader import SchemaValidationError, TemplateBank
 from core.models.sleep_cycle import SleepCycleModel, SleepStage
 from core.models.neurochemistry import cortisol_profile
 from core.generation.narrative_generator import NarrativeGenerator
+from core.llm_registry import get_llm_registry_snapshot
+from core.quality.narrative_quality import summarize_narrative_quality
 from core.simulation.lucidity_model import LucidityModel, LucidityTickState
 from core.simulation.llm_client import parse_narrative_response
 from core.simulation.exporters import (
@@ -54,6 +60,32 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("dreamforge.api")
+
+API_CONTRACT_VERSION = "v1"
+PROMPT_PROFILE_VERSION = "narrative-v1.0"
+SLO_TARGETS: Dict[str, float] = {
+    "api_success_rate_min": 0.995,
+    "simulation_completion_rate_min": 0.99,
+    "simulation_p95_latency_seconds_max": 30.0,
+    "export_success_rate_min": 0.995,
+}
+ERROR_TAXONOMY: Dict[str, str] = {
+    "validation_error": "Request payload or parameters are invalid.",
+    "not_found": "Requested resource does not exist.",
+    "unauthorized": "Authentication failed or missing credentials.",
+    "rate_limited": "Too many requests in the configured time window.",
+    "provider_error": "Upstream model/provider rejected or failed the request.",
+    "timeout": "Request or model call exceeded timeout threshold.",
+    "internal_error": "Unhandled server-side failure.",
+}
+_API_ACCESS_TOKEN = os.getenv("API_ACCESS_TOKEN", "").strip()
+try:
+    _API_RATE_LIMIT_PER_MINUTE = max(
+        10, int(os.getenv("API_RATE_LIMIT_PER_MINUTE", "240"))
+    )
+except ValueError:
+    _API_RATE_LIMIT_PER_MINUTE = 240
+_RATE_LIMIT_WINDOW_SECONDS = 60.0
 
 # ── Import local modules (with graceful fallback if running standalone) ────────
 try:
@@ -159,6 +191,150 @@ except ImportError:
 _simulations: Dict[str, dict] = {}
 _template_bank: TemplateBank | None = None
 _template_bank_initialized = False
+_metrics_lock = threading.Lock()
+_runtime_metrics: Dict[str, float] = {
+    "simulation_requests_total": 0.0,
+    "simulation_completed_total": 0.0,
+    "simulation_failed_total": 0.0,
+    "simulation_duration_seconds_total": 0.0,
+    "llm_invocations_total": 0.0,
+    "llm_fallback_segments_total": 0.0,
+    "api_requests_total": 0.0,
+    "api_errors_total": 0.0,
+    "api_rate_limited_total": 0.0,
+    "api_unauthorized_total": 0.0,
+    "export_failures_total": 0.0,
+}
+_api_error_codes: Dict[str, float] = defaultdict(float)
+_request_windows: Dict[str, deque[float]] = defaultdict(deque)
+_rate_limit_lock = threading.Lock()
+_jobs_lock = threading.Lock()
+_simulation_jobs: Dict[str, Dict[str, Any]] = {}
+
+
+def _audit(event: str, **fields: Any) -> None:
+    payload = " ".join(f"{k}={fields[k]}" for k in sorted(fields))
+    logger.info("AUDIT %s %s", event, payload)
+
+
+def _record_simulation_request() -> None:
+    with _metrics_lock:
+        _runtime_metrics["simulation_requests_total"] += 1.0
+
+
+def _record_simulation_completion(
+    duration_seconds: float,
+    llm_invocations: int,
+    llm_fallback_segments: int,
+) -> None:
+    with _metrics_lock:
+        _runtime_metrics["simulation_completed_total"] += 1.0
+        _runtime_metrics["simulation_duration_seconds_total"] += max(
+            0.0, float(duration_seconds)
+        )
+        _runtime_metrics["llm_invocations_total"] += float(max(0, llm_invocations))
+        _runtime_metrics["llm_fallback_segments_total"] += float(
+            max(0, llm_fallback_segments)
+        )
+
+
+def _record_simulation_failure(error_code: str = "internal_error") -> None:
+    with _metrics_lock:
+        _runtime_metrics["simulation_failed_total"] += 1.0
+    _record_error_code(error_code)
+
+
+def _record_api_request(status_code: int) -> None:
+    with _metrics_lock:
+        _runtime_metrics["api_requests_total"] += 1.0
+        if int(status_code) >= 400:
+            _runtime_metrics["api_errors_total"] += 1.0
+
+
+def _record_error_code(error_code: str) -> None:
+    with _metrics_lock:
+        _api_error_codes[str(error_code)] += 1.0
+
+
+def _record_export_failure() -> None:
+    with _metrics_lock:
+        _runtime_metrics["export_failures_total"] += 1.0
+
+
+def _rate_limited(client_key: str) -> bool:
+    now = time.time()
+    with _rate_limit_lock:
+        window = _request_windows[client_key]
+        while window and (now - window[0]) > _RATE_LIMIT_WINDOW_SECONDS:
+            window.popleft()
+        if len(window) >= _API_RATE_LIMIT_PER_MINUTE:
+            return True
+        window.append(now)
+        return False
+
+
+def _extract_auth_token(request: Request) -> str:
+    header_token = request.headers.get("x-api-key", "").strip()
+    if header_token:
+        return header_token
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        return auth_header[7:].strip()
+    return ""
+
+
+def _is_auth_exempt_path(path: str) -> bool:
+    if path in {"/", "/health", "/metrics", "/metrics/prometheus"}:
+        return True
+    return path.startswith("/docs") or path.startswith("/openapi")
+
+
+def _api_client_key(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "").strip()
+    if forwarded:
+        return forwarded.split(",")[0].strip() or "unknown"
+    if request.client is None:
+        return "unknown"
+    return request.client.host or "unknown"
+
+
+def _read_runtime_metrics() -> Dict[str, float]:
+    with _metrics_lock:
+        snapshot = dict(_runtime_metrics)
+        error_codes = dict(_api_error_codes)
+    completed = snapshot.get("simulation_completed_total", 0.0)
+    requests_total = snapshot.get("simulation_requests_total", 0.0)
+    failed_total = snapshot.get("simulation_failed_total", 0.0)
+    duration_total = snapshot.get("simulation_duration_seconds_total", 0.0)
+    fallback_total = snapshot.get("llm_fallback_segments_total", 0.0)
+    llm_total = snapshot.get("llm_invocations_total", 0.0)
+    api_requests = snapshot.get("api_requests_total", 0.0)
+    api_errors = snapshot.get("api_errors_total", 0.0)
+    with _jobs_lock:
+        jobs = list(_simulation_jobs.values())
+    jobs_running = sum(1 for j in jobs if j.get("status") == "running")
+    jobs_pending = sum(1 for j in jobs if j.get("status") == "pending")
+    jobs_failed = sum(1 for j in jobs if j.get("status") == "failed")
+    snapshot["simulation_duration_seconds_avg"] = round(
+        (duration_total / completed) if completed > 0 else 0.0, 6
+    )
+    snapshot["llm_fallback_rate"] = round(
+        (fallback_total / llm_total) if llm_total > 0 else 0.0, 6
+    )
+    snapshot["simulation_completion_rate"] = round(
+        (completed / requests_total) if requests_total > 0 else 0.0, 6
+    )
+    snapshot["simulation_failure_rate"] = round(
+        (failed_total / requests_total) if requests_total > 0 else 0.0, 6
+    )
+    snapshot["api_success_rate"] = round(
+        ((api_requests - api_errors) / api_requests) if api_requests > 0 else 0.0, 6
+    )
+    snapshot["job_queue_pending"] = float(jobs_pending)
+    snapshot["job_queue_running"] = float(jobs_running)
+    snapshot["job_queue_failed"] = float(jobs_failed)
+    snapshot["error_codes"] = error_codes
+    return snapshot
 
 
 # ── Pydantic schemas (inline — no dependency on api/schemas.py) ───────────────
@@ -223,6 +399,7 @@ class DreamSegmentResponse(BaseModel):
     llm_latency_ms: Optional[float] = None
     llm_fallback_reason: Optional[str] = None
     template_bank: Optional[str] = None
+    narrative_quality: Optional[Dict[str, float]] = None
 
 
 class SimulationResponse(BaseModel):
@@ -244,6 +421,28 @@ class CounterfactualRequest(BaseModel):
     base_simulation_id: str
     perturbations: Dict[str, Any] = Field(...)
     use_llm: bool = True
+
+
+class CompareRequest(BaseModel):
+    baseline_simulation_id: str
+    candidate_simulation_id: str
+
+
+class AsyncSimulationSubmitResponse(BaseModel):
+    job_id: str
+    status: str
+    status_url: str
+
+
+class AsyncSimulationJobResponse(BaseModel):
+    job_id: str
+    status: str
+    created_at: float
+    started_at: Optional[float] = None
+    completed_at: Optional[float] = None
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
+    simulation_id: Optional[str] = None
 
 
 # ── FastAPI app ───────────────────────────────────────────────────────────────
@@ -276,6 +475,89 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _security_and_telemetry_middleware(request: Request, call_next):
+    path = request.url.path
+    request_id = uuid.uuid4().hex
+    request.state.request_id = request_id
+
+    if path.startswith("/api") and not _is_auth_exempt_path(path):
+        if _API_ACCESS_TOKEN:
+            token = _extract_auth_token(request)
+            if token != _API_ACCESS_TOKEN:
+                with _metrics_lock:
+                    _runtime_metrics["api_unauthorized_total"] += 1.0
+                _record_error_code("unauthorized")
+                _record_api_request(401)
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "error": "unauthorized",
+                        "message": "Missing or invalid API key",
+                        "request_id": request_id,
+                    },
+                )
+
+        if _rate_limited(_api_client_key(request)):
+            with _metrics_lock:
+                _runtime_metrics["api_rate_limited_total"] += 1.0
+            _record_error_code("rate_limited")
+            _record_api_request(429)
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "rate_limited",
+                    "message": "API rate limit exceeded",
+                    "request_id": request_id,
+                },
+            )
+
+    response = await call_next(request)
+    _record_api_request(response.status_code)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+@app.exception_handler(HTTPException)
+async def _http_exception_handler(request: Request, exc: HTTPException):
+    status_code = int(exc.status_code)
+    if status_code == 404:
+        code = "not_found"
+    elif status_code == 401:
+        code = "unauthorized"
+    elif status_code == 422:
+        code = "validation_error"
+    elif status_code == 429:
+        code = "rate_limited"
+    else:
+        code = "internal_error" if status_code >= 500 else "provider_error"
+    _record_error_code(code)
+    request_id = getattr(request.state, "request_id", "")
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "detail": exc.detail,
+            "error": code,
+            "request_id": request_id,
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    _record_error_code("internal_error")
+    logger.exception("Unhandled API exception: %s", exc)
+    request_id = getattr(request.state, "request_id", "")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Internal server error",
+            "error": "internal_error",
+            "request_id": request_id,
+        },
+    )
 
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
@@ -922,16 +1204,134 @@ async def _generate_llm_narrative(
     return narrative, scene
 
 
+def _stage_minutes(segments: List[dict[str, Any]]) -> Dict[str, float]:
+    totals: Dict[str, float] = defaultdict(float)
+    for seg in segments:
+        stage = str(seg.get("stage") or "N2")
+        start = float(seg.get("start_time_hours", seg.get("time_hours", 0.0)) or 0.0)
+        end = float(seg.get("end_time_hours", start) or start)
+        totals[stage] += max(0.0, (end - start) * 60.0)
+    return {k: round(v, 3) for k, v in totals.items()}
+
+
+def _build_comparison_payload(
+    baseline: dict[str, Any], candidate: dict[str, Any]
+) -> dict:
+    b_summary = baseline.get("summary", {})
+    c_summary = candidate.get("summary", {})
+    b_segments = baseline.get("segments", [])
+    c_segments = candidate.get("segments", [])
+    return {
+        "baseline_id": baseline.get("id"),
+        "candidate_id": candidate.get("id"),
+        "delta": {
+            "mean_bizarreness": round(
+                float(c_summary.get("mean_bizarreness", 0.0))
+                - float(b_summary.get("mean_bizarreness", 0.0)),
+                4,
+            ),
+            "rem_fraction": round(
+                float(c_summary.get("rem_fraction", 0.0))
+                - float(b_summary.get("rem_fraction", 0.0)),
+                4,
+            ),
+            "lucid_event_count": int(c_summary.get("lucid_event_count", 0))
+            - int(b_summary.get("lucid_event_count", 0)),
+            "narrative_quality_mean": round(
+                float(c_summary.get("narrative_quality_mean", 0.0))
+                - float(b_summary.get("narrative_quality_mean", 0.0)),
+                4,
+            ),
+        },
+        "stage_minutes": {
+            "baseline": _stage_minutes(
+                b_segments if isinstance(b_segments, list) else []
+            ),
+            "candidate": _stage_minutes(
+                c_segments if isinstance(c_segments, list) else []
+            ),
+        },
+        "generated_at_unix": time.time(),
+    }
+
+
+async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
+    with _jobs_lock:
+        job = _simulation_jobs.get(job_id)
+        if not job:
+            return
+        job["status"] = "running"
+        job["started_at"] = time.time()
+    try:
+        result = await simulate_night(config)
+        payload = result.model_dump() if hasattr(result, "model_dump") else dict(result)
+        with _jobs_lock:
+            job = _simulation_jobs.get(job_id)
+            if not job:
+                return
+            job["status"] = "completed"
+            job["completed_at"] = time.time()
+            job["simulation_id"] = payload.get("id")
+            job["result"] = payload
+    except Exception as exc:
+        logger.exception("Async simulation job failed: %s", exc)
+        _record_simulation_failure("internal_error")
+        with _jobs_lock:
+            job = _simulation_jobs.get(job_id)
+            if not job:
+                return
+            job["status"] = "failed"
+            job["completed_at"] = time.time()
+            job["error_code"] = "internal_error"
+            job["error_message"] = str(exc)
+
+
+def _prometheus_metrics_text(metrics: dict[str, Any]) -> str:
+    lines = [
+        "# HELP dreamforge_simulation_requests_total Total simulation requests",
+        "# TYPE dreamforge_simulation_requests_total counter",
+        f"dreamforge_simulation_requests_total {metrics.get('simulation_requests_total', 0.0)}",
+        "# HELP dreamforge_simulation_completed_total Total completed simulations",
+        "# TYPE dreamforge_simulation_completed_total counter",
+        f"dreamforge_simulation_completed_total {metrics.get('simulation_completed_total', 0.0)}",
+        "# HELP dreamforge_simulation_failed_total Total failed simulations",
+        "# TYPE dreamforge_simulation_failed_total counter",
+        f"dreamforge_simulation_failed_total {metrics.get('simulation_failed_total', 0.0)}",
+        "# HELP dreamforge_simulation_duration_seconds_avg Average simulation duration",
+        "# TYPE dreamforge_simulation_duration_seconds_avg gauge",
+        f"dreamforge_simulation_duration_seconds_avg {metrics.get('simulation_duration_seconds_avg', 0.0)}",
+        "# HELP dreamforge_llm_fallback_rate LLM fallback ratio",
+        "# TYPE dreamforge_llm_fallback_rate gauge",
+        f"dreamforge_llm_fallback_rate {metrics.get('llm_fallback_rate', 0.0)}",
+        "# HELP dreamforge_api_success_rate API success ratio",
+        "# TYPE dreamforge_api_success_rate gauge",
+        f"dreamforge_api_success_rate {metrics.get('api_success_rate', 0.0)}",
+        "# HELP dreamforge_job_queue_pending Pending async jobs",
+        "# TYPE dreamforge_job_queue_pending gauge",
+        f"dreamforge_job_queue_pending {metrics.get('job_queue_pending', 0.0)}",
+        "# HELP dreamforge_job_queue_running Running async jobs",
+        "# TYPE dreamforge_job_queue_running gauge",
+        f"dreamforge_job_queue_running {metrics.get('job_queue_running', 0.0)}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 
 @app.get("/", tags=["System"])
 async def root():
     """Health ping."""
-    return {"service": "DreamForge AI", "status": "running", "version": "0.2.0"}
+    return {
+        "service": "DreamForge AI",
+        "status": "running",
+        "version": "0.2.0",
+        "api_contract": API_CONTRACT_VERSION,
+    }
 
 
 @app.get("/api/health/llm", response_model=LLMHealthResponse, tags=["LLM"])
+@app.get("/api/v1/health/llm", response_model=LLMHealthResponse, tags=["LLM"])
 async def llm_health():
     """Check connectivity to the configured LLM backend."""
     client = get_llm_client()
@@ -947,11 +1347,13 @@ async def llm_health():
 
 
 @app.get("/api/llm/health", response_model=LLMHealthResponse, tags=["LLM"])
+@app.get("/api/v1/llm/health", response_model=LLMHealthResponse, tags=["LLM"])
 async def llm_health_alias():
     return await llm_health()
 
 
 @app.get("/api/llm/config", response_model=LLMConfigResponse, tags=["LLM"])
+@app.get("/api/v1/llm/config", response_model=LLMConfigResponse, tags=["LLM"])
 async def get_llm_config():
     """Return the current LLM configuration (API key is masked)."""
     client = get_llm_client()
@@ -967,7 +1369,19 @@ async def get_llm_config():
     )
 
 
+@app.get("/api/llm/registry", tags=["LLM"])
+@app.get("/api/v1/llm/registry", tags=["LLM"])
+async def get_llm_registry():
+    client = get_llm_client()
+    return get_llm_registry_snapshot(
+        active_provider=client.config.provider,
+        active_model=client.config.model,
+        prompt_profile_version=PROMPT_PROFILE_VERSION,
+    )
+
+
 @app.post("/api/llm/config", response_model=LLMConfigResponse, tags=["LLM"])
+@app.post("/api/v1/llm/config", response_model=LLMConfigResponse, tags=["LLM"])
 async def update_llm_config(req: LLMConfigRequest):
     """
     Update the LLM configuration at runtime — no restart required.
@@ -1011,6 +1425,12 @@ async def update_llm_config(req: LLMConfigRequest):
         new_cfg.model,
         new_cfg.base_url,
     )
+    _audit(
+        "llm_config_updated",
+        provider=new_cfg.provider,
+        model=new_cfg.model,
+        base_url=new_cfg.base_url,
+    )
 
     cfg = updated_client.config
     return LLMConfigResponse(
@@ -1026,6 +1446,12 @@ async def update_llm_config(req: LLMConfigRequest):
 
 @app.post(
     "/api/simulation/night",
+    response_model=SimulationResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Simulation"],
+)
+@app.post(
+    "/api/v1/simulation/night",
     response_model=SimulationResponse,
     status_code=status.HTTP_201_CREATED,
     tags=["Simulation"],
@@ -1052,12 +1478,21 @@ async def simulate_night(config: SimulationConfig):
     the simulation pipeline, then re-enable for full narrative generation.
     """
     sim_id = str(uuid.uuid4())
+    started_at = time.perf_counter()
+    _record_simulation_request()
     logger.info(
         "Starting simulation %s (%.1fh, dt=%.1fmin, LLM=%s)",
         sim_id,
         config.duration_hours,
         config.dt_minutes,
         config.use_llm,
+    )
+    _audit(
+        "simulation_started",
+        simulation_id=sim_id,
+        duration_hours=config.duration_hours,
+        dt_minutes=config.dt_minutes,
+        llm=config.use_llm,
     )
 
     # Step 1: biophysical simulation
@@ -1169,6 +1604,10 @@ async def simulate_night(config: SimulationConfig):
             seg["scene_description"] = s
             seg["template_bank"] = template_id
 
+    quality_scores, quality_summary = summarize_narrative_quality(raw_segments)
+    for seg, score in zip(raw_segments, quality_scores):
+        seg["narrative_quality"] = score
+
     # Step 3: build response
     neuro_ticks = _build_neurochemistry_ticks(raw_segments)
     segments_out = [DreamSegmentResponse(**seg) for seg in raw_segments]
@@ -1210,6 +1649,7 @@ async def simulate_night(config: SimulationConfig):
             and s.get("llm_trigger_type")
         ),
         "lucid_event_count": len(lucid_events),
+        **quality_summary,
     }
 
     result = SimulationResponse(
@@ -1232,6 +1672,7 @@ async def simulate_night(config: SimulationConfig):
     try:
         export_neurochemistry_csv(result_payload, output_dir / "neurochemistry.csv")
     except (ValueError, OSError) as exc:
+        _record_export_failure()
         logger.error(
             "neurochemistry.csv export failed for simulation %s: %s", sim_id, exc
         )
@@ -1240,19 +1681,111 @@ async def simulate_night(config: SimulationConfig):
             result_payload, output_dir / "memory_activations.csv"
         )
     except (ValueError, OSError) as exc:
+        _record_export_failure()
         logger.error(
             "memory_activations.csv export failed for simulation %s: %s", sim_id, exc
         )
 
     # Persist to in-memory store
     _simulations[sim_id] = result_payload
+    _record_simulation_completion(
+        duration_seconds=time.perf_counter() - started_at,
+        llm_invocations=llm_total_invocations,
+        llm_fallback_segments=llm_fallback_segments,
+    )
+    _audit(
+        "simulation_completed",
+        simulation_id=sim_id,
+        total_segments=total,
+        llm_used=llm_used,
+    )
     logger.info("Simulation %s complete — %d segments, LLM=%s", sim_id, total, llm_used)
 
     return result
 
 
+@app.post(
+    "/api/simulation/night/async",
+    response_model=AsyncSimulationSubmitResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["Simulation"],
+)
+@app.post(
+    "/api/v1/simulation/night/async",
+    response_model=AsyncSimulationSubmitResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["Simulation"],
+)
+async def submit_simulation_night_async(config: SimulationConfig):
+    job_id = str(uuid.uuid4())
+    with _jobs_lock:
+        _simulation_jobs[job_id] = {
+            "job_id": job_id,
+            "status": "pending",
+            "created_at": time.time(),
+        }
+    asyncio.create_task(_run_simulation_job(job_id, config))
+    _audit("simulation_job_submitted", job_id=job_id)
+    return AsyncSimulationSubmitResponse(
+        job_id=job_id,
+        status="pending",
+        status_url=f"/api/simulation/jobs/{job_id}",
+    )
+
+
+@app.get(
+    "/api/simulation/jobs/{job_id}",
+    response_model=AsyncSimulationJobResponse,
+    tags=["Simulation"],
+)
+@app.get(
+    "/api/v1/simulation/jobs/{job_id}",
+    response_model=AsyncSimulationJobResponse,
+    tags=["Simulation"],
+)
+async def get_simulation_job(job_id: str):
+    with _jobs_lock:
+        job = _simulation_jobs.get(job_id)
+        if not job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Job '{job_id}' not found.",
+            )
+        return AsyncSimulationJobResponse(
+            job_id=job_id,
+            status=str(job.get("status", "pending")),
+            created_at=float(job.get("created_at", 0.0)),
+            started_at=(
+                float(job["started_at"]) if job.get("started_at") is not None else None
+            ),
+            completed_at=(
+                float(job["completed_at"])
+                if job.get("completed_at") is not None
+                else None
+            ),
+            error_code=(
+                str(job["error_code"]) if job.get("error_code") is not None else None
+            ),
+            error_message=(
+                str(job["error_message"])
+                if job.get("error_message") is not None
+                else None
+            ),
+            simulation_id=(
+                str(job["simulation_id"])
+                if job.get("simulation_id") is not None
+                else None
+            ),
+        )
+
+
 @app.get(
     "/api/simulation/{sim_id}",
+    response_model=SimulationResponse,
+    tags=["Simulation"],
+)
+@app.get(
+    "/api/v1/simulation/{sim_id}",
     response_model=SimulationResponse,
     tags=["Simulation"],
 )
@@ -1273,6 +1806,7 @@ async def get_simulation_alias(sim_id: str):
 
 @app.get("/simulation/{sim_id}/segments", tags=["Simulation"])
 @app.get("/api/simulation/{sim_id}/segments", tags=["Simulation"])
+@app.get("/api/v1/simulation/{sim_id}/segments", tags=["Simulation"])
 async def get_simulation_segments(sim_id: str, offset: int = 0, limit: int = 200):
     data = await get_simulation(sim_id)
     segments = data.get("segments", [])
@@ -1289,6 +1823,7 @@ async def get_simulation_segments(sim_id: str, offset: int = 0, limit: int = 200
 
 @app.get("/simulation/{sim_id}/neurochemistry", tags=["Simulation"])
 @app.get("/api/simulation/{sim_id}/neurochemistry", tags=["Simulation"])
+@app.get("/api/v1/simulation/{sim_id}/neurochemistry", tags=["Simulation"])
 async def get_simulation_neurochemistry(sim_id: str):
     data = await get_simulation(sim_id)
     rows = []
@@ -1308,6 +1843,7 @@ async def get_simulation_neurochemistry(sim_id: str):
 
 @app.get("/simulation/{sim_id}/hypnogram", tags=["Simulation"])
 @app.get("/api/simulation/{sim_id}/hypnogram", tags=["Simulation"])
+@app.get("/api/v1/simulation/{sim_id}/hypnogram", tags=["Simulation"])
 async def get_simulation_hypnogram(sim_id: str):
     data = await get_simulation(sim_id)
     rows = []
@@ -1322,6 +1858,7 @@ async def get_simulation_hypnogram(sim_id: str):
 
 
 @app.post("/simulate-night/stream", tags=["Simulation"])
+@app.post("/api/v1/simulate-night/stream", tags=["Simulation"])
 async def simulate_night_stream(config: SimulationConfig):
     async def _event_stream():
         yield "data: " + json.dumps(
@@ -1345,6 +1882,7 @@ async def simulate_night_stream(config: SimulationConfig):
 
 
 @app.get("/api/dreams", tags=["Simulation"])
+@app.get("/api/v1/dreams", tags=["Simulation"])
 async def list_dreams():
     """List all stored simulation summaries."""
     summaries = []
@@ -1365,6 +1903,7 @@ async def list_dreams():
 
 
 @app.post("/api/simulation/counterfactual", tags=["Simulation"])
+@app.post("/api/v1/simulation/counterfactual", tags=["Simulation"])
 async def counterfactual(req: CounterfactualRequest):
     """
     Run a counterfactual dream variant based on an existing simulation.
@@ -1392,6 +1931,67 @@ async def counterfactual(req: CounterfactualRequest):
     return await simulate_night(new_config)
 
 
+@app.post("/api/simulation/compare", tags=["Simulation"])
+@app.post("/api/v1/simulation/compare", tags=["Simulation"])
+async def compare_simulations(req: CompareRequest):
+    if req.baseline_simulation_id not in _simulations:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Baseline simulation '{req.baseline_simulation_id}' not found.",
+        )
+    if req.candidate_simulation_id not in _simulations:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Candidate simulation '{req.candidate_simulation_id}' not found.",
+        )
+    baseline = _simulations[req.baseline_simulation_id]
+    candidate = _simulations[req.candidate_simulation_id]
+    payload = _build_comparison_payload(baseline, candidate)
+    _audit(
+        "simulation_compared",
+        baseline_id=req.baseline_simulation_id,
+        candidate_id=req.candidate_simulation_id,
+    )
+    return payload
+
+
+@app.get("/api/simulation/{sim_id}/report", tags=["Simulation"])
+@app.get("/api/v1/simulation/{sim_id}/report", tags=["Simulation"])
+async def get_simulation_report(sim_id: str):
+    sim = await get_simulation(sim_id)
+    summary = sim.get("summary", {})
+    quality = {
+        "narrative_quality_mean": summary.get("narrative_quality_mean", 0.0),
+        "narrative_length_compliance_mean": summary.get(
+            "narrative_length_compliance_mean", 0.0
+        ),
+        "narrative_artifact_score_mean": summary.get(
+            "narrative_artifact_score_mean", 0.0
+        ),
+        "narrative_memory_grounding_mean": summary.get(
+            "narrative_memory_grounding_mean", 0.0
+        ),
+    }
+    report = {
+        "simulation_id": sim_id,
+        "api_contract": API_CONTRACT_VERSION,
+        "prompt_profile_version": PROMPT_PROFILE_VERSION,
+        "generated_at_unix": time.time(),
+        "summary": summary,
+        "quality": quality,
+        "methodology": {
+            "sleep_model": "Borbély two-process + stage scheduler",
+            "narrative_model": "Template/LLM hybrid with sanitization and fallback taxonomy",
+            "quality_scoring": "Length compliance, artifact score, memory grounding, coherence proxy",
+        },
+        "notes": [
+            "This report is for product analytics and research exploration only.",
+            "Not a medical or diagnostic report.",
+        ],
+    }
+    return report
+
+
 @app.get("/health")
 async def health_check():
     client = get_llm_client()
@@ -1399,7 +1999,56 @@ async def health_check():
     return {
         "status": "ok",
         "service": "dreamforge-api",
+        "api_contract": API_CONTRACT_VERSION,
+        "prompt_profile_version": PROMPT_PROFILE_VERSION,
         "llm_connected": bool(llm_status.get("ok", False)),
         "llm_provider": client.config.provider,
         "llm_model": client.config.model,
+        "auth_enabled": bool(_API_ACCESS_TOKEN),
+        "runtime_metrics": _read_runtime_metrics(),
+    }
+
+
+@app.get("/metrics")
+@app.get("/api/v1/metrics")
+async def metrics():
+    return {
+        "status": "ok",
+        "service": "dreamforge-api",
+        "metrics": _read_runtime_metrics(),
+    }
+
+
+@app.get("/metrics/prometheus")
+@app.get("/api/v1/metrics/prometheus")
+async def metrics_prometheus():
+    metrics_snapshot = _read_runtime_metrics()
+    return PlainTextResponse(_prometheus_metrics_text(metrics_snapshot))
+
+
+@app.get("/api/version", tags=["System"])
+@app.get("/api/v1/version", tags=["System"])
+async def api_version():
+    return {
+        "api_contract": API_CONTRACT_VERSION,
+        "prompt_profile_version": PROMPT_PROFILE_VERSION,
+        "deprecated": [],
+        "changelog_policy": "Document every contract-level change in CHANGELOG.md",
+    }
+
+
+@app.get("/api/slo", tags=["System"])
+@app.get("/api/v1/slo", tags=["System"])
+async def api_slo():
+    metrics_snapshot = _read_runtime_metrics()
+    return {"targets": SLO_TARGETS, "current": metrics_snapshot}
+
+
+@app.get("/api/error-taxonomy", tags=["System"])
+@app.get("/api/v1/error-taxonomy", tags=["System"])
+async def error_taxonomy():
+    metrics_snapshot = _read_runtime_metrics()
+    return {
+        "taxonomy": ERROR_TAXONOMY,
+        "observed_counts": metrics_snapshot.get("error_codes", {}),
     }

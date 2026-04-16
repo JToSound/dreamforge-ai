@@ -23,6 +23,7 @@ import streamlit as st
 from core.config import load_runtime_config
 from core.simulation.runner import SimulationRunner
 from core.utils.llm_backend import LLMBackend, Providers as LLMProviders
+from visualization.dashboard.i18n import tr
 import networkx as nx
 import math
 
@@ -99,10 +100,12 @@ st.markdown(
 
 # ── Sidebar — LLM Settings ────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 🧠 DreamForge AI")
+    locale = st.selectbox("Language", ["en", "zh-HK"], index=0)
+    st.session_state["locale"] = locale
+    st.markdown(f"## 🧠 {tr(locale, 'sidebar_title')}")
     st.markdown("---")
 
-    st.markdown("### ⚙️ LLM Configuration")
+    st.markdown(f"### ⚙️ {tr(locale, 'sidebar_llm_config')}")
 
     # instantiate backend once for auto-discovery
     try:
@@ -224,13 +227,14 @@ with st.sidebar:
 
 
 # ── Main area ─────────────────────────────────────────────────────────────────
-st.markdown("# 🌌 DreamForge AI — Live Simulation")
-st.markdown("*The first open-source AI system that thinks while it sleeps.*")
+_locale = st.session_state.get("locale", "en")
+st.markdown(f"# 🌌 {tr(_locale, 'app_title')}")
+st.markdown(f"*{tr(_locale, 'app_tagline')}*")
 
 col_run, col_status = st.columns([2, 5])
 
 with col_run:
-    run_btn = st.button("▶  Run Simulation", use_container_width=True)
+    run_btn = st.button(f"▶  {tr(_locale, 'run_simulation')}", use_container_width=True)
 
 status_placeholder = col_status.empty()
 
@@ -329,9 +333,24 @@ if run_btn:
         result = run_simulation()
         if result:
             st.session_state["last_result"] = result
+            history = st.session_state.get("simulation_history", [])
+            if not isinstance(history, list):
+                history = []
+            sim_id = str(result.get("id") or "")
+            if sim_id and all(str(item.get("id")) != sim_id for item in history):
+                history.append(result)
+            st.session_state["simulation_history"] = history
             status_placeholder.success("✅ Simulation complete!")
 
 result = st.session_state.get("last_result")
+if isinstance(result, dict):
+    history = st.session_state.get("simulation_history", [])
+    if not isinstance(history, list):
+        history = []
+    sim_id = str(result.get("id") or "")
+    if sim_id and all(str(item.get("id")) != sim_id for item in history):
+        history.append(result)
+        st.session_state["simulation_history"] = history
 
 if result is None:
     # ── Empty state ──────────────────────────────────────────────────────────
@@ -1364,3 +1383,96 @@ else:
                 plot_per_cycle_architecture(segments),
                 key_prefix=f"cycle_arch_{sim_key}",
             )
+
+    st.markdown("---")
+    st.markdown(f"### 🧾 {tr(_locale, 'compare_center')}")
+    history = st.session_state.get("simulation_history", [])
+    if isinstance(history, list) and len(history) >= 2:
+        options = [str(item.get("id") or "") for item in history if item.get("id")]
+        if len(options) >= 2:
+            baseline_id = st.selectbox(
+                tr(_locale, "compare_baseline"),
+                options=options,
+                index=max(0, len(options) - 2),
+                key="compare_baseline_id",
+            )
+            candidate_id = st.selectbox(
+                tr(_locale, "compare_candidate"),
+                options=options,
+                index=len(options) - 1,
+                key="compare_candidate_id",
+            )
+            if st.button(tr(_locale, "compare_action"), key="compare_generate_btn"):
+                base = next(
+                    (item for item in history if str(item.get("id")) == baseline_id),
+                    None,
+                )
+                cand = next(
+                    (item for item in history if str(item.get("id")) == candidate_id),
+                    None,
+                )
+                if base is None or cand is None:
+                    st.error("Could not resolve selected simulation IDs.")
+                else:
+                    base_summary = base.get("summary", {})
+                    cand_summary = cand.get("summary", {})
+                    compare_df = pd.DataFrame(
+                        [
+                            {
+                                "metric": "mean_bizarreness",
+                                "baseline": float(
+                                    base_summary.get("mean_bizarreness", 0.0)
+                                ),
+                                "candidate": float(
+                                    cand_summary.get("mean_bizarreness", 0.0)
+                                ),
+                            },
+                            {
+                                "metric": "rem_fraction",
+                                "baseline": float(
+                                    base_summary.get("rem_fraction", 0.0)
+                                ),
+                                "candidate": float(
+                                    cand_summary.get("rem_fraction", 0.0)
+                                ),
+                            },
+                            {
+                                "metric": "lucid_event_count",
+                                "baseline": float(
+                                    base_summary.get("lucid_event_count", 0.0)
+                                ),
+                                "candidate": float(
+                                    cand_summary.get("lucid_event_count", 0.0)
+                                ),
+                            },
+                            {
+                                "metric": "narrative_quality_mean",
+                                "baseline": float(
+                                    base_summary.get("narrative_quality_mean", 0.0)
+                                ),
+                                "candidate": float(
+                                    cand_summary.get("narrative_quality_mean", 0.0)
+                                ),
+                            },
+                        ]
+                    )
+                    compare_df["delta"] = (
+                        compare_df["candidate"] - compare_df["baseline"]
+                    )
+                    st.dataframe(compare_df, use_container_width=True)
+
+                    report_payload = {
+                        "baseline_id": baseline_id,
+                        "candidate_id": candidate_id,
+                        "generated_at_unix": time.time(),
+                        "metrics": compare_df.to_dict(orient="records"),
+                    }
+                    st.download_button(
+                        "Download compare report (JSON)",
+                        data=json.dumps(report_payload, ensure_ascii=False, indent=2),
+                        file_name=f"dreamforge-compare-{baseline_id[:8]}-{candidate_id[:8]}.json",
+                        mime="application/json",
+                        key="download_compare_report",
+                    )
+    else:
+        st.caption("Run at least two simulations to enable compare/report center.")

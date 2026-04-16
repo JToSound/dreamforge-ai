@@ -141,9 +141,15 @@ def test_static_chart_builders_return_figures():
     for fig in figs:
         assert isinstance(fig, go.Figure)
         assert len(fig.data) > 0
+        assert fig.layout.template is not None
+        assert any(
+            "source=" in str(getattr(anno, "text", ""))
+            for anno in list(fig.layout.annotations or [])
+        )
 
     cfg = charts.chart_export_config()
     assert cfg["toImageButtonOptions"]["format"] == "png"
+    assert cfg["toImageButtonOptions"]["width"] >= 1200
 
 
 def test_simulation_runner_handles_960_ticks_quickly():

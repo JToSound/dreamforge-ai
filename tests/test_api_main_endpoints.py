@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -41,6 +43,14 @@ class DummyLLMClient:
 @pytest.fixture
 def patched_api(monkeypatch):
     api_main._simulations.clear()
+    with api_main._jobs_lock:
+        api_main._simulation_jobs.clear()
+    with api_main._rate_limit_lock:
+        api_main._request_windows.clear()
+    with api_main._metrics_lock:
+        for key in list(api_main._runtime_metrics.keys()):
+            api_main._runtime_metrics[key] = 0.0
+        api_main._api_error_codes.clear()
     fake = DummyLLMClient()
     monkeypatch.setattr(api_main, "get_llm_client", lambda: fake)
     monkeypatch.setattr(api_main, "LLMClient", DummyLLMClient)
@@ -73,6 +83,10 @@ def test_system_and_llm_routes(patched_api):
         assert llm_health.status_code == 200
         assert llm_health.json()["ok"] is True
 
+        llm_health_v1 = client.get("/api/v1/health/llm")
+        assert llm_health_v1.status_code == 200
+        assert llm_health_v1.json()["ok"] is True
+
         llm_health_alias = client.get("/api/llm/health")
         assert llm_health_alias.status_code == 200
         assert llm_health_alias.json()["ok"] is True
@@ -80,6 +94,10 @@ def test_system_and_llm_routes(patched_api):
         cfg = client.get("/api/llm/config")
         assert cfg.status_code == 200
         assert cfg.json()["model"] == "stub-model"
+
+        registry = client.get("/api/llm/registry")
+        assert registry.status_code == 200
+        assert registry.json()["active"]["provider"] == "stub"
 
         updated = client.post(
             "/api/llm/config",
@@ -93,6 +111,10 @@ def test_system_and_llm_routes(patched_api):
         assert health.status_code == 200
         assert health.json()["status"] == "ok"
         assert health.json()["llm_connected"] is True
+
+        version = client.get("/api/version")
+        assert version.status_code == 200
+        assert version.json()["api_contract"] == "v1"
 
 
 def test_simulation_crud_and_counterfactual(patched_api):
@@ -128,6 +150,10 @@ def test_simulation_crud_and_counterfactual(patched_api):
         assert listed.status_code == 200
         assert listed.json()["count"] >= 1
 
+        report = client.get(f"/api/simulation/{sim_id}/report")
+        assert report.status_code == 200
+        assert report.json()["simulation_id"] == sim_id
+
         counter = client.post(
             "/api/simulation/counterfactual",
             json={
@@ -149,6 +175,16 @@ def test_simulation_crud_and_counterfactual(patched_api):
         )
         assert missing.status_code == 404
 
+        compare = client.post(
+            "/api/simulation/compare",
+            json={
+                "baseline_simulation_id": sim_id,
+                "candidate_simulation_id": counter.json()["id"],
+            },
+        )
+        assert compare.status_code == 200
+        assert "delta" in compare.json()
+
 
 def test_simulation_stream_and_missing_id(patched_api):
     with TestClient(patched_api.app) as client:
@@ -158,6 +194,53 @@ def test_simulation_stream_and_missing_id(patched_api):
 
         missing = client.get("/api/simulation/not-found")
         assert missing.status_code == 404
+
+
+def test_metrics_and_narrative_quality_integration(patched_api):
+    with TestClient(patched_api.app) as client:
+        created = client.post("/api/simulation/night", json=_sim_payload())
+        assert created.status_code == 201
+        payload = created.json()
+        assert payload["segments"]
+        assert payload["segments"][0].get("narrative_quality") is not None
+        assert "narrative_quality_mean" in payload["summary"]
+
+        metrics_resp = client.get("/metrics")
+        assert metrics_resp.status_code == 200
+        metrics = metrics_resp.json()["metrics"]
+        assert metrics["simulation_requests_total"] >= 1
+        assert metrics["simulation_completed_total"] >= 1
+
+        slo = client.get("/api/slo")
+        assert slo.status_code == 200
+        assert "targets" in slo.json()
+
+        taxonomy = client.get("/api/error-taxonomy")
+        assert taxonomy.status_code == 200
+        assert "taxonomy" in taxonomy.json()
+
+        prom = client.get("/metrics/prometheus")
+        assert prom.status_code == 200
+        assert "dreamforge_simulation_requests_total" in prom.text
+
+
+def test_async_simulation_job_flow(patched_api):
+    with TestClient(patched_api.app) as client:
+        submit = client.post("/api/simulation/night/async", json=_sim_payload())
+        assert submit.status_code == 202
+        job_id = submit.json()["job_id"]
+
+        final_status = None
+        for _ in range(20):
+            resp = client.get(f"/api/simulation/jobs/{job_id}")
+            assert resp.status_code == 200
+            status_val = resp.json()["status"]
+            if status_val in {"completed", "failed"}:
+                final_status = status_val
+                break
+            time.sleep(0.05)
+
+        assert final_status == "completed"
 
 
 @pytest.mark.asyncio

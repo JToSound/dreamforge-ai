@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- Added productization baseline APIs in `api/main.py`:
+  - API contract metadata endpoint (`/api/version`, `/api/v1/version`)
+  - SLO and error taxonomy endpoints (`/api/slo`, `/api/error-taxonomy`)
+  - Prometheus text metrics endpoint (`/metrics/prometheus`)
+  - async simulation queue endpoints (`/api/simulation/night/async`, `/api/simulation/jobs/{job_id}`)
+  - compare and report endpoints (`/api/simulation/compare`, `/api/simulation/{id}/report`)
+  - v1 alias routes for major LLM/simulation endpoints
+- Added request telemetry/security middleware baseline:
+  - optional API key auth (`API_ACCESS_TOKEN`),
+  - in-process per-client rate limiting (`API_RATE_LIMIT_PER_MINUTE`),
+  - request ID response header (`X-Request-ID`),
+  - structured audit event logging for key actions.
+- Added prompt/model capability registry module `core/llm_registry.py` and API exposure via `/api/llm/registry`.
+- Added chart design system + export spec in `visualization/charts/static_visualizations.py`, including per-chart provenance annotations.
+- Added dashboard i18n baseline and compare/report center in `visualization/dashboard/app.py`:
+  - locale selector (`en`, `zh-HK`) with key-based labels,
+  - session-history comparison table and downloadable JSON report.
+- Added governance/product docs:
+  - `docs/OSS_ROADMAP.md`
+  - `docs/RFC_PROCESS.md`
+  - `docs/EDITIONS_AND_PRICING.md`
+- Added/updated regression tests:
+  - `tests/test_api_main_endpoints.py`
+  - `tests/test_dreamscript_and_charts.py`
+
 ## [Round 6]
 
 - Added `core/generation/narrative_generator.py` with async batch generation, REM/high-biz gating, continuity context, dedicated scene generation, and timeout/error fallback logging.

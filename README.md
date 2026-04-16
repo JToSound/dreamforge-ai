@@ -126,8 +126,14 @@ For detailed equations, parameter choices, and literature references, see `RESEA
 
 - **FastAPI REST API**
   - `POST /api/simulation/night` – run a single-night simulation with configurable parameters (duration, dt, pharmacology).
+  - `POST /api/simulation/night/async` – queue a simulation and poll `/api/simulation/jobs/{job_id}`.
   - `POST /api/simulation/multi-night` – run multiple nights with cross-night continuity tracking.
   - `POST /api/simulation/counterfactual` – compare baseline vs perturbed dream runs.
+  - `POST /api/simulation/compare` – compare two stored runs and compute deltas.
+  - `GET /api/simulation/{id}/report` – generate a structured run report payload.
+  - `GET /api/llm/registry` – prompt/model registry and capability matrix.
+  - `GET /api/slo`, `GET /api/error-taxonomy`, `GET /metrics/prometheus` – operational readiness surfaces.
+  - `GET /api/version` – API contract metadata (`v1`).
   - `GET /health` – simple health check.
 
 - **Streamlit dashboard**
@@ -206,6 +212,12 @@ By default, frames are captured from `http://localhost:8501` and assembled into
   - [x] Counterfactual dream engine.
 
 ---
+
+## Governance and commercialization docs
+
+- `docs/OSS_ROADMAP.md`
+- `docs/RFC_PROCESS.md`
+- `docs/EDITIONS_AND_PRICING.md`
 
 ## Contributing
 

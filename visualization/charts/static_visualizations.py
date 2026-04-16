@@ -24,13 +24,76 @@ STAGE_COLORS = {
     "REM": OKABE_ITO["purple"],
 }
 
+CHART_DESIGN_SYSTEM = {
+    "template": "plotly_dark",
+    "font_family": "Inter, Segoe UI, Arial, sans-serif",
+    "paper_bgcolor": "#0d0d14",
+    "plot_bgcolor": "#12121e",
+    "grid_color": "#2a2a3e",
+    "annotation_color": "#aab0d8",
+    "default_height": 360,
+    "provenance_tag": "DreamForge v1",
+}
+
+EXPORT_SPEC = {
+    "default_format": "png",
+    "scale": 2,
+    "width": 1600,
+    "height": 900,
+}
+
 
 def chart_export_config() -> dict:
     return {
         "displaylogo": False,
         "modeBarButtonsToAdd": ["toImage"],
-        "toImageButtonOptions": {"format": "png", "scale": 2},
+        "toImageButtonOptions": {
+            "format": EXPORT_SPEC["default_format"],
+            "scale": EXPORT_SPEC["scale"],
+            "width": EXPORT_SPEC["width"],
+            "height": EXPORT_SPEC["height"],
+        },
     }
+
+
+def apply_chart_design(
+    fig: go.Figure,
+    *,
+    title: str,
+    xaxis_title: str,
+    yaxis_title: str,
+    chart_id: str,
+    data_provenance: str,
+    height: int | None = None,
+) -> go.Figure:
+    fig.update_layout(
+        title=title,
+        xaxis_title=xaxis_title,
+        yaxis_title=yaxis_title,
+        template=CHART_DESIGN_SYSTEM["template"],
+        paper_bgcolor=CHART_DESIGN_SYSTEM["paper_bgcolor"],
+        plot_bgcolor=CHART_DESIGN_SYSTEM["plot_bgcolor"],
+        font={"family": CHART_DESIGN_SYSTEM["font_family"]},
+        height=height or CHART_DESIGN_SYSTEM["default_height"],
+        margin={"l": 60, "r": 20, "t": 65, "b": 55},
+    )
+    fig.update_xaxes(gridcolor=CHART_DESIGN_SYSTEM["grid_color"])
+    fig.update_yaxes(gridcolor=CHART_DESIGN_SYSTEM["grid_color"])
+    fig.add_annotation(
+        x=1.0,
+        y=1.12,
+        xref="paper",
+        yref="paper",
+        text=(
+            f"{CHART_DESIGN_SYSTEM['provenance_tag']} · chart={chart_id}"
+            f" · source={data_provenance}"
+        ),
+        showarrow=False,
+        font={"size": 10, "color": CHART_DESIGN_SYSTEM["annotation_color"]},
+        xanchor="right",
+        yanchor="top",
+    )
+    return fig
 
 
 def _seg_times(segment: dict) -> tuple[float, float]:
@@ -79,13 +142,14 @@ def plot_rem_episode_trend(segments: Sequence[dict]) -> go.Figure:
             hovertemplate="Episode %{x}<br>Duration %{y:.1f} min<extra></extra>",
         )
     )
-    fig.update_layout(
+    return apply_chart_design(
+        fig,
         title="REM Episode Trend",
         xaxis_title="REM episode index",
         yaxis_title="Duration (minutes)",
-        template="plotly_dark",
+        chart_id="rem_episode_trend",
+        data_provenance="segments.start_time_hours/end_time_hours/stage",
     )
-    return fig
 
 
 def plot_affect_ratio_timeline(
@@ -141,13 +205,14 @@ def plot_affect_ratio_timeline(
             hovertemplate="t=%{x:.2f}h<br>ratio=%{y:.2f}<extra></extra>",
         )
     )
-    fig.update_layout(
+    return apply_chart_design(
+        fig,
         title="Affect Ratio Timeline (rolling 30 min)",
         xaxis_title="Time (hours)",
         yaxis_title="Negative / Positive",
-        template="plotly_dark",
+        chart_id="affect_ratio_timeline",
+        data_provenance="segments.dominant_emotion/time windows",
     )
-    return fig
 
 
 def plot_bizarreness_cortisol_scatter(segments: Sequence[dict]) -> go.Figure:
@@ -182,13 +247,14 @@ def plot_bizarreness_cortisol_scatter(segments: Sequence[dict]) -> go.Figure:
             )
         )
 
-    fig.update_layout(
+    return apply_chart_design(
+        fig,
         title="Bizarreness vs Cortisol",
         xaxis_title="Cortisol",
         yaxis_title="Bizarreness",
-        template="plotly_dark",
+        chart_id="bizarreness_vs_cortisol",
+        data_provenance="segments.bizarreness_score/neurochemistry.cortisol",
     )
-    return fig
 
 
 def plot_per_cycle_architecture(
@@ -224,11 +290,12 @@ def plot_per_cycle_architecture(
             )
         )
 
-    fig.update_layout(
+    fig.update_layout(barmode="stack")
+    return apply_chart_design(
+        fig,
         title="Per-cycle Sleep Architecture",
         xaxis_title="90-minute cycle index",
         yaxis_title="Minutes",
-        barmode="stack",
-        template="plotly_dark",
+        chart_id="per_cycle_architecture",
+        data_provenance="segments.stage/start_time_hours/end_time_hours",
     )
-    return fig
