@@ -138,6 +138,8 @@ For detailed equations, parameter choices, and literature references, see `RESEA
 
 - **Streamlit dashboard**
   - Run `streamlit run visualization/dashboard/app.py` in development, or use the `dashboard` service in Docker Compose.
+  - Provider status and **Test Connection** now validate against API-side `/api/llm/config` + `/api/health/llm` (not local demo fallback).
+  - Sleep start supports **0–26 clock-hour** input (including naps and early-morning sleep sessions).
   - Visualizes hypnogram, neuromodulators, memory graph, dream timeline, and agent activity heatmap in real time.
   - A separate comparative dashboard script provides multi-run visualizations.
 
@@ -163,6 +165,7 @@ environment variables. The most useful overrides are:
 - `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`
 - `OLLAMA_BASE_URL`, `LMSTUDIO_BASE_URL`
 - `SIM_DURATION_HOURS`, `SIM_DT_MINUTES`, `SIM_STRESS_LEVEL`, `SIM_SLEEP_START_HOUR`
+- `SIM_REQUEST_TIMEOUT_SECONDS` (default `3600`)
 
 ## Docker (development)
 

@@ -64,6 +64,8 @@ def _sim_payload(**overrides):
         "ssri_strength": 1.0,
         "stress_level": 0.2,
         "sleep_start_hour": 23.0,
+        "melatonin": False,
+        "cannabis": False,
         "prior_day_events": ["had a long meeting"],
         "emotional_state": "neutral",
         "use_llm": False,
@@ -222,6 +224,50 @@ def test_metrics_and_narrative_quality_integration(patched_api):
         prom = client.get("/metrics/prometheus")
         assert prom.status_code == 200
         assert "dreamforge_simulation_requests_total" in prom.text
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {
+            "sleep_start_hour": 5.5,
+            "duration_hours": 1.5,
+            "melatonin": True,
+            "prior_day_events": ["early run", "sunrise nap"],
+        },
+        {
+            "sleep_start_hour": 13.0,
+            "duration_hours": 2.0,
+            "stress_level": 0.7,
+            "ssri_strength": 1.2,
+            "cannabis": True,
+            "prior_day_events": ["lunch break nap", "heavy coffee crash"],
+        },
+        {
+            "sleep_start_hour": 23.5,
+            "duration_hours": 3.0,
+            "stress_level": 0.1,
+            "ssri_strength": 0.9,
+            "melatonin": True,
+            "cannabis": False,
+            "prior_day_events": ["quiet reading", "deep relaxation"],
+        },
+    ],
+)
+def test_simulation_parameter_combinations_are_accepted(patched_api, overrides):
+    with TestClient(patched_api.app) as client:
+        payload = _sim_payload(**overrides)
+        response = client.post("/api/simulation/night", json=payload)
+        assert response.status_code == 201
+        body = response.json()
+        assert body["segments"]
+        assert body["config"]["sleep_start_hour"] == payload["sleep_start_hour"]
+        assert body["config"]["melatonin"] == payload["melatonin"]
+        assert body["config"]["cannabis"] == payload["cannabis"]
+        assert (
+            body["summary"]["pharmacology_profile"]["ssri_strength"]
+            == payload["ssri_strength"]
+        )
 
 
 def test_async_simulation_job_flow(patched_api):

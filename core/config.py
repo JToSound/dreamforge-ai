@@ -47,7 +47,7 @@ class RuntimeConfig:
     simulation_dt_minutes: float = 0.5
     simulation_stress_level: float = 0.3
     simulation_sleep_start_hour: float = 23.0
-    simulation_request_timeout_seconds: float = 600.0
+    simulation_request_timeout_seconds: float = 3600.0
 
 
 def load_runtime_config() -> RuntimeConfig:
@@ -71,6 +71,6 @@ def load_runtime_config() -> RuntimeConfig:
         simulation_stress_level=_env_float("SIM_STRESS_LEVEL", 0.3),
         simulation_sleep_start_hour=_env_float("SIM_SLEEP_START_HOUR", 23.0),
         simulation_request_timeout_seconds=_env_float(
-            "SIM_REQUEST_TIMEOUT_SECONDS", 600.0
+            "SIM_REQUEST_TIMEOUT_SECONDS", 3600.0
         ),
     )

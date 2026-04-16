@@ -26,6 +26,12 @@
 - Added/updated regression tests:
   - `tests/test_api_main_endpoints.py`
   - `tests/test_dreamscript_and_charts.py`
+- Dashboard/API reliability and UX hardening:
+  - widened `sleep_start_hour` validation to `0.0–26.0` (supports naps and early-morning sleep starts),
+  - aligned dashboard simulation payload to API contract (`dt_minutes`, `ssri_strength`, `melatonin`, `cannabis`, `emotional_state`, `use_llm`),
+  - switched dashboard LLM status + test flow to API-backed config/health checks (no local demo-only detection),
+  - updated runtime and compose default simulation request timeout to `3600` seconds.
+- Added regression coverage for mixed parameter/pharmacology/event combinations and nap/early-start scenarios.
 
 ## [Round 6]
 

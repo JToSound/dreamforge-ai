@@ -22,7 +22,6 @@ import plotly.io as pio
 import streamlit as st
 from core.config import load_runtime_config
 from core.simulation.runner import SimulationRunner
-from core.utils.llm_backend import LLMBackend, Providers as LLMProviders
 from visualization.dashboard.i18n import tr
 import networkx as nx
 import math
@@ -72,26 +71,83 @@ st.set_page_config(
 _RUNTIME_CONFIG = load_runtime_config()
 API_BASE = _RUNTIME_CONFIG.api_base_url
 
+_PROVIDER_LABEL_TO_VALUE = {
+    "LM Studio": "lmstudio",
+    "Ollama": "ollama",
+    "OpenAI": "openai",
+}
+_PROVIDER_VALUE_TO_LABEL = {v: k for k, v in _PROVIDER_LABEL_TO_VALUE.items()}
+
+
+def _default_base_url_for_provider(provider_value: str) -> str:
+    if provider_value == "ollama":
+        return _RUNTIME_CONFIG.llm_ollama_base_url
+    if provider_value == "openai":
+        return "https://api.openai.com/v1"
+    if provider_value == "dreamscript":
+        return _RUNTIME_CONFIG.llm_base_url
+    return _RUNTIME_CONFIG.llm_base_url
+
+
+def _api_get_json(path: str, timeout: float = 8.0) -> tuple[bool, dict]:
+    try:
+        resp = httpx.get(f"{API_BASE}{path}", timeout=timeout)
+        if resp.status_code == 200:
+            body = resp.json()
+            return (isinstance(body, dict), body if isinstance(body, dict) else {})
+        return False, {}
+    except Exception:
+        return False, {}
+
+
+def _api_post_json(
+    path: str, payload: dict, timeout: float = 12.0
+) -> tuple[bool, dict]:
+    try:
+        resp = httpx.post(f"{API_BASE}{path}", json=payload, timeout=timeout)
+        if resp.status_code in (200, 201):
+            body = resp.json()
+            return (isinstance(body, dict), body if isinstance(body, dict) else {})
+        return False, {"status_code": resp.status_code, "body": resp.text[:400]}
+    except Exception as exc:
+        return False, {"error": str(exc)}
+
+
 # ── Custom CSS ────────────────────────────────────────────────────────────────
 st.markdown(
     """
 <style>
-  [data-testid="stAppViewContainer"] { background: #0d0d14; }
-  [data-testid="stSidebar"] { background: #12121e; border-right: 1px solid #2a2a3e; }
-  h1, h2, h3 { color: #c8b8ff; }
+  [data-testid="stAppViewContainer"] {
+    background: radial-gradient(1200px 600px at 10% -10%, #2e1f58 0%, #0d0d14 55%);
+  }
+  [data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #151326 0%, #10101b 100%);
+    border-right: 1px solid #2a2a3e;
+  }
+  h1, h2, h3 { color: #d4c8ff; letter-spacing: 0.2px; }
   .stButton > button {
     background: linear-gradient(135deg, #6c3fc5, #9b5de5);
     color: white; border: none; border-radius: 8px;
     padding: 0.6rem 1.4rem; font-weight: 600;
-    transition: opacity 0.2s;
+    transition: opacity 0.2s, transform 0.2s;
   }
-  .stButton > button:hover { opacity: 0.85; }
+  .stButton > button:hover { opacity: 0.9; transform: translateY(-1px); }
   .metric-card {
-    background: #1a1a2e; border: 1px solid #2a2a3e;
-    border-radius: 12px; padding: 1rem 1.2rem;
+    background: rgba(30, 28, 50, 0.82);
+    border: 1px solid #2f2b4b;
+    border-radius: 14px;
+    padding: 1rem 1.2rem;
+    box-shadow: 0 6px 18px rgba(10, 8, 20, 0.35);
+    backdrop-filter: blur(6px);
   }
   .stSelectbox label, .stTextInput label, .stSlider label,
   .stNumberInput label { color: #a0a0c0 !important; }
+  .soft-panel {
+    border: 1px solid #302d48;
+    border-radius: 14px;
+    background: rgba(24, 22, 38, 0.72);
+    padding: 0.8rem 1rem;
+  }
 </style>
 """,
     unsafe_allow_html=True,
@@ -106,104 +162,139 @@ with st.sidebar:
     st.markdown("---")
 
     st.markdown(f"### ⚙️ {tr(locale, 'sidebar_llm_config')}")
+    llm_cfg_ok, llm_cfg = _api_get_json("/api/llm/config", timeout=6.0)
+    llm_health_ok, llm_health = _api_get_json("/api/health/llm", timeout=6.0)
 
-    # instantiate backend once for auto-discovery
-    try:
-        _llm_backend = st.session_state.get("llm_backend")
-        if _llm_backend is None:
-            _llm_backend = LLMBackend()
-            st.session_state["llm_backend"] = _llm_backend
-    except Exception:
-        _llm_backend = None
-
-    llm_provider = st.radio(
-        "Provider",
-        ["Auto-detect", "OpenAI", "Anthropic", "Ollama", "Offline Demo"],
-        index=0,
+    cfg_provider = (
+        str(llm_cfg.get("provider") or _RUNTIME_CONFIG.llm_provider).strip().lower()
+        if llm_cfg_ok
+        else _RUNTIME_CONFIG.llm_provider
     )
-
-    # populate fields based on detected backend if available
-    detected = None
-    if _llm_backend is not None:
-        detected = _llm_backend.config.provider.value
+    default_provider_label = _PROVIDER_VALUE_TO_LABEL.get(cfg_provider, "LM Studio")
+    provider_options = list(_PROVIDER_LABEL_TO_VALUE.keys())
+    llm_provider_label = st.selectbox(
+        "Provider",
+        options=provider_options,
+        index=provider_options.index(default_provider_label),
+    )
+    llm_provider = _PROVIDER_LABEL_TO_VALUE[llm_provider_label]
 
     llm_base_url = st.text_input(
         "Base URL",
-        value=getattr(
-            _llm_backend.config,
-            "ollama_base_url",
-            _RUNTIME_CONFIG.llm_ollama_base_url,
+        value=(
+            str(llm_cfg.get("base_url") or "")
+            if (llm_cfg_ok and cfg_provider == llm_provider)
+            else _default_base_url_for_provider(llm_provider)
         ),
     )
     llm_model = st.text_input(
         "Model",
-        value=getattr(_llm_backend.config, "model_name", _RUNTIME_CONFIG.llm_model),
+        value=(
+            str(llm_cfg.get("model") or _RUNTIME_CONFIG.llm_model)
+            if llm_cfg_ok
+            else _RUNTIME_CONFIG.llm_model
+        ),
     )
     llm_api_key = st.text_input(
         "API Key",
-        value=(
-            ""
-            if detected != LLMProviders.OPENAI.value
-            else (getattr(_llm_backend.config, "api_key", ""))
-        ),
+        value="",
         type="password",
-        help="Leave blank to use auto-detected or offline DreamScript",
+        help="Used when provider requires authentication (for local LM Studio keep default if not needed).",
+    )
+    llm_timeout = st.number_input(
+        "LLM timeout (seconds)",
+        min_value=10,
+        max_value=600,
+        value=int(
+            llm_cfg.get("timeout", _RUNTIME_CONFIG.llm_timeout)
+            if llm_cfg_ok
+            else _RUNTIME_CONFIG.llm_timeout
+        ),
+        step=5,
     )
 
-    # Status indicator
-    status_text = "Unknown"
-    status_color = "#f59e0b"
-    if _llm_backend is None:
-        status_text = "Unavailable"
-        status_color = "#ef4444"
-    else:
-        status_text = f"Detected: {_llm_backend.config.provider.value}"
-        status_color = (
-            "#10b981"
-            if _llm_backend.config.provider != LLMProviders.DREAMSCRIPT
-            else "#f59e0b"
+    status_text = "Disconnected"
+    status_color = "#ef4444"
+    if llm_health_ok and llm_health.get("ok"):
+        status_text = (
+            f"Connected: {llm_health.get('provider', llm_provider)} / "
+            f"{llm_health.get('model', llm_model)}"
         )
+        status_color = "#10b981"
+    elif llm_health_ok:
+        status_text = f"Unavailable: {llm_health.get('error', 'health check failed')}"
+        status_color = "#f59e0b"
 
     st.markdown(
         f"**Status:** <span style='color:{status_color}; font-weight:700'>{status_text}</span>",
         unsafe_allow_html=True,
     )
+
     if st.button("Test Connection"):
-        if _llm_backend is None:
-            st.error("LLM backend unavailable.")
-        else:
-            with st.spinner("Testing LLM..."):
-                try:
-                    test_out = _llm_backend.generate("Test: say hi")
-                    st.success("LLM responded")
-                    st.text_area("LLM test response", value=test_out, height=120)
-                except Exception as e:
-                    st.error(f"LLM test failed: {e}")
+        with st.spinner("Testing provider connection against API backend..."):
+            update_payload = {
+                "provider": llm_provider,
+                "base_url": llm_base_url,
+                "model": llm_model,
+                "timeout": int(llm_timeout),
+            }
+            if llm_api_key.strip():
+                update_payload["api_key"] = llm_api_key.strip()
+            ok_update, update_resp = _api_post_json(
+                "/api/llm/config", update_payload, timeout=15.0
+            )
+            if not ok_update:
+                st.error(
+                    f"Config update failed: {update_resp.get('status_code', '')} {update_resp.get('body', update_resp.get('error', ''))}"
+                )
+            else:
+                ok_health, health = _api_get_json("/api/health/llm", timeout=12.0)
+                if ok_health and health.get("ok"):
+                    model_list = health.get("available_models", []) or []
+                    if model_list:
+                        st.success(
+                            f"Connection OK. Provider reachable with {len(model_list)} models."
+                        )
+                        st.caption(
+                            "Models: "
+                            + ", ".join(str(m) for m in model_list[:6])
+                            + (" ..." if len(model_list) > 6 else "")
+                        )
+                    else:
+                        st.success("Connection OK. Provider responded successfully.")
+                else:
+                    st.error(
+                        f"Connection test failed: {health.get('error', 'unknown error') if ok_health else 'health endpoint unreachable'}"
+                    )
 
     st.markdown("---")
     st.markdown("### 🌙 Simulation Parameters")
 
     duration_hours = st.slider(
         "Night Duration (hours)",
-        4.0,
-        10.0,
+        1.0,
+        12.0,
         _RUNTIME_CONFIG.simulation_duration_hours,
         0.5,
+    )
+    dt_minutes = st.slider(
+        "dt (minutes)", 0.1, 2.0, _RUNTIME_CONFIG.simulation_dt_minutes, 0.1
     )
     stress_level = st.slider(
         "Stress Level", 0.0, 1.0, _RUNTIME_CONFIG.simulation_stress_level, 0.05
     )
     sleep_start = st.slider(
-        "Sleep Start (clock hour)",
-        20.0,
-        2.0,
+        "Sleep Start (clock hour, supports naps/early morning)",
+        0.0,
+        26.0,
         _RUNTIME_CONFIG.simulation_sleep_start_hour,
         0.5,
     )
+    use_llm = st.checkbox("Use LLM narrative generation", value=True)
     simulation_request_timeout_seconds = st.number_input(
         "Simulation request timeout (seconds)",
         min_value=30,
-        max_value=3600,
+        max_value=7200,
         value=int(_RUNTIME_CONFIG.simulation_request_timeout_seconds),
         step=30,
         help="How long the dashboard waits for /api/simulation/night before showing a timeout.",
@@ -211,11 +302,16 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("### 💊 Pharmacology")
-    ssri_factor = st.slider(
+    ssri_strength = st.slider(
         "SSRI Factor", 1.0, 3.0, 1.0, 0.1, help="1.0 = no medication; >1 = SSRI effect"
     )
     melatonin = st.checkbox("Melatonin")
     cannabis = st.checkbox("Cannabis (THC)")
+    emotional_state = st.selectbox(
+        "Emotional baseline",
+        options=["neutral", "calm", "anxious", "focused", "melancholic"],
+        index=0,
+    )
 
     st.markdown("---")
     st.markdown("### 📝 Prior Day Events")
@@ -288,17 +384,14 @@ def run_simulation() -> Optional[dict]:
     events_list = [e.strip() for e in events_text.splitlines() if e.strip()]
     payload = {
         "duration_hours": duration_hours,
+        "dt_minutes": dt_minutes,
         "sleep_start_hour": sleep_start,
         "stress_level": stress_level,
-        "llm_provider": llm_provider,
-        "llm_base_url": llm_base_url,
-        "llm_model": llm_model,
-        "llm_api_key": llm_api_key,
-        "pharmacology": {
-            "ssri_factor": ssri_factor,
-            "melatonin": melatonin,
-            "cannabis": cannabis,
-        },
+        "ssri_strength": ssri_strength,
+        "melatonin": melatonin,
+        "cannabis": cannabis,
+        "emotional_state": emotional_state,
+        "use_llm": use_llm,
         "prior_day_events": events_list,
     }
     try:

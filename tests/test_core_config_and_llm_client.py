@@ -30,6 +30,12 @@ def test_env_helpers_and_runtime_config(monkeypatch):
     assert cfg.simulation_request_timeout_seconds == 900
 
 
+def test_runtime_config_default_simulation_timeout_is_3600(monkeypatch):
+    monkeypatch.delenv("SIM_REQUEST_TIMEOUT_SECONDS", raising=False)
+    cfg = runtime_config.load_runtime_config()
+    assert cfg.simulation_request_timeout_seconds == 3600.0
+
+
 def test_llm_config_from_env(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
     monkeypatch.setenv("LLM_BASE_URL", "http://llm.local")

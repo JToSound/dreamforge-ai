@@ -374,7 +374,9 @@ class SimulationConfig(BaseModel):
     dt_minutes: float = Field(0.5, ge=0.1, le=5.0)
     ssri_strength: float = Field(1.0, ge=0.0, le=3.0)
     stress_level: float = Field(0.2, ge=0.0, le=1.0)
-    sleep_start_hour: float = Field(23.0, ge=18.0, le=26.0)
+    sleep_start_hour: float = Field(23.0, ge=0.0, le=26.0)
+    melatonin: bool = Field(False)
+    cannabis: bool = Field(False)
     prior_day_events: List[str] = Field(default_factory=list)
     emotional_state: str = Field("neutral")
     use_llm: bool = Field(True)
@@ -1632,6 +1634,7 @@ async def simulate_night(config: SimulationConfig):
     summary = {
         "total_segments": total,
         "night_span_hours": config.duration_hours,
+        "sleep_start_hour": config.sleep_start_hour,
         "stage_distribution": stage_pct,
         "mean_bizarreness": round(float(np.mean(all_bizarre)), 3),
         "max_bizarreness": round(float(np.max(all_bizarre)), 3),
@@ -1649,6 +1652,11 @@ async def simulate_night(config: SimulationConfig):
             and s.get("llm_trigger_type")
         ),
         "lucid_event_count": len(lucid_events),
+        "pharmacology_profile": {
+            "ssri_strength": config.ssri_strength,
+            "melatonin": config.melatonin,
+            "cannabis": config.cannabis,
+        },
         **quality_summary,
     }
 
