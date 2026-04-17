@@ -131,8 +131,9 @@ For detailed equations, parameter choices, and literature references, see `RESEA
   - `POST /api/simulation/counterfactual` – compare baseline vs perturbed dream runs.
   - `POST /api/simulation/compare` – compare two stored runs and compute deltas.
   - `GET /api/simulation/{id}/report` – generate a structured run report payload.
+  - `GET /api/simulation/{id}/report/bundle` – download a product report bundle ZIP (`report.json`, `summary.json`, `segments_overview.csv`, `methodology.txt`).
   - `GET /api/llm/registry` – prompt/model registry and capability matrix.
-  - `GET /api/slo`, `GET /api/release-gate`, `GET /api/error-taxonomy`, `GET /metrics/prometheus` – operational readiness surfaces.
+  - `GET /api/slo`, `GET /api/release-gate`, `GET /api/error-taxonomy`, `GET /metrics/prometheus` – operational readiness surfaces (`release-gate` now includes quality/fallback/grounding checks).
   - `GET /api/audit/events` – audit trail query endpoint (scope-gated when auth is enabled).
   - `GET /api/enterprise` – enterprise conversion metadata and waitlist/trial/SLA links.
   - `GET /api/version` – API contract metadata (`v1`).
@@ -143,6 +144,7 @@ For detailed equations, parameter choices, and literature references, see `RESEA
   - Provider status and **Test Connection** now validate against API-side `/api/llm/config` + `/api/health/llm` (not local demo fallback).
   - Sleep start supports **0–26 clock-hour** input (including naps and early-morning sleep sessions).
   - Visualizes hypnogram, neuromodulators, memory graph, dream timeline, and agent activity heatmap in real time.
+  - Download center includes one-click **product report bundle ZIP** export from API.
   - A separate comparative dashboard script provides multi-run visualizations.
 
 ---

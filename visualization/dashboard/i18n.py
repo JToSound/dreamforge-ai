@@ -39,7 +39,11 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "compare_candidate": "Candidate run",
         "compare_action": "Generate Comparison",
         "compare_report": "Download compare report (JSON)",
+        "compare_methodology": "Comparison methodology",
+        "compare_methodology_details": "Methodology details",
         "compare_need_two": "Run at least two simulations to enable compare/report center.",
+        "download_report_bundle": "Download product report bundle (ZIP)",
+        "download_report_bundle_unavailable": "Report bundle unavailable:",
     },
     "zh-HK": {
         "app_title": "DreamForge AI — 即時模擬",
@@ -76,7 +80,11 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "compare_candidate": "對比 run",
         "compare_action": "產生比較報告",
         "compare_report": "下載比較報告（JSON）",
+        "compare_methodology": "比較方法學",
+        "compare_methodology_details": "方法學細節",
         "compare_need_two": "至少完成兩次模擬先可使用比較/報告中心。",
+        "download_report_bundle": "下載產品報告包（ZIP）",
+        "download_report_bundle_unavailable": "報告包暫時不可用：",
     },
     "zh-CN": {
         "app_title": "DreamForge AI — 实时模拟",
@@ -113,7 +121,11 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "compare_candidate": "对比 run",
         "compare_action": "生成比较报告",
         "compare_report": "下载比较报告（JSON）",
+        "compare_methodology": "比较方法学",
+        "compare_methodology_details": "方法学细节",
         "compare_need_two": "至少完成两次模拟后才可使用比较/报告中心。",
+        "download_report_bundle": "下载产品报告包（ZIP）",
+        "download_report_bundle_unavailable": "报告包暂时不可用：",
     },
 }
 

@@ -224,10 +224,10 @@ def test_dashboard_memory_controls_and_compare_guards_are_stable() -> None:
     assert "anomaly_explanations = {" in src
     assert "llm_fallback_spike" in src
     assert "memory_grounding_drop" in src
-    assert "Comparison methodology" in src
-    assert "Methodology details" in src
+    assert 'tr(_locale, "compare_methodology")' in src
+    assert 'tr(_locale, "compare_methodology_details")' in src
     assert "/api/simulation/{sim_id_str}/report/bundle" in src
-    assert "Download product report bundle (ZIP)" in src
+    assert 'tr(_locale, "download_report_bundle")' in src
 
 
 def test_memory_graph_exports_activation_snapshots() -> None:

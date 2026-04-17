@@ -1127,7 +1127,7 @@ else:
         )
         if ok_bundle and report_bundle_bytes:
             st.download_button(
-                "Download product report bundle (ZIP)",
+                tr(_locale, "download_report_bundle"),
                 data=report_bundle_bytes,
                 file_name=f"dreamforge-report-bundle-{sim_id_str[:8]}.zip",
                 mime="application/zip",
@@ -1135,7 +1135,7 @@ else:
             )
         else:
             st.caption(
-                "Report bundle unavailable: "
+                f"{tr(_locale, 'download_report_bundle_unavailable')} "
                 f"{report_bundle_meta.get('status_code', report_bundle_meta.get('error', ''))}"
             )
 
@@ -2041,8 +2041,11 @@ else:
 
                         methodology = compare_payload.get("methodology", {})
                         if isinstance(methodology, dict) and methodology:
-                            st.caption("Comparison methodology")
-                            with st.expander("Methodology details", expanded=False):
+                            st.caption(tr(_locale, "compare_methodology"))
+                            with st.expander(
+                                tr(_locale, "compare_methodology_details"),
+                                expanded=False,
+                            ):
                                 st.json(methodology)
 
                         st.download_button(

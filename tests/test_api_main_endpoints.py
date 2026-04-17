@@ -242,6 +242,10 @@ def test_simulation_crud_and_counterfactual(patched_api):
             assert "segments_overview.csv" in names
             assert "methodology.txt" in names
 
+        bundle_v1 = client.get(f"/api/v1/simulation/{sim_id}/report/bundle")
+        assert bundle_v1.status_code == 200
+        assert bundle_v1.headers["content-type"].startswith("application/zip")
+
         counter = client.post(
             "/api/simulation/counterfactual",
             json={

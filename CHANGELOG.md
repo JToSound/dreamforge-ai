@@ -83,6 +83,9 @@
   - added report bundle endpoints (`/api/simulation/{id}/report/bundle`, `/api/v1/simulation/{id}/report/bundle`) returning a ZIP package with `report.json`, `summary.json`, `segments_overview.csv`, and `methodology.txt`,
   - dashboard download center now includes one-click “Download product report bundle (ZIP)” using the new API surface,
   - added regression coverage for report bundle API and dashboard wiring.
+- Final UX/docs alignment:
+  - localized compare methodology + report bundle labels in dashboard i18n (`en`, `zh-HK`, `zh-CN`),
+  - updated README API/dashboard sections to document report bundle endpoint and quality-aware release-gate behavior.
 
 ## [Round 6]
 
