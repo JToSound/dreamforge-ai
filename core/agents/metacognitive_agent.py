@@ -42,7 +42,7 @@ class MetacognitiveAgent:
         self.config = config or MetacognitiveConfig()
 
         # Rolling history of recent reality-check failures (True/False)
-        self._rc_history = deque(maxlen=self.config.rc_window)
+        self._rc_history: deque[bool] = deque(maxlen=self.config.rc_window)
 
         # Consecutive failures counter (for burst-sensitive dynamics)
         self.consecutive_rc_failures = 0
@@ -151,14 +151,11 @@ class MetacognitiveAgent:
             lucidity_training_level=self.config.lucidity_training_level,
         )
 
-        # Assign back to the segment (works for dict-like or pydantic models)
+        # Assign back to the segment model
         try:
             setattr(segment, "lucidity_probability", float(lucidity))
         except Exception:
-            try:
-                segment["lucidity_probability"] = float(lucidity)
-            except Exception:
-                pass
+            pass
 
         # Reality-check failure detection: increment if high biz + REM without lucidity
         high_biz = float(getattr(segment, "bizarreness_score", 0.0)) > 0.85

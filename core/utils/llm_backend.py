@@ -10,7 +10,7 @@ import os
 import time
 import re
 from enum import Enum
-from typing import Optional, Iterator
+from typing import Any, Callable, Iterator, Optional
 
 import httpx
 from pydantic import BaseModel, Field
@@ -31,7 +31,7 @@ class Providers(str, Enum):
 
 
 class LLMConfig(BaseModel):
-    provider: Providers = Field(Providers.DREAMSCRIPT)
+    provider: Providers = Providers.DREAMSCRIPT
     model_name: str = Field(default_factory=lambda: _RUNTIME_CONFIG.llm_model)
     api_key: Optional[str] = Field(default_factory=lambda: _RUNTIME_CONFIG.llm_api_key)
     ollama_base_url: str = Field(
@@ -66,7 +66,7 @@ class LLMBackend:
 
     def __init__(self, config: Optional[LLMConfig] = None):
         self.config = config or LLMConfig()
-        self._callable = None
+        self._callable: Optional[Callable[[str], str]] = None
         self._dreamscript = DreamScriptEngine()
         self._detect_provider()
 
@@ -162,7 +162,7 @@ class LLMBackend:
         # best-effort parse of prompt for a few fields
         stage = None
         neuro = type("_N", (), {"ach": 0.5, "ne": 0.5, "cortisol": 0.5})()
-        active_memories = []
+        active_memories: list[Any] = []
         biz = type("_B", (), {"total_score": 0.5})()
 
         # If the prompt encodes a simple CSV-like context, try to extract

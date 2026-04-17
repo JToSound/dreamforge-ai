@@ -34,10 +34,10 @@ class OrchestratorAgent:
 
     def __init__(
         self,
-        llm_config: Optional[dict] = None,
-        sleep_config: Optional[dict] = None,
-        neuro_config: Optional[dict] = None,
-        memory_config: Optional[dict] = None,
+        llm_config: Optional[dict[str, Any]] = None,
+        sleep_config: Optional[dict[str, Any]] = None,
+        neuro_config: Optional[dict[str, Any]] = None,
+        memory_config: Optional[dict[str, Any]] = None,
         on_progress: Optional[ProgressCallback] = None,
     ) -> None:
         self.simulation_id = str(uuid.uuid4())
@@ -53,7 +53,7 @@ class OrchestratorAgent:
 
         # Memory graph
         self.memory_graph = MemoryGraph()
-        self._memory_config = memory_config or {}
+        self._memory_config: dict[str, Any] = memory_config or {}
 
         # Dream constructor
         self.dream_constructor = DreamConstructorAgent(llm_config=llm_config)
@@ -156,7 +156,7 @@ class OrchestratorAgent:
 
         def _internal_progress(
             progress: float, stage: str, message: str, segment: Optional[DreamSegment]
-        ):
+        ) -> None:
             self._emit_progress(progress, stage, message, segment)
 
         result = self.engine.run(

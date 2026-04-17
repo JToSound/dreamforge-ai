@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 import re
-from typing import List, Optional, Sequence
+from typing import Any, List, Optional, Sequence
 
 from core.models.memory_graph import MemoryNodeModel
 from core.models.sleep_cycle import SleepStage
@@ -192,7 +192,7 @@ class DreamScriptEngine:
             return self.REM_LATE if biz.total_score >= 0.72 else self.REM_EARLY
         return self.NREM_LIGHT
 
-    def _build_vocab(self, active_memories: List[MemoryNodeModel]) -> dict:
+    def _build_vocab(self, active_memories: List[MemoryNodeModel]) -> dict[str, str]:
         tags: list[str] = []
         people: list[str] = []
         places: list[str] = []
@@ -268,7 +268,7 @@ class DreamScriptEngine:
     def generate_narrative(
         self,
         stage: SleepStage,
-        neurochemistry,
+        neurochemistry: Any,
         active_memories: List[MemoryNodeModel],
         bizarreness: BizarrenessScore,
         prev_segment_text: Optional[str] = None,

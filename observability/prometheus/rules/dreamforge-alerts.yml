@@ -1,0 +1,32 @@
+groups:
+  - name: dreamforge-release-gates
+    rules:
+      - alert: DreamForgeSimulationSuccessRatioLow
+        expr: (dreamforge_simulation_requests_total >= 20) and ((dreamforge_simulation_completed_total / dreamforge_simulation_requests_total) < 0.95)
+        for: 5m
+        labels:
+          severity: critical
+          service: dreamforge-api
+        annotations:
+          summary: "Simulation completion ratio below release threshold"
+          description: "Completion ratio dropped below 95% over the observed request count."
+
+      - alert: DreamForgeFallbackRateHigh
+        expr: dreamforge_llm_fallback_rate > 0.35
+        for: 10m
+        labels:
+          severity: warning
+          service: dreamforge-api
+        annotations:
+          summary: "LLM fallback rate above threshold"
+          description: "Fallback rate is above 35%, indicating model/provider instability."
+
+      - alert: DreamForgeLatencyHigh
+        expr: dreamforge_simulation_duration_seconds_avg > 240
+        for: 10m
+        labels:
+          severity: warning
+          service: dreamforge-api
+        annotations:
+          summary: "Average simulation latency too high"
+          description: "Average simulation duration exceeded 240 seconds."

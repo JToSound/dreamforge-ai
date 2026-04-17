@@ -10,6 +10,7 @@ GET  /api/health/llm          LLM connectivity check
 GET  /api/llm/config          Read current LLM config
 POST /api/llm/config          Update LLM config at runtime
 POST /api/simulation/night    Run a full-night dream simulation
+POST /api/simulation/multi-night  Run a multi-night continuity batch
 GET  /api/simulation/{id}     Retrieve a stored simulation
 POST /api/simulation/counterfactual  Run a counterfactual variant
 GET  /api/dreams              List all stored simulation summaries
@@ -31,11 +32,12 @@ import logging
 import os
 import random
 import re
+import shutil
 import threading
 import time
 import uuid
 import zipfile
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -89,6 +91,14 @@ ERROR_TAXONOMY: Dict[str, str] = {
 }
 _API_ACCESS_TOKEN = os.getenv("API_ACCESS_TOKEN", "").strip()
 _REDIS_URL = os.getenv("REDIS_URL", "").strip()
+_METRICS_PUBLIC = os.getenv("METRICS_PUBLIC", "1").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
+_OUTPUT_RETENTION_DAYS = max(0, int(os.getenv("OUTPUT_RETENTION_DAYS", "14")))
+_OUTPUT_RETENTION_MAX_RUNS = max(1, int(os.getenv("OUTPUT_RETENTION_MAX_RUNS", "200")))
 
 
 def _load_token_role_map() -> Dict[str, Dict[str, Any]]:
@@ -250,12 +260,15 @@ _runtime_metrics: Dict[str, float] = {
     "api_unauthorized_total": 0.0,
     "export_failures_total": 0.0,
 }
+_simulation_duration_seconds_history: deque[float] = deque(maxlen=2048)
 _api_error_codes: Dict[str, float] = defaultdict(float)
 _request_windows: Dict[str, deque[float]] = defaultdict(deque)
 _rate_limit_lock = threading.Lock()
 _jobs_lock = threading.Lock()
 _simulation_jobs: Dict[str, Dict[str, Any]] = {}
 _simulation_job_tasks: Dict[str, asyncio.Task[Any]] = {}
+_workspaces_lock = threading.Lock()
+_workspaces: Dict[str, Dict[str, Any]] = {}
 _simulation_progress_callback_var: contextvars.ContextVar[
     Optional[Callable[[Dict[str, Any]], None]]
 ] = contextvars.ContextVar("simulation_progress_callback", default=None)
@@ -268,6 +281,8 @@ _REDIS_KEY_SIMULATION_PREFIX = "dreamforge:simulation:"
 _REDIS_KEY_SIMULATION_INDEX = "dreamforge:simulations"
 _REDIS_KEY_JOB_PREFIX = "dreamforge:job:"
 _REDIS_KEY_AUDIT_EVENTS = "dreamforge:audit:events"
+_REDIS_KEY_WORKSPACE_PREFIX = "dreamforge:workspace:"
+_REDIS_KEY_WORKSPACE_INDEX = "dreamforge:workspaces"
 
 
 def _get_redis_client():
@@ -341,6 +356,20 @@ def _persist_job(job_id: str, payload: Dict[str, Any]) -> None:
         logger.warning("Failed to persist job %s to Redis: %s", job_id, exc)
 
 
+def _persist_workspace(workspace_id: str, payload: Dict[str, Any]) -> None:
+    client = _get_redis_client()
+    if client is None:
+        return
+    try:
+        client.set(
+            f"{_REDIS_KEY_WORKSPACE_PREFIX}{workspace_id}",
+            json.dumps(payload, ensure_ascii=False),
+        )
+        client.sadd(_REDIS_KEY_WORKSPACE_INDEX, workspace_id)
+    except Exception as exc:
+        logger.warning("Failed to persist workspace %s to Redis: %s", workspace_id, exc)
+
+
 def _load_persisted_job(job_id: str) -> Optional[Dict[str, Any]]:
     client = _get_redis_client()
     if client is None:
@@ -359,6 +388,26 @@ def _load_persisted_job(job_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _load_persisted_workspace(workspace_id: str) -> Optional[Dict[str, Any]]:
+    client = _get_redis_client()
+    if client is None:
+        return None
+    try:
+        raw = client.get(f"{_REDIS_KEY_WORKSPACE_PREFIX}{workspace_id}")
+        if not raw:
+            return None
+        payload = json.loads(raw)
+        return payload if isinstance(payload, dict) else None
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        logger.warning(
+            "Invalid persisted workspace payload for %s: %s", workspace_id, exc
+        )
+        return None
+    except Exception as exc:
+        logger.warning("Failed loading workspace %s from Redis: %s", workspace_id, exc)
+        return None
+
+
 def _list_persisted_sim_ids() -> List[str]:
     client = _get_redis_client()
     if client is None:
@@ -368,6 +417,18 @@ def _list_persisted_sim_ids() -> List[str]:
         return [str(item) for item in values if str(item)]
     except Exception as exc:
         logger.warning("Failed listing persisted simulation IDs: %s", exc)
+        return []
+
+
+def _list_persisted_workspace_ids() -> List[str]:
+    client = _get_redis_client()
+    if client is None:
+        return []
+    try:
+        values = client.smembers(_REDIS_KEY_WORKSPACE_INDEX) or []
+        return [str(item) for item in values if str(item)]
+    except Exception as exc:
+        logger.warning("Failed listing persisted workspace IDs: %s", exc)
         return []
 
 
@@ -412,6 +473,17 @@ def _resolve_simulation(sim_id: str) -> Optional[Dict[str, Any]]:
     return persisted
 
 
+def _resolve_workspace(workspace_id: str) -> Optional[Dict[str, Any]]:
+    cached = _workspaces.get(workspace_id)
+    if isinstance(cached, dict):
+        return cached
+    persisted = _load_persisted_workspace(workspace_id)
+    if isinstance(persisted, dict):
+        _workspaces[workspace_id] = persisted
+        return persisted
+    return None
+
+
 def _audit(event: str, **fields: Any) -> None:
     payload = " ".join(f"{k}={fields[k]}" for k in sorted(fields))
     logger.info("AUDIT %s %s", event, payload)
@@ -435,14 +507,14 @@ def _record_simulation_completion(
     llm_fallback_segments: int,
 ) -> None:
     with _metrics_lock:
+        duration_value = max(0.0, float(duration_seconds))
         _runtime_metrics["simulation_completed_total"] += 1.0
-        _runtime_metrics["simulation_duration_seconds_total"] += max(
-            0.0, float(duration_seconds)
-        )
+        _runtime_metrics["simulation_duration_seconds_total"] += duration_value
         _runtime_metrics["llm_invocations_total"] += float(max(0, llm_invocations))
         _runtime_metrics["llm_fallback_segments_total"] += float(
             max(0, llm_fallback_segments)
         )
+        _simulation_duration_seconds_history.append(duration_value)
 
 
 def _record_simulation_failure(error_code: str = "internal_error") -> None:
@@ -522,7 +594,10 @@ def _scope_allowed(request: Request, scope: str) -> bool:
 
 
 def _is_auth_exempt_path(path: str) -> bool:
-    if path in {"/", "/health", "/metrics", "/metrics/prometheus"}:
+    public_metrics_paths = (
+        {"/metrics", "/metrics/prometheus"} if _METRICS_PUBLIC else set()
+    )
+    if path in {"/", "/health", *public_metrics_paths}:
         return True
     return path.startswith("/docs") or path.startswith("/openapi")
 
@@ -540,6 +615,7 @@ def _read_runtime_metrics() -> Dict[str, float]:
     with _metrics_lock:
         snapshot = dict(_runtime_metrics)
         error_codes = dict(_api_error_codes)
+        duration_history = list(_simulation_duration_seconds_history)
     completed = snapshot.get("simulation_completed_total", 0.0)
     requests_total = snapshot.get("simulation_requests_total", 0.0)
     failed_total = snapshot.get("simulation_failed_total", 0.0)
@@ -557,6 +633,16 @@ def _read_runtime_metrics() -> Dict[str, float]:
     snapshot["simulation_duration_seconds_avg"] = round(
         (duration_total / completed) if completed > 0 else 0.0, 6
     )
+    if duration_history:
+        snapshot["simulation_duration_seconds_p95"] = round(
+            float(np.percentile(duration_history, 95)), 6
+        )
+        snapshot["simulation_duration_seconds_p99"] = round(
+            float(np.percentile(duration_history, 99)), 6
+        )
+    else:
+        snapshot["simulation_duration_seconds_p95"] = 0.0
+        snapshot["simulation_duration_seconds_p99"] = 0.0
     snapshot["llm_fallback_rate"] = round(
         (fallback_total / llm_total) if llm_total > 0 else 0.0, 6
     )
@@ -584,7 +670,7 @@ def _build_release_gate_status(metrics_snapshot: Dict[str, Any]) -> Dict[str, An
     simulation_completion_rate = float(
         metrics_snapshot.get("simulation_completion_rate", 0.0)
     )
-    latency_proxy = float(metrics_snapshot.get("simulation_duration_seconds_avg", 0.0))
+    latency_p95 = float(metrics_snapshot.get("simulation_duration_seconds_p95", 0.0))
     export_success_rate = float(metrics_snapshot.get("export_success_rate", 0.0))
     quality_snapshot = _recent_simulation_quality_snapshot()
 
@@ -593,7 +679,7 @@ def _build_release_gate_status(metrics_snapshot: Dict[str, Any]) -> Dict[str, An
         >= float(SLO_TARGETS["api_success_rate_min"]),
         "simulation_completion_rate_pass": simulation_completion_rate
         >= float(SLO_TARGETS["simulation_completion_rate_min"]),
-        "simulation_latency_proxy_pass": latency_proxy
+        "simulation_latency_p95_pass": latency_p95
         <= float(SLO_TARGETS["simulation_p95_latency_seconds_max"]),
         "export_success_rate_pass": export_success_rate
         >= float(SLO_TARGETS["export_success_rate_min"]),
@@ -619,7 +705,7 @@ def _build_release_gate_status(metrics_snapshot: Dict[str, Any]) -> Dict[str, An
         "current": metrics_snapshot,
         "quality_window": quality_snapshot,
         "notes": [
-            "simulation_latency_proxy_pass uses average latency until p95 histograms are wired.",
+            "simulation_latency_p95_pass uses in-process p95 over recent simulation durations.",
             "narrative_quality_pass, llm_fallback_sla_pass, and memory_grounding_pass use recent simulation summaries.",
             "Release gate should fail when any check is false.",
         ],
@@ -750,6 +836,21 @@ class SimulationResponse(BaseModel):
     llm_model: Optional[str] = None
 
 
+class MultiNightSimulationRequest(BaseModel):
+    nights: int = Field(default=3, ge=2, le=30)
+    config: SimulationConfig
+    carryover_memory: bool = Field(default=True)
+    carryover_top_k: int = Field(default=5, ge=1, le=20)
+    max_prior_events: int = Field(default=12, ge=1, le=40)
+
+
+class MultiNightSimulationResponse(BaseModel):
+    series_id: str
+    nights: List[SimulationResponse]
+    summary: Dict[str, Any] = {}
+    continuity: Dict[str, Any] = {}
+
+
 class CounterfactualRequest(BaseModel):
     base_simulation_id: str
     perturbations: Dict[str, Any] = Field(...)
@@ -793,6 +894,34 @@ class ChartExportRequest(BaseModel):
     figure: Dict[str, Any]
     format: str = Field(default="png")
     scale: float = Field(default=2.0, ge=0.5, le=4.0)
+
+
+class WorkspaceCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    description: Optional[str] = Field(None, max_length=500)
+    tags: List[str] = Field(default_factory=list, max_length=20)
+
+
+class WorkspaceResponse(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    created_at: float
+    updated_at: float
+    run_ids: List[str] = Field(default_factory=list)
+
+
+class WorkspaceAttachRunRequest(BaseModel):
+    simulation_id: str = Field(..., min_length=1)
+    label: Optional[str] = Field(None, max_length=120)
+
+
+class WorkspaceAttachRunResponse(BaseModel):
+    workspace_id: str
+    simulation_id: str
+    attached: bool
+    run_count: int
 
 
 # ── FastAPI app ───────────────────────────────────────────────────────────────
@@ -1531,6 +1660,125 @@ def _resolve_output_dir(session_id: str) -> Path:
     return target
 
 
+def _resolve_output_root_dir() -> Path:
+    """Resolve outputs root directory for index/retention operations."""
+    output_env = os.getenv("DREAMFORGE_OUTPUT_DIR", "").strip()
+    if output_env and "{session_id}" not in output_env:
+        root = Path(output_env)
+    else:
+        root = Path("outputs")
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _outputs_index_file() -> Path:
+    return _resolve_output_root_dir() / "index.json"
+
+
+def _load_outputs_index() -> Dict[str, Any]:
+    index_path = _outputs_index_file()
+    if not index_path.exists():
+        return {"version": 1, "updated_at": time.time(), "items": []}
+    try:
+        data = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        logger.warning("Failed reading outputs index %s: %s", index_path, exc)
+        return {"version": 1, "updated_at": time.time(), "items": []}
+    if not isinstance(data, dict):
+        return {"version": 1, "updated_at": time.time(), "items": []}
+    items = data.get("items", [])
+    if not isinstance(items, list):
+        items = []
+    return {
+        "version": int(data.get("version", 1)),
+        "updated_at": float(data.get("updated_at", time.time())),
+        "items": [item for item in items if isinstance(item, dict)],
+    }
+
+
+def _save_outputs_index(index_data: Dict[str, Any]) -> None:
+    index_path = _outputs_index_file()
+    payload = {
+        "version": 1,
+        "updated_at": time.time(),
+        "items": index_data.get("items", []),
+    }
+    try:
+        index_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        logger.warning("Failed writing outputs index %s: %s", index_path, exc)
+
+
+def _upsert_output_metadata(
+    sim_id: str, result_payload: Dict[str, Any], output_dir: Path
+) -> None:
+    summary = result_payload.get("summary", {})
+    entry = {
+        "simulation_id": sim_id,
+        "created_at": float(result_payload.get("created_at_unix", time.time())),
+        "output_dir": str(output_dir.resolve()),
+        "llm_used": bool(result_payload.get("llm_used", False)),
+        "segments": int(summary.get("total_segments", 0) or 0),
+        "rem_fraction": float(summary.get("rem_fraction", 0.0) or 0.0),
+        "narrative_quality_mean": float(
+            summary.get("narrative_quality_mean", 0.0) or 0.0
+        ),
+    }
+    index_data = _load_outputs_index()
+    existing = [
+        item
+        for item in index_data["items"]
+        if str(item.get("simulation_id", "")) != sim_id
+    ]
+    existing.append(entry)
+    existing.sort(key=lambda item: float(item.get("created_at", 0.0)), reverse=True)
+    index_data["items"] = existing[:_OUTPUT_RETENTION_MAX_RUNS]
+    _save_outputs_index(index_data)
+
+
+def _enforce_outputs_retention() -> None:
+    root = _resolve_output_root_dir()
+    now = time.time()
+    cutoff = now - (_OUTPUT_RETENTION_DAYS * 86400)
+
+    candidates: List[Path] = []
+    try:
+        candidates = [p for p in root.iterdir() if p.is_dir()]
+    except OSError as exc:
+        logger.warning("Failed listing output directories in %s: %s", root, exc)
+        return
+
+    candidates_sorted = sorted(
+        candidates,
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    stale_by_count = set(candidates_sorted[_OUTPUT_RETENTION_MAX_RUNS:])
+    stale_by_age = {
+        path
+        for path in candidates_sorted
+        if _OUTPUT_RETENTION_DAYS > 0 and path.stat().st_mtime < cutoff
+    }
+    stale = stale_by_count | stale_by_age
+    for path in stale:
+        try:
+            shutil.rmtree(path)
+        except OSError as exc:
+            logger.warning("Failed deleting stale output directory %s: %s", path, exc)
+
+    index_data = _load_outputs_index()
+    kept_paths = {str(path.resolve()) for path in candidates if path not in stale}
+    index_data["items"] = [
+        item
+        for item in index_data["items"]
+        if str(item.get("output_dir", "")) in kept_paths
+    ][:_OUTPUT_RETENTION_MAX_RUNS]
+    _save_outputs_index(index_data)
+
+
 def _strip_thinking_tags(response: str) -> str:
     if not response:
         return ""
@@ -1599,6 +1847,118 @@ def _stage_minutes(segments: List[dict[str, Any]]) -> Dict[str, float]:
         end = float(seg.get("end_time_hours", start) or start)
         totals[stage] += max(0.0, (end - start) * 60.0)
     return {k: round(v, 3) for k, v in totals.items()}
+
+
+def _derive_carryover_events_from_simulation(
+    simulation_payload: dict[str, Any], top_k: int = 5
+) -> List[str]:
+    segments = simulation_payload.get("segments", [])
+    if not isinstance(segments, list):
+        return []
+    id_counts: Counter[str] = Counter()
+    for seg in segments:
+        if not isinstance(seg, dict):
+            continue
+        for mem_id in seg.get("active_memory_ids", []):
+            mem_id_str = str(mem_id).strip()
+            if mem_id_str:
+                id_counts[mem_id_str] += 1
+    if not id_counts:
+        return []
+    label_map: Dict[str, str] = {}
+    memory_graph = simulation_payload.get("memory_graph", {})
+    if isinstance(memory_graph, dict):
+        nodes = memory_graph.get("nodes", [])
+        if isinstance(nodes, list):
+            for node in nodes:
+                if not isinstance(node, dict):
+                    continue
+                node_id = str(node.get("id", "")).strip()
+                label = str(node.get("label", node_id)).strip()
+                if node_id and label:
+                    label_map[node_id] = label
+    events: List[str] = []
+    for mem_id, _count in id_counts.most_common(max(1, int(top_k))):
+        label = label_map.get(mem_id)
+        if not label:
+            label = mem_id.replace("mem::", "").replace("_", " ").strip()
+        if label:
+            events.append(label)
+    return events
+
+
+def _build_multi_night_continuity_payload(
+    night_payloads: List[dict[str, Any]],
+) -> dict[str, Any]:
+    usage: Dict[str, set[int]] = defaultdict(set)
+    night_count = len(night_payloads)
+    for night_idx, payload in enumerate(night_payloads):
+        segments = payload.get("segments", [])
+        if not isinstance(segments, list):
+            continue
+        for seg in segments:
+            if not isinstance(seg, dict):
+                continue
+            for mem_id in seg.get("active_memory_ids", []):
+                mem_id_str = str(mem_id).strip()
+                if mem_id_str:
+                    usage[mem_id_str].add(night_idx)
+
+    recurring = {
+        mem_id: sorted(int(idx) for idx in night_set)
+        for mem_id, night_set in usage.items()
+        if len(night_set) >= 2
+    }
+    recurring_sorted = sorted(
+        recurring.items(),
+        key=lambda item: (len(item[1]), item[0]),
+        reverse=True,
+    )
+    top_recurring = [mem_id for mem_id, _ in recurring_sorted[:10]]
+
+    flows: Dict[tuple[int, int], int] = {}
+    for _mem_id, night_seq in recurring_sorted:
+        for i in range(len(night_seq) - 1):
+            pair = (night_seq[i], night_seq[i + 1])
+            flows[pair] = flows.get(pair, 0) + 1
+    source: List[int] = []
+    target: List[int] = []
+    value: List[int] = []
+    for (src_idx, dst_idx), cnt in sorted(flows.items()):
+        source.append(int(src_idx))
+        target.append(int(dst_idx))
+        value.append(int(cnt))
+
+    rem_fractions: List[float] = []
+    quality_means: List[float] = []
+    fallback_rates: List[float] = []
+    for payload in night_payloads:
+        summary = payload.get("summary", {})
+        if not isinstance(summary, dict):
+            continue
+        rem_fractions.append(float(summary.get("rem_fraction", 0.0)))
+        quality_means.append(float(summary.get("narrative_quality_mean", 0.0)))
+        fallback_segments = float(summary.get("llm_fallback_segments", 0.0))
+        llm_total = float(
+            summary.get("llm_total_invocations", summary.get("llm_calls_total", 0.0))
+        )
+        fallback_rates.append((fallback_segments / llm_total) if llm_total > 0 else 0.0)
+
+    divisor = float(len(night_payloads)) if night_payloads else 1.0
+    return {
+        "recurring_memory_count": int(len(recurring)),
+        "top_recurring_memory_ids": top_recurring,
+        "recurring_memory_night_map": recurring,
+        "sankey": {
+            "nodes": {"labels": [f"Night {i + 1}" for i in range(night_count)]},
+            "links": {"source": source, "target": target, "value": value},
+        },
+        "night_averages": {
+            "rem_fraction_mean": round(sum(rem_fractions) / divisor, 4),
+            "narrative_quality_mean": round(sum(quality_means) / divisor, 4),
+            "llm_fallback_rate_mean": round(sum(fallback_rates) / divisor, 4),
+        },
+    }
 
 
 def _build_comparison_payload(
@@ -1906,6 +2266,12 @@ def _prometheus_metrics_text(metrics: dict[str, Any]) -> str:
         "# HELP dreamforge_simulation_duration_seconds_avg Average simulation duration",
         "# TYPE dreamforge_simulation_duration_seconds_avg gauge",
         f"dreamforge_simulation_duration_seconds_avg {metrics.get('simulation_duration_seconds_avg', 0.0)}",
+        "# HELP dreamforge_simulation_duration_seconds_p95 p95 simulation duration",
+        "# TYPE dreamforge_simulation_duration_seconds_p95 gauge",
+        f"dreamforge_simulation_duration_seconds_p95 {metrics.get('simulation_duration_seconds_p95', 0.0)}",
+        "# HELP dreamforge_simulation_duration_seconds_p99 p99 simulation duration",
+        "# TYPE dreamforge_simulation_duration_seconds_p99 gauge",
+        f"dreamforge_simulation_duration_seconds_p99 {metrics.get('simulation_duration_seconds_p99', 0.0)}",
         "# HELP dreamforge_llm_fallback_rate LLM fallback ratio",
         "# TYPE dreamforge_llm_fallback_rate gauge",
         f"dreamforge_llm_fallback_rate {metrics.get('llm_fallback_rate', 0.0)}",
@@ -2423,6 +2789,8 @@ async def simulate_night(config: SimulationConfig):
     # Persist to in-memory store
     _simulations[sim_id] = result_payload
     _persist_simulation(sim_id, result_payload)
+    _upsert_output_metadata(sim_id, result_payload, output_dir)
+    _enforce_outputs_retention()
     _emit_simulation_progress_event(
         {
             "phase": "finalizing",
@@ -2445,6 +2813,86 @@ async def simulate_night(config: SimulationConfig):
     logger.info("Simulation %s complete — %d segments, LLM=%s", sim_id, total, llm_used)
 
     return result
+
+
+@app.post(
+    "/api/simulation/multi-night",
+    response_model=MultiNightSimulationResponse,
+    tags=["Simulation"],
+)
+@app.post(
+    "/api/v1/simulation/multi-night",
+    response_model=MultiNightSimulationResponse,
+    tags=["Simulation"],
+)
+async def simulate_multi_night(req: MultiNightSimulationRequest):
+    series_id = str(uuid.uuid4())
+    base_prior_events = [
+        str(ev).strip() for ev in req.config.prior_day_events if str(ev).strip()
+    ]
+    night_results: List[SimulationResponse] = []
+    night_payloads: List[dict[str, Any]] = []
+    carryover_events_by_night: List[Dict[str, Any]] = []
+
+    for night_idx in range(int(req.nights)):
+        carryover_events: List[str] = []
+        if req.carryover_memory and night_payloads:
+            carryover_events = _derive_carryover_events_from_simulation(
+                night_payloads[-1], top_k=int(req.carryover_top_k)
+            )
+
+        merged_prior_events: List[str] = []
+        for event in [*base_prior_events, *carryover_events]:
+            event_str = str(event).strip()
+            if not event_str or event_str in merged_prior_events:
+                continue
+            merged_prior_events.append(event_str)
+        merged_prior_events = merged_prior_events[: int(req.max_prior_events)]
+
+        night_config = req.config.model_copy(
+            update={"prior_day_events": merged_prior_events}
+        )
+        result = await simulate_night(night_config)
+        result_payload = result.model_dump()
+        summary_obj = result_payload.get("summary")
+        if isinstance(summary_obj, dict):
+            summary_obj["multi_night_series_id"] = series_id
+            summary_obj["night_index"] = night_idx + 1
+            summary_obj["carryover_event_count"] = len(carryover_events)
+        if isinstance(result.summary, dict):
+            result.summary["multi_night_series_id"] = series_id
+            result.summary["night_index"] = night_idx + 1
+            result.summary["carryover_event_count"] = len(carryover_events)
+        night_payloads.append(result_payload)
+        night_results.append(result)
+        carryover_events_by_night.append(
+            {
+                "night_index": night_idx + 1,
+                "carryover_events": carryover_events,
+            }
+        )
+
+    continuity = _build_multi_night_continuity_payload(night_payloads)
+    continuity["carryover_events_by_night"] = carryover_events_by_night
+    summary = {
+        "series_id": series_id,
+        "night_count": len(night_results),
+        "carryover_memory_enabled": bool(req.carryover_memory),
+        "recurring_memory_count": int(continuity.get("recurring_memory_count", 0)),
+        "night_averages": continuity.get("night_averages", {}),
+    }
+    _audit(
+        "simulation_multi_night_completed",
+        series_id=series_id,
+        night_count=len(night_results),
+        carryover_memory=bool(req.carryover_memory),
+    )
+    return MultiNightSimulationResponse(
+        series_id=series_id,
+        nights=night_results,
+        summary=summary,
+        continuity=continuity,
+    )
 
 
 @app.post(
@@ -2748,6 +3196,248 @@ async def list_dreams():
             }
         )
     return {"count": len(summaries), "simulations": summaries}
+
+
+@app.post(
+    "/api/workspaces",
+    response_model=WorkspaceResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Collaboration"],
+)
+@app.post(
+    "/api/v1/workspaces",
+    response_model=WorkspaceResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Collaboration"],
+)
+async def create_workspace(request: Request, body: WorkspaceCreateRequest):
+    if not _scope_allowed(request, "workspace:write"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Missing required scope: workspace:write",
+        )
+    workspace_id = str(uuid.uuid4())
+    now = time.time()
+    payload = {
+        "id": workspace_id,
+        "name": body.name.strip(),
+        "description": (body.description or "").strip() or None,
+        "tags": [str(tag).strip() for tag in body.tags if str(tag).strip()][:20],
+        "created_at": now,
+        "updated_at": now,
+        "run_ids": [],
+        "run_meta": {},
+    }
+    with _workspaces_lock:
+        _workspaces[workspace_id] = payload
+    _persist_workspace(workspace_id, payload)
+    _audit("workspace_created", workspace_id=workspace_id)
+    return WorkspaceResponse(
+        id=workspace_id,
+        name=payload["name"],
+        description=payload["description"],
+        tags=payload["tags"],
+        created_at=now,
+        updated_at=now,
+        run_ids=[],
+    )
+
+
+@app.get(
+    "/api/workspaces/{workspace_id}",
+    response_model=WorkspaceResponse,
+    tags=["Collaboration"],
+)
+@app.get(
+    "/api/v1/workspaces/{workspace_id}",
+    response_model=WorkspaceResponse,
+    tags=["Collaboration"],
+)
+async def get_workspace(workspace_id: str, request: Request):
+    if not _scope_allowed(request, "workspace:read"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Missing required scope: workspace:read",
+        )
+    payload = _resolve_workspace(workspace_id)
+    if not isinstance(payload, dict):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workspace '{workspace_id}' not found.",
+        )
+    return WorkspaceResponse(
+        id=str(payload.get("id", workspace_id)),
+        name=str(payload.get("name", "Untitled workspace")),
+        description=(
+            str(payload.get("description"))
+            if payload.get("description") is not None
+            else None
+        ),
+        tags=[str(tag) for tag in payload.get("tags", []) if str(tag).strip()],
+        created_at=float(payload.get("created_at", 0.0)),
+        updated_at=float(payload.get("updated_at", 0.0)),
+        run_ids=[
+            str(run_id) for run_id in payload.get("run_ids", []) if str(run_id).strip()
+        ],
+    )
+
+
+@app.get("/api/workspaces", tags=["Collaboration"])
+@app.get("/api/v1/workspaces", tags=["Collaboration"])
+async def list_workspaces(request: Request, limit: int = 50):
+    if not _scope_allowed(request, "workspace:read"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Missing required scope: workspace:read",
+        )
+    max_limit = max(1, min(int(limit), 500))
+    ids = set(_workspaces.keys()) | set(_list_persisted_workspace_ids())
+    rows: List[Dict[str, Any]] = []
+    for workspace_id in ids:
+        payload = _resolve_workspace(workspace_id)
+        if not isinstance(payload, dict):
+            continue
+        rows.append(
+            {
+                "id": str(payload.get("id", workspace_id)),
+                "name": str(payload.get("name", "Untitled workspace")),
+                "description": payload.get("description"),
+                "tags": [
+                    str(tag) for tag in payload.get("tags", []) if str(tag).strip()
+                ],
+                "created_at": float(payload.get("created_at", 0.0)),
+                "updated_at": float(payload.get("updated_at", 0.0)),
+                "run_count": len(payload.get("run_ids", [])),
+            }
+        )
+    rows.sort(key=lambda item: float(item.get("updated_at", 0.0)), reverse=True)
+    return {"count": len(rows), "items": rows[:max_limit]}
+
+
+@app.post(
+    "/api/workspaces/{workspace_id}/runs",
+    response_model=WorkspaceAttachRunResponse,
+    tags=["Collaboration"],
+)
+@app.post(
+    "/api/v1/workspaces/{workspace_id}/runs",
+    response_model=WorkspaceAttachRunResponse,
+    tags=["Collaboration"],
+)
+async def attach_workspace_run(
+    workspace_id: str,
+    request: Request,
+    body: WorkspaceAttachRunRequest,
+):
+    if not _scope_allowed(request, "workspace:write"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Missing required scope: workspace:write",
+        )
+    simulation_id = str(body.simulation_id).strip()
+    simulation = _resolve_simulation(simulation_id)
+    if not isinstance(simulation, dict):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Simulation '{simulation_id}' not found.",
+        )
+    with _workspaces_lock:
+        payload = _resolve_workspace(workspace_id)
+        if not isinstance(payload, dict):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Workspace '{workspace_id}' not found.",
+            )
+        run_ids = [
+            str(run_id) for run_id in payload.get("run_ids", []) if str(run_id).strip()
+        ]
+        attached = simulation_id not in run_ids
+        if attached:
+            run_ids.append(simulation_id)
+        payload["run_ids"] = run_ids
+        run_meta = payload.get("run_meta")
+        if not isinstance(run_meta, dict):
+            run_meta = {}
+        run_meta[simulation_id] = {
+            "label": (body.label or "").strip() or None,
+            "attached_at": time.time(),
+            "rem_fraction": float(
+                ((simulation.get("summary") or {}).get("rem_fraction", 0.0) or 0.0)
+            ),
+            "mean_bizarreness": float(
+                ((simulation.get("summary") or {}).get("mean_bizarreness", 0.0) or 0.0)
+            ),
+        }
+        payload["run_meta"] = run_meta
+        payload["updated_at"] = time.time()
+        _workspaces[workspace_id] = payload
+    _persist_workspace(workspace_id, payload)
+    _audit(
+        "workspace_run_attached",
+        workspace_id=workspace_id,
+        simulation_id=simulation_id,
+        attached=attached,
+    )
+    return WorkspaceAttachRunResponse(
+        workspace_id=workspace_id,
+        simulation_id=simulation_id,
+        attached=attached,
+        run_count=len(payload.get("run_ids", [])),
+    )
+
+
+@app.get("/api/workspaces/{workspace_id}/runs", tags=["Collaboration"])
+@app.get("/api/v1/workspaces/{workspace_id}/runs", tags=["Collaboration"])
+async def list_workspace_runs(workspace_id: str, request: Request):
+    if not _scope_allowed(request, "workspace:read"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Missing required scope: workspace:read",
+        )
+    payload = _resolve_workspace(workspace_id)
+    if not isinstance(payload, dict):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workspace '{workspace_id}' not found.",
+        )
+    run_ids = [
+        str(run_id) for run_id in payload.get("run_ids", []) if str(run_id).strip()
+    ]
+    run_meta = payload.get("run_meta")
+    if not isinstance(run_meta, dict):
+        run_meta = {}
+    rows: List[Dict[str, Any]] = []
+    for simulation_id in run_ids:
+        sim_payload = _resolve_simulation(simulation_id)
+        if not isinstance(sim_payload, dict):
+            continue
+        summary = sim_payload.get("summary") or {}
+        meta = (
+            run_meta.get(simulation_id)
+            if isinstance(run_meta.get(simulation_id), dict)
+            else {}
+        )
+        rows.append(
+            {
+                "simulation_id": simulation_id,
+                "label": meta.get("label"),
+                "attached_at": meta.get("attached_at"),
+                "duration_hours": (sim_payload.get("config") or {}).get(
+                    "duration_hours"
+                ),
+                "segment_count": len(sim_payload.get("segments") or []),
+                "llm_used": bool(sim_payload.get("llm_used", False)),
+                "mean_bizarreness": summary.get("mean_bizarreness"),
+                "rem_fraction": summary.get("rem_fraction"),
+                "narrative_quality_mean": summary.get("narrative_quality_mean"),
+            }
+        )
+    rows.sort(key=lambda item: float(item.get("attached_at") or 0.0), reverse=True)
+    return {
+        "workspace_id": workspace_id,
+        "count": len(rows),
+        "items": rows,
+    }
 
 
 @app.post("/api/simulation/counterfactual", tags=["Simulation"])

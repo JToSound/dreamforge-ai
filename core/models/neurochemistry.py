@@ -5,6 +5,7 @@ from enum import Enum
 from typing import Callable, Optional, List, Tuple
 
 import numpy as np
+import numpy.typing as npt
 from pydantic import BaseModel, Field, ConfigDict
 from scipy.integrate import solve_ivp
 
@@ -296,9 +297,9 @@ class NeurochemistryModel:
     def _ode_system(
         self,
         t: float,
-        y: np.ndarray,
+        y: npt.NDArray[np.float64],
         stage_fn: Callable[[float], SleepStage],
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.float64]:
         p = self.params
         ach, five_ht, ne, cort = y
         stage = stage_fn(t)
@@ -316,11 +317,12 @@ class NeurochemistryModel:
         d_cort = cort_drive - p.cortisol_clear * cort
 
         if p.noise_std > 0.0:
-            noise = np.random.normal(0.0, p.noise_std, size=4)
+            noise: npt.NDArray[np.float64] = np.random.normal(0.0, p.noise_std, size=4)
         else:
-            noise = np.zeros(4)
+            noise = np.zeros(4, dtype=float)
 
-        return np.array([d_ach, d_5ht, d_ne, d_cort]) + noise
+        derivatives = np.asarray([d_ach, d_5ht, d_ne, d_cort], dtype=float)
+        return np.asarray(derivatives + noise, dtype=float)
 
     # ------------------------------------------------------------------
     # Public interface
@@ -348,7 +350,7 @@ class NeurochemistryModel:
         t_end: float,
         stage_fn: Callable[[float], SleepStage],
         max_step: float = 1.0 / 60.0,
-    ) -> tuple[list[NeurochemistryState], np.ndarray]:
+    ) -> tuple[list[NeurochemistryState], npt.NDArray[np.float64]]:
         """Integrate from state.time_hours to t_end and return trajectory.
 
         Args:

@@ -83,10 +83,10 @@ class SimulationEngine:
         # Initialise neuro state
         neuro_state = self.neuro_model.initial_state()
 
-        hypnogram: list[dict] = []
-        neuro_series: list[dict] = []
+        hypnogram: list[dict[str, Any]] = []
+        neuro_series: list[dict[str, Any]] = []
         dream_segments: list[Any] = []
-        memory_activation_series: list[dict] = []
+        memory_activation_series: list[dict[str, Any]] = []
         segment_index = 0
 
         # Stage lookup based on precomputed states

@@ -100,7 +100,7 @@ class LLMClient:
         payload_variants = self._build_payload_variants(system=system, user=user)
         total_attempts = max(1, int(self.config.retries), len(payload_variants))
 
-        last_exc = None
+        last_exc: Exception | None = None
         saw_payload_rejection = False
         for attempt in range(1, total_attempts + 1):
             variant_idx = min(attempt - 1, len(payload_variants) - 1)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 from core.models.dream_segment import DreamNight
 from core.simulation.event_bus import Event, EventType
@@ -20,7 +20,7 @@ class CrossNightContinuityTracker:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def compute_activity_matrix(events: List[Event]) -> dict:
+    def compute_activity_matrix(events: List[Event]) -> dict[str, Any]:
         """Return a simple activity matrix (time bins x event types).
 
         The result is a dict with:
@@ -63,7 +63,7 @@ class CrossNightContinuityTracker:
     @staticmethod
     def compute_recurring_memory_stats(
         nights: List[DreamNight], min_nights: int = 2
-    ) -> Dict[str, dict]:
+    ) -> Dict[str, dict[str, Any]]:
         """Compute basic statistics for recurring memory fragments.
 
         Returns a dict mapping memory_id -> {"nights": [...], "count": int} for
@@ -71,7 +71,7 @@ class CrossNightContinuityTracker:
         """
 
         usage = CrossNightContinuityTracker._memory_usage_by_night(nights)
-        stats: Dict[str, dict] = {}
+        stats: Dict[str, dict[str, Any]] = {}
         for mem_id, night_set in usage.items():
             if len(night_set) >= min_nights:
                 stats[mem_id] = {
@@ -86,7 +86,7 @@ class CrossNightContinuityTracker:
         return stats
 
     @staticmethod
-    def build_recurring_sankey(nights: List[DreamNight]) -> dict:
+    def build_recurring_sankey(nights: List[DreamNight]) -> dict[str, Any]:
         """Build a Sankey-ready structure for recurring memory fragments.
 
         Nodes are `Night 1`, `Night 2`, ... `Night N`.

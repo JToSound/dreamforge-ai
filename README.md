@@ -127,9 +127,12 @@ For detailed equations, parameter choices, and literature references, see `RESEA
 - **FastAPI REST API**
   - `POST /api/simulation/night` – run a single-night simulation with configurable parameters (duration, dt, pharmacology).
   - `POST /api/simulation/night/async` – queue a simulation and poll `/api/simulation/jobs/{job_id}`.
-  - `POST /api/simulation/multi-night` – run multiple nights with cross-night continuity tracking.
+  - `POST /api/simulation/jobs/{job_id}/cancel` – cancel a queued/running async simulation.
+  - `POST /api/simulation/multi-night` – run multiple nights with cross-night continuity tracking (returns per-night payloads + recurring-memory continuity summary and Sankey-ready links).
   - `POST /api/simulation/counterfactual` – compare baseline vs perturbed dream runs.
   - `POST /api/simulation/compare` – compare two stored runs and compute deltas.
+  - `POST /api/workspaces`, `POST /api/workspaces/{workspace_id}/runs` – collaborative run grouping and run attachment.
+  - `GET /api/workspaces`, `GET /api/workspaces/{workspace_id}`, `GET /api/workspaces/{workspace_id}/runs` – collaborative workspace discovery and run listing.
   - `GET /api/simulation/{id}/report` – generate a structured run report payload.
   - `GET /api/simulation/{id}/report/bundle` – download a product report bundle ZIP (`report.json`, `summary.json`, `segments_overview.csv`, `methodology.txt`).
   - `GET /api/llm/registry` – prompt/model registry and capability matrix.
@@ -143,6 +146,7 @@ For detailed equations, parameter choices, and literature references, see `RESEA
   - Run `streamlit run visualization/dashboard/app.py` in development, or use the `dashboard` service in Docker Compose.
   - Provider status and **Test Connection** now validate against API-side `/api/llm/config` + `/api/health/llm` (not local demo fallback).
   - Sleep start supports **0–26 clock-hour** input (including naps and early-morning sleep sessions).
+  - Includes a **Multi-night Continuity Center** for running cross-night series with carryover-memory controls and Sankey continuity visualization.
   - Visualizes hypnogram, neuromodulators, memory graph, dream timeline, and agent activity heatmap in real time.
   - Download center includes one-click **product report bundle ZIP** export from API.
   - A separate comparative dashboard script provides multi-run visualizations.
@@ -171,6 +175,8 @@ environment variables. The most useful overrides are:
 - `SIM_DURATION_HOURS`, `SIM_DT_MINUTES`, `SIM_STRESS_LEVEL`, `SIM_SLEEP_START_HOUR`
 - `SIM_REQUEST_TIMEOUT_SECONDS` (default `3600`)
 - `API_ACCESS_TOKEN` or `API_TOKEN_ROLE_MAP` (role/scope auth policy)
+- `METRICS_PUBLIC` (`1`/`0`) to control unauthenticated access to `/metrics` and `/metrics/prometheus`
+- `OUTPUT_RETENTION_DAYS`, `OUTPUT_RETENTION_MAX_RUNS` for `outputs/` retention governance and metadata index trimming
 - `ENTERPRISE_WAITLIST_URL`, `PRO_TRIAL_URL`, `ENTERPRISE_SLA_URL`
 
 Chart export note:
@@ -189,9 +195,33 @@ docker compose build --progress=plain dashboard
 docker compose up dashboard
 ```
 
+### Optional observability stack (Prometheus + Grafana)
+
+The repository now includes a pre-provisioned observability bundle:
+- Prometheus scrape + alert rules in `observability/prometheus/`
+- Grafana datasource/dashboard provisioning in `observability/grafana/`
+
+Run it with the compose profile:
+
+```bash
+docker compose --profile observability up -d prometheus grafana
+```
+
+Then open:
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000` (admin / dreamforge)
+
 ## CI
 
 The GitHub Actions workflow uses Buildx with the GHA cache (`cache-from` / `cache-to`) to persist Docker build cache between runs, speeding up subsequent builds.
+It also enforces strict typing and release reliability gates:
+- `mypy --strict core/`
+- load/soak release gate tests (`tests/performance/test_release_gates.py`)
+- `web-frontend` production build (`npm run build`)
+
+## Contributing
+
+See `CONTRIBUTING.md` for local setup, quality gates, and PR expectations.
 
 ## Demo GIF capture
 

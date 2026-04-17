@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Frontend contract convergence and build fixes:
+  - fixed Vite plugin mismatch (`@vitejs/plugin-react-swc`) and corrected frontend app entry import wiring,
+  - rewired `web-frontend/src/useSimulationData.ts` + `App.tsx` to active API contract and async job submit/poll/cancel flow.
+- API surface and operations hardening:
+  - added compatibility adapter in `api/routes/simulation.py` to map legacy request shape onto active `SimulationConfig`,
+  - release-gate latency check now uses in-process p95 (`simulation_latency_p95_pass`) with new p95/p99 runtime and Prometheus metrics,
+  - metrics auth exemption is now configurable via `METRICS_PUBLIC`.
+- Data governance and collaboration surfaces:
+  - added outputs retention + metadata durability (`outputs/index.json`, `OUTPUT_RETENTION_DAYS`, `OUTPUT_RETENTION_MAX_RUNS`),
+  - added collaboration workspace APIs (`/api/workspaces*`) with run attachment endpoints.
+- CI/docs updates:
+  - CI now includes frontend Node setup and `web-frontend` production build gate,
+  - added top-level `CONTRIBUTING.md` and updated README API/configuration/CI documentation.
+- Regression coverage expanded for p95 metrics, metrics-access policy, workspace APIs, outputs retention/index behavior, CI frontend gate, and frontend/API source guard expectations.
 - Added productization baseline APIs in `api/main.py`:
   - API contract metadata endpoint (`/api/version`, `/api/v1/version`)
   - SLO and error taxonomy endpoints (`/api/slo`, `/api/error-taxonomy`)
@@ -86,6 +100,15 @@
 - Final UX/docs alignment:
   - localized compare methodology + report bundle labels in dashboard i18n (`en`, `zh-HK`, `zh-CN`),
   - updated README API/dashboard sections to document report bundle endpoint and quality-aware release-gate behavior.
+- Next-phase roadmap delivery:
+  - added `POST /api/simulation/multi-night` and `/api/v1/simulation/multi-night` with continuity-aware carryover mode, recurring-memory summary, and Sankey-ready continuity links,
+  - multi-night responses now include per-night metadata (`multi_night_series_id`, `night_index`, `carryover_event_count`) for downstream analytics,
+  - CI workflow hardened by removing permissive `|| true` bypass paths and adding strict mypy checks for critical runtime modules.
+- Phase 3 roadmap completion:
+  - strict typing gate expanded to the full core runtime (`mypy --strict core/`) after resolving all prior strict-typing errors,
+  - dashboard now includes a Multi-night Continuity Center with configurable multi-night runs, per-night continuity table, and Sankey flow visualization,
+  - added production observability provisioning bundle (`observability/prometheus/*`, `observability/grafana/*`) and compose profile services for Prometheus + Grafana,
+  - added CI non-functional release gates via `tests/performance/test_release_gates.py` (load + soak checks) and wired this gate explicitly into workflow execution.
 
 ## [Round 6]
 

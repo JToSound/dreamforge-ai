@@ -1,5 +1,6 @@
 import asyncio
 import io
+import os
 import time
 import zipfile
 
@@ -46,6 +47,8 @@ class DummyLLMClient:
 @pytest.fixture
 def patched_api(monkeypatch):
     api_main._simulations.clear()
+    with api_main._workspaces_lock:
+        api_main._workspaces.clear()
     with api_main._jobs_lock:
         api_main._simulation_jobs.clear()
         for task in api_main._simulation_job_tasks.values():
@@ -58,6 +61,7 @@ def patched_api(monkeypatch):
         for key in list(api_main._runtime_metrics.keys()):
             api_main._runtime_metrics[key] = 0.0
         api_main._api_error_codes.clear()
+        api_main._simulation_duration_seconds_history.clear()
     fake = DummyLLMClient()
     monkeypatch.setattr(api_main, "get_llm_client", lambda: fake)
     monkeypatch.setattr(api_main, "LLMClient", DummyLLMClient)
@@ -281,6 +285,45 @@ def test_simulation_crud_and_counterfactual(patched_api):
         assert "methodology" in compare.json()
 
 
+def test_multi_night_simulation_endpoint(patched_api):
+    with TestClient(patched_api.app) as client:
+        response = client.post(
+            "/api/simulation/multi-night",
+            json={
+                "nights": 3,
+                "carryover_memory": True,
+                "carryover_top_k": 3,
+                "max_prior_events": 10,
+                "config": _sim_payload(use_llm=False, duration_hours=1.0),
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["series_id"]
+        assert len(payload["nights"]) == 3
+        assert payload["summary"]["night_count"] == 3
+        assert "continuity" in payload
+        assert "recurring_memory_count" in payload["continuity"]
+        assert "sankey" in payload["continuity"]
+        assert len(payload["continuity"]["carryover_events_by_night"]) == 3
+        assert (
+            payload["continuity"]["carryover_events_by_night"][0]["carryover_events"]
+            == []
+        )
+        for idx, night in enumerate(payload["nights"], start=1):
+            assert night["summary"]["multi_night_series_id"] == payload["series_id"]
+            assert night["summary"]["night_index"] == idx
+
+        response_v1 = client.post(
+            "/api/v1/simulation/multi-night",
+            json={
+                "nights": 2,
+                "config": _sim_payload(use_llm=False, duration_hours=1.0),
+            },
+        )
+        assert response_v1.status_code == 200
+
+
 def test_simulation_stream_and_missing_id(patched_api):
     with TestClient(patched_api.app) as client:
         stream = client.post("/simulate-night/stream", json=_sim_payload())
@@ -305,6 +348,8 @@ def test_metrics_and_narrative_quality_integration(patched_api):
         metrics = metrics_resp.json()["metrics"]
         assert metrics["simulation_requests_total"] >= 1
         assert metrics["simulation_completed_total"] >= 1
+        assert "simulation_duration_seconds_p95" in metrics
+        assert "simulation_duration_seconds_p99" in metrics
 
         slo = client.get("/api/slo")
         assert slo.status_code == 200
@@ -322,10 +367,119 @@ def test_metrics_and_narrative_quality_integration(patched_api):
         assert "narrative_quality_pass" in release_gate.json()["checks"]
         assert "llm_fallback_sla_pass" in release_gate.json()["checks"]
         assert "memory_grounding_pass" in release_gate.json()["checks"]
+        assert "simulation_latency_p95_pass" in release_gate.json()["checks"]
 
         prom = client.get("/metrics/prometheus")
         assert prom.status_code == 200
         assert "dreamforge_simulation_requests_total" in prom.text
+        assert "dreamforge_simulation_duration_seconds_p95" in prom.text
+        assert "dreamforge_simulation_duration_seconds_p99" in prom.text
+
+
+def test_metrics_auth_exempt_is_configurable(patched_api, monkeypatch):
+    monkeypatch.setattr(api_main, "_METRICS_PUBLIC", False)
+    monkeypatch.setattr(api_main, "_API_ACCESS_TOKEN", "secret-token")
+    monkeypatch.setattr(api_main, "_API_TOKEN_ROLE_MAP", {})
+
+    with TestClient(patched_api.app) as client:
+        denied = client.get("/api/v1/metrics/prometheus")
+        assert denied.status_code == 401
+
+        allowed = client.get(
+            "/api/v1/metrics/prometheus", headers={"x-api-key": "secret-token"}
+        )
+        assert allowed.status_code == 200
+
+
+def test_workspace_create_attach_and_list_runs(patched_api):
+    with TestClient(patched_api.app) as client:
+        created = client.post("/api/simulation/night", json=_sim_payload(use_llm=False))
+        assert created.status_code == 201
+        sim_id = created.json()["id"]
+
+        ws = client.post(
+            "/api/workspaces",
+            json={
+                "name": "Lab Workspace",
+                "description": "night-run collection",
+                "tags": ["qa", "continuity"],
+            },
+        )
+        assert ws.status_code == 201
+        workspace_id = ws.json()["id"]
+        assert ws.json()["run_ids"] == []
+
+        attached = client.post(
+            f"/api/workspaces/{workspace_id}/runs",
+            json={"simulation_id": sim_id, "label": "baseline"},
+        )
+        assert attached.status_code == 200
+        assert attached.json()["attached"] is True
+        assert attached.json()["run_count"] == 1
+
+        attached_again = client.post(
+            f"/api/workspaces/{workspace_id}/runs",
+            json={"simulation_id": sim_id, "label": "baseline"},
+        )
+        assert attached_again.status_code == 200
+        assert attached_again.json()["attached"] is False
+        assert attached_again.json()["run_count"] == 1
+
+        got_ws = client.get(f"/api/workspaces/{workspace_id}")
+        assert got_ws.status_code == 200
+        assert got_ws.json()["name"] == "Lab Workspace"
+        assert got_ws.json()["run_ids"] == [sim_id]
+
+        runs = client.get(f"/api/workspaces/{workspace_id}/runs")
+        assert runs.status_code == 200
+        assert runs.json()["count"] == 1
+        assert runs.json()["items"][0]["simulation_id"] == sim_id
+
+        ws_list = client.get("/api/workspaces")
+        assert ws_list.status_code == 200
+        assert ws_list.json()["count"] >= 1
+
+
+def test_output_index_and_retention(patched_api, monkeypatch, tmp_path):
+    output_root = tmp_path / "outputs"
+    monkeypatch.setenv("DREAMFORGE_OUTPUT_DIR", str(output_root))
+    monkeypatch.setattr(api_main, "_OUTPUT_RETENTION_DAYS", 1)
+    monkeypatch.setattr(api_main, "_OUTPUT_RETENTION_MAX_RUNS", 2)
+
+    old_dir = output_root / "old-run"
+    old_dir.mkdir(parents=True, exist_ok=True)
+    old_marker = old_dir / "payload.json"
+    old_marker.write_text("{}", encoding="utf-8")
+    old_ts = time.time() - (5 * 86400)
+    os.utime(old_marker, (old_ts, old_ts))
+    os.utime(old_dir, (old_ts, old_ts))
+
+    result_payload = {
+        "created_at_unix": time.time(),
+        "llm_used": False,
+        "summary": {
+            "total_segments": 10,
+            "rem_fraction": 0.2,
+            "narrative_quality_mean": 0.6,
+        },
+    }
+
+    run_a = output_root / "run-a"
+    run_a.mkdir(parents=True, exist_ok=True)
+    run_b = output_root / "run-b"
+    run_b.mkdir(parents=True, exist_ok=True)
+    run_c = output_root / "run-c"
+    run_c.mkdir(parents=True, exist_ok=True)
+
+    api_main._upsert_output_metadata("run-a", result_payload, run_a)
+    api_main._upsert_output_metadata("run-b", result_payload, run_b)
+    api_main._upsert_output_metadata("run-c", result_payload, run_c)
+    api_main._enforce_outputs_retention()
+
+    index_payload = api_main._load_outputs_index()
+    assert "items" in index_payload
+    assert len(index_payload["items"]) <= 2
+    assert not old_dir.exists()
 
 
 @pytest.mark.parametrize(

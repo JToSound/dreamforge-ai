@@ -228,6 +228,43 @@ def test_dashboard_memory_controls_and_compare_guards_are_stable() -> None:
     assert 'tr(_locale, "compare_methodology_details")' in src
     assert "/api/simulation/{sim_id_str}/report/bundle" in src
     assert 'tr(_locale, "download_report_bundle")' in src
+    assert "multi_night_center" in src
+    assert '"/api/simulation/multi-night"' in src
+    assert "def _build_multi_night_payload" in src
+    assert "go.Sankey(" in src
+    assert 'key="download_multi_night_report"' in src
+
+
+def test_api_source_contains_multi_night_endpoint() -> None:
+    src = Path("api/main.py").read_text(encoding="utf-8")
+    assert "/api/simulation/multi-night" in src
+    assert "/api/v1/simulation/multi-night" in src
+    assert "simulation_multi_night_completed" in src
+
+
+def test_ci_workflow_enforces_hard_gates() -> None:
+    src = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert "mypy --strict core/" in src
+    assert "tests/performance/test_release_gates.py" in src
+    assert "tests/test_fixes_v5.py" in src
+    assert "npm run build" in src
+    assert "|| true" not in src
+
+
+def test_observability_bundle_is_provisioned() -> None:
+    compose_src = Path("docker-compose.yml").read_text(encoding="utf-8")
+    assert "prometheus:" in compose_src
+    assert "grafana:" in compose_src
+    assert "./observability/prometheus/prometheus.yml" in compose_src
+    assert "./observability/grafana/provisioning" in compose_src
+
+    assert Path("observability/prometheus/prometheus.yml").exists()
+    assert Path("observability/prometheus/rules/dreamforge-alerts.yml").exists()
+    assert Path(
+        "observability/grafana/provisioning/datasources/datasources.yml"
+    ).exists()
+    assert Path("observability/grafana/provisioning/dashboards/dashboards.yml").exists()
+    assert Path("observability/grafana/dashboards/dreamforge-overview.json").exists()
 
 
 def test_memory_graph_exports_activation_snapshots() -> None:
@@ -267,3 +304,24 @@ def test_nchem_descriptor_mapping_has_all_keys(
         "stress_signature",
     }
     assert all(isinstance(v, str) and v for v in desc.values())
+
+
+def test_frontend_contract_and_legacy_adapter_sources() -> None:
+    hook_src = Path("web-frontend/src/useSimulationData.ts").read_text(encoding="utf-8")
+    app_src = Path("web-frontend/src/App.tsx").read_text(encoding="utf-8")
+    vite_src = Path("web-frontend/vite.config.ts").read_text(encoding="utf-8")
+    route_src = Path("api/routes/simulation.py").read_text(encoding="utf-8")
+    api_src = Path("api/main.py").read_text(encoding="utf-8")
+
+    assert "/api/simulation/night/async" in hook_src
+    assert "/api/simulation/jobs/" in hook_src
+    assert "/api/simulation/night" in hook_src
+    assert "use_llm" in app_src
+    assert "result.segments" in app_src
+    assert "@vitejs/plugin-react-swc" in vite_src
+    assert "deprecated=True" in route_src
+    assert "SimulationConfig(" in route_src
+    assert "simulation_latency_p95_pass" in api_src
+    assert "METRICS_PUBLIC" in api_src
+    assert "/api/workspaces" in api_src
+    assert "OUTPUT_RETENTION_DAYS" in api_src

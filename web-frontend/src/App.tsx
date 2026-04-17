@@ -1,8 +1,6 @@
 import { useState } from 'react'
 import {
   useSimulationData,
-  LLMConfig,
-  SleepConfig,
   SimulateRequest,
   DreamSegment,
 } from './useSimulationData'
@@ -14,40 +12,6 @@ const PROVIDER_MODELS: Record<string, string[]> = {
 }
 
 const STAGE_COLOR: Record<string, string> = {
-
-        {/* Download buttons */}
-        {result && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <button
-              onClick={downloadJSON}
-              style={{
-                background: 'linear-gradient(90deg, #10b981, #34d399)',
-                border: 'none',
-                color: '#000',
-                borderRadius: 8,
-                padding: '8px 12px',
-                fontWeight: 700,
-                cursor: 'pointer',
-              }}
-            >
-              Download JSON
-            </button>
-            <button
-              onClick={downloadText}
-              style={{
-                background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-                border: 'none',
-                color: '#fff',
-                borderRadius: 8,
-                padding: '8px 12px',
-                fontWeight: 700,
-                cursor: 'pointer',
-              }}
-            >
-              Download Text
-            </button>
-          </div>
-        )}
   WAKE: '#f59e0b',
   N1: '#60a5fa',
   N2: '#818cf8',
@@ -137,7 +101,7 @@ function SegmentCard({ seg }: { seg: DreamSegment }) {
             {seg.stage}
           </span>
           <span style={{ fontSize: 12, color: '#9ca3af' }}>
-            {seg.time_hours.toFixed(2)}h
+            {(seg.time_hours ?? seg.start_time_hours ?? 0).toFixed(2)}h
           </span>
           <EmotionBadge emotion={seg.dominant_emotion} />
         </div>
@@ -167,12 +131,13 @@ function SegmentCard({ seg }: { seg: DreamSegment }) {
 
 export default function App() {
   // ── LLM config state ─────────────────────────────────────────────────────
-  const [provider, setProvider] = useState<LLMConfig['provider']>('openai')
+  const [provider, setProvider] = useState<'openai' | 'anthropic' | 'ollama'>('openai')
   const [model, setModel] = useState('gpt-4o')
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [temperature, setTemperature] = useState(0.9)
   const [maxTokens, setMaxTokens] = useState(512)
+  const [useLLM, setUseLLM] = useState(true)
 
   // ── Sleep config state ───────────────────────────────────────────────────
   const [durationHours, setDurationHours] = useState(8)
@@ -186,26 +151,24 @@ export default function App() {
 
   const handleRun = () => {
     const req: SimulateRequest = {
-      llm: {
-        provider,
-        model,
-        api_key: apiKey,
-        base_url: baseUrl || undefined,
-        temperature,
-        max_tokens: maxTokens,
-      },
-      sleep: {
-        duration_hours: durationHours,
-        sleep_start_clock_time: 23,
-        dt_minutes: 0.5,
-      },
+      duration_hours: durationHours,
+      dt_minutes: 0.5,
+      sleep_start_hour: 23,
+      ssri_strength: 1.0,
       prior_day_events: priorEvents.split('\n').filter(Boolean),
       stress_level: stressLevel,
+      melatonin: false,
+      cannabis: false,
+      emotional_state: 'neutral',
+      style_preset: 'scientific',
+      prompt_profile: 'A',
+      use_llm: useLLM,
+      llm_segments_only: false,
     }
     runSimulation(req)
   }
 
-  const handleProviderChange = (p: LLMConfig['provider']) => {
+  const handleProviderChange = (p: 'openai' | 'anthropic' | 'ollama') => {
     setProvider(p)
     setModel(PROVIDER_MODELS[p][0])
     if (p === 'ollama') setBaseUrl('http://localhost:11434/v1')
@@ -213,7 +176,7 @@ export default function App() {
   }
 
   const running = status === 'running'
-  const segments = running ? liveSegments : result?.dream_segments ?? []
+  const segments = running ? liveSegments : result?.segments ?? []
 
   // ── Download helpers ───────────────────────────────────────────────────
   const downloadJSON = () => {
@@ -246,7 +209,7 @@ export default function App() {
     else if (resAny.summary && typeof resAny.summary === 'string') text += `${resAny.summary}\n\n`
     else if (resAny.summary && typeof resAny.summary === 'object') text += `${JSON.stringify(resAny.summary, null, 2)}\n\n`
 
-    const segs = resAny.dream_segments ?? resAny.segments ?? []
+    const segs = resAny.segments ?? resAny.dream_segments ?? []
     for (let i = 0; i < segs.length; i++) {
       const s: any = segs[i]
       const idx = s.segment_index ?? s.id ?? i
@@ -470,6 +433,13 @@ export default function App() {
               />
             </div>
           </div>
+          <label style={{ ...labelStyle, marginTop: 8 }}>Use LLM</label>
+          <input
+            type="checkbox"
+            checked={useLLM}
+            onChange={e => setUseLLM(e.target.checked)}
+            style={{ marginBottom: 8 }}
+          />
         </section>
 
         {/* Sleep Config */}
@@ -597,10 +567,21 @@ export default function App() {
             }}
           >
             {[
-              { label: 'Duration', value: `${result.duration_hours}h` },
-              { label: 'Segments', value: result.total_segments },
-              { label: 'Mean Bizarreness', value: `${(result.mean_bizarreness * 100).toFixed(0)}%` },
-              { label: 'Dominant Emotion', value: result.dominant_emotion },
+              {
+                label: 'Duration',
+                value: `${(result.config?.duration_hours ?? durationHours).toFixed(1)}h`,
+              },
+              { label: 'Segments', value: result.segments?.length ?? 0 },
+              {
+                label: 'Mean Bizarreness',
+                value: `${(
+                  Number((result.summary as any)?.mean_bizarreness ?? 0) * 100
+                ).toFixed(0)}%`,
+              },
+              {
+                label: 'Dominant Emotion',
+                value: String((result.summary as any)?.dominant_emotion ?? 'neutral'),
+              },
             ].map(stat => (
               <div
                 key={stat.label}
@@ -623,7 +604,7 @@ export default function App() {
         )}
 
         {/* Summary narrative */}
-        {result?.summary_narrative && (
+        {(result?.summary as any)?.summary_narrative && (
           <div
             style={{
               background: '#1f2937',
@@ -636,7 +617,7 @@ export default function App() {
               lineHeight: 1.6,
             }}
           >
-            {result.summary_narrative}
+            {(result.summary as any).summary_narrative}
           </div>
         )}
 
@@ -657,8 +638,8 @@ export default function App() {
               {running && <span style={{ color: '#f472b6', marginLeft: 8 }}>● Live</span>}
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {segments.map(seg => (
-                <SegmentCard key={seg.segment_index} seg={seg} />
+              {segments.map((seg, idx) => (
+                <SegmentCard key={String(seg.segment_index ?? seg.id ?? idx)} seg={seg} />
               ))}
             </div>
           </>

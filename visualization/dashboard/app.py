@@ -11,7 +11,7 @@ import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 import io
@@ -530,6 +530,25 @@ def _build_simulation_payload() -> dict:
         "use_llm": use_llm,
         "prior_day_events": events_list,
     }
+
+
+def _build_multi_night_payload(
+    nights: int, carryover_memory: bool, carryover_top_k: int, max_prior_events: int
+) -> dict[str, Any]:
+    return {
+        "nights": int(nights),
+        "carryover_memory": bool(carryover_memory),
+        "carryover_top_k": int(carryover_top_k),
+        "max_prior_events": int(max_prior_events),
+        "config": _build_simulation_payload(),
+    }
+
+
+def _run_multi_night(payload: dict[str, Any], timeout: float) -> tuple[bool, dict]:
+    ok, body = _api_post_json("/api/simulation/multi-night", payload, timeout=timeout)
+    if ok:
+        return ok, body
+    return _api_post_json("/api/v1/simulation/multi-night", payload, timeout=timeout)
 
 
 def _format_eta_mmss(eta_seconds: Optional[int]) -> str:
@@ -1912,6 +1931,212 @@ else:
                 plot_per_cycle_architecture(segments),
                 key_prefix=f"cycle_arch_{sim_key}",
             )
+
+    st.markdown("---")
+    st.markdown(f"### 🌙 {tr(_locale, 'multi_night_center')}")
+    multi_col1, multi_col2, multi_col3, multi_col4 = st.columns(4)
+    multi_night_count = multi_col1.slider(
+        tr(_locale, "multi_night_nights"),
+        min_value=2,
+        max_value=10,
+        value=3,
+        step=1,
+        key="multi_night_nights",
+    )
+    multi_carryover_enabled = multi_col2.checkbox(
+        tr(_locale, "multi_night_carryover"),
+        value=True,
+        key="multi_night_carryover",
+    )
+    multi_carryover_top_k = multi_col3.slider(
+        tr(_locale, "multi_night_top_k"),
+        min_value=1,
+        max_value=20,
+        value=5,
+        step=1,
+        key="multi_night_top_k",
+    )
+    multi_max_prior_events = multi_col4.slider(
+        tr(_locale, "multi_night_max_prior"),
+        min_value=1,
+        max_value=40,
+        value=12,
+        step=1,
+        key="multi_night_max_prior",
+    )
+    if st.button(tr(_locale, "multi_night_run"), key="run_multi_night_btn"):
+        multi_payload = _build_multi_night_payload(
+            nights=int(multi_night_count),
+            carryover_memory=bool(multi_carryover_enabled),
+            carryover_top_k=int(multi_carryover_top_k),
+            max_prior_events=int(multi_max_prior_events),
+        )
+        multi_timeout = max(
+            30.0, float(simulation_request_timeout_seconds) * float(multi_night_count)
+        )
+        ok_multi, multi_result = _run_multi_night(multi_payload, timeout=multi_timeout)
+        if not ok_multi:
+            st.error(
+                "Multi-night API failed: "
+                f"{multi_result.get('status_code', '')} "
+                f"{multi_result.get('body', multi_result.get('error', ''))}"
+            )
+        else:
+            st.session_state["multi_night_result"] = multi_result
+            nights_payload = multi_result.get("nights", [])
+            if isinstance(nights_payload, list) and nights_payload:
+                history = st.session_state.get("simulation_history", [])
+                if not isinstance(history, list):
+                    history = []
+                for night_payload in nights_payload:
+                    if not isinstance(night_payload, dict):
+                        continue
+                    sim_id = str(night_payload.get("id") or "")
+                    if sim_id and all(
+                        str(item.get("id")) != sim_id
+                        for item in history
+                        if isinstance(item, dict)
+                    ):
+                        history.append(night_payload)
+                st.session_state["simulation_history"] = history
+                last_night = nights_payload[-1]
+                if isinstance(last_night, dict):
+                    st.session_state["last_result"] = last_night
+            st.success(
+                f"Multi-night series completed: {str(multi_result.get('series_id', 'n/a'))[:8]}"
+            )
+
+    multi_night_result = st.session_state.get("multi_night_result")
+    if isinstance(multi_night_result, dict) and multi_night_result.get("series_id"):
+        multi_summary = multi_night_result.get("summary", {})
+        multi_continuity = multi_night_result.get("continuity", {})
+        summary_cols = st.columns(4)
+        summary_cols[0].metric(
+            tr(_locale, "multi_night_summary"),
+            int(
+                multi_summary.get(
+                    "night_count", len(multi_night_result.get("nights", []))
+                )
+            ),
+        )
+        summary_cols[1].metric(
+            "Recurring memories",
+            int(multi_continuity.get("recurring_memory_count", 0)),
+        )
+        night_averages = (
+            multi_continuity.get("night_averages", {})
+            if isinstance(multi_continuity, dict)
+            else {}
+        )
+        summary_cols[2].metric(
+            "Mean REM fraction",
+            f"{float(night_averages.get('rem_fraction_mean', 0.0)):.3f}",
+        )
+        summary_cols[3].metric(
+            "Mean quality",
+            f"{float(night_averages.get('narrative_quality_mean', 0.0)):.3f}",
+        )
+
+        per_night_rows: list[dict[str, Any]] = []
+        for idx, night_payload in enumerate(
+            multi_night_result.get("nights", []), start=1
+        ):
+            if not isinstance(night_payload, dict):
+                continue
+            night_summary = night_payload.get("summary", {})
+            if not isinstance(night_summary, dict):
+                night_summary = {}
+            per_night_rows.append(
+                {
+                    "night_index": int(night_summary.get("night_index", idx)),
+                    "simulation_id": str(night_payload.get("id", "")),
+                    "rem_fraction": float(night_summary.get("rem_fraction", 0.0)),
+                    "narrative_quality_mean": float(
+                        night_summary.get("narrative_quality_mean", 0.0)
+                    ),
+                    "llm_fallback_rate": float(
+                        (
+                            float(night_summary.get("llm_fallback_segments", 0.0))
+                            / float(
+                                max(
+                                    1.0,
+                                    float(
+                                        night_summary.get("llm_total_invocations", 0.0)
+                                    ),
+                                )
+                            )
+                        )
+                    ),
+                    "carryover_event_count": int(
+                        night_summary.get("carryover_event_count", 0)
+                    ),
+                }
+            )
+
+        if per_night_rows:
+            st.caption(tr(_locale, "multi_night_per_night"))
+            st.dataframe(pd.DataFrame(per_night_rows), use_container_width=True)
+
+        sankey_payload = (
+            multi_continuity.get("sankey", {})
+            if isinstance(multi_continuity, dict)
+            else {}
+        )
+        if isinstance(sankey_payload, dict):
+            node_payload = sankey_payload.get("nodes", {})
+            link_payload = sankey_payload.get("links", {})
+            labels = (
+                node_payload.get("labels", []) if isinstance(node_payload, dict) else []
+            )
+            source = (
+                link_payload.get("source", []) if isinstance(link_payload, dict) else []
+            )
+            target = (
+                link_payload.get("target", []) if isinstance(link_payload, dict) else []
+            )
+            value = (
+                link_payload.get("value", []) if isinstance(link_payload, dict) else []
+            )
+            if labels and source and target and value:
+                fig_multi_sankey = go.Figure(
+                    data=[
+                        go.Sankey(
+                            node=dict(
+                                pad=14,
+                                thickness=18,
+                                line=dict(color="#312e81", width=0.8),
+                                label=[str(v) for v in labels],
+                                color=["#8b5cf6" for _ in labels],
+                            ),
+                            link=dict(
+                                source=[int(v) for v in source],
+                                target=[int(v) for v in target],
+                                value=[float(v) for v in value],
+                                color="rgba(139, 92, 246, 0.35)",
+                            ),
+                        )
+                    ]
+                )
+                fig_multi_sankey.update_layout(
+                    title="Cross-night recurring-memory flow",
+                    template="plotly_dark",
+                    paper_bgcolor="#0d0d14",
+                    plot_bgcolor="#12121e",
+                    height=360,
+                )
+                st.plotly_chart(
+                    fig_multi_sankey,
+                    use_container_width=True,
+                    key=f"multi_night_sankey_{str(multi_night_result.get('series_id'))}",
+                )
+
+        st.download_button(
+            tr(_locale, "multi_night_download"),
+            data=json.dumps(multi_night_result, ensure_ascii=False, indent=2),
+            file_name=f"dreamforge-multi-night-{str(multi_night_result.get('series_id'))[:8]}.json",
+            mime="application/json",
+            key="download_multi_night_report",
+        )
 
     st.markdown("---")
     st.markdown(f"### 🧾 {tr(_locale, 'compare_center')}")

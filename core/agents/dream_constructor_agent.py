@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import importlib
 import logging
 import re
 import time
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from pydantic import BaseModel
 
@@ -59,9 +60,9 @@ class DreamConstructorAgent:
     segment text is derived from cached narrative context and enhanced templates.
     """
 
-    def __init__(self, llm_config: Optional[dict] = None) -> None:
-        self.llm_config = llm_config or {}
-        self._client = None
+    def __init__(self, llm_config: Optional[Mapping[str, Any]] = None) -> None:
+        self.llm_config: dict[str, Any] = dict(llm_config or {})
+        self._client: Any | None = None
         self._provider = self.llm_config.get("provider", "openai")
         self._model = self.llm_config.get("model", "gpt-4o")
         self._temperature = float(self.llm_config.get("temperature", 0.9))
@@ -91,27 +92,26 @@ class DreamConstructorAgent:
             try:
                 from openai import OpenAI
 
-                kwargs: dict[str, Any] = {}
+                openai_kwargs: dict[str, Any] = {}
                 if self._api_key:
-                    kwargs["api_key"] = self._api_key
+                    openai_kwargs["api_key"] = self._api_key
                 if self._base_url:
-                    kwargs["base_url"] = self._base_url
+                    openai_kwargs["base_url"] = self._base_url
                 elif self._provider == "ollama":
-                    kwargs["base_url"] = "http://localhost:11434/v1"
-                    kwargs.setdefault("api_key", "ollama")
-                self._client = OpenAI(**kwargs)
+                    openai_kwargs["base_url"] = "http://localhost:11434/v1"
+                    openai_kwargs.setdefault("api_key", "ollama")
+                self._client = OpenAI(**openai_kwargs)
             except Exception as exc:
                 logger.warning(
                     "openai client init failed; template mode enabled: %s", exc
                 )
         elif self._provider == "anthropic":
             try:
-                import anthropic
-
-                kwargs: dict[str, Any] = {}
+                anthropic_module = importlib.import_module("anthropic")
+                anthropic_kwargs: dict[str, Any] = {}
                 if self._api_key:
-                    kwargs["api_key"] = self._api_key
-                self._client = anthropic.Anthropic(**kwargs)
+                    anthropic_kwargs["api_key"] = self._api_key
+                self._client = anthropic_module.Anthropic(**anthropic_kwargs)
             except Exception as exc:
                 logger.warning(
                     "anthropic client init failed; template mode enabled: %s", exc
@@ -130,7 +130,7 @@ class DreamConstructorAgent:
         trigger_type: LLMTriggerType,
         bizarreness_score: float,
         lucidity_probability: float,
-        prev_segments: Optional[list] = None,
+        prev_segments: Optional[list[Any]] = None,
     ) -> tuple[str, str]:
         ach = round(float(neuro_state.ach), 3)
         five_ht = round(float(neuro_state.serotonin), 3)
@@ -186,7 +186,7 @@ class DreamConstructorAgent:
         return system_msg, user_msg
 
     @staticmethod
-    def _fallback_payload(stage: str, emotion: str, narrative: str) -> dict:
+    def _fallback_payload(stage: str, emotion: str, narrative: str) -> dict[str, Any]:
         if len(narrative.split()) < 40:
             narrative = (
                 f"{narrative} In this {stage} segment, the {emotion} tone keeps shaping "
@@ -344,7 +344,7 @@ class DreamConstructorAgent:
         replay: Optional[ReplaySequence],
         stress_level: float = 0.5,
         prior_events: Optional[list[str]] = None,
-        prev_segments: Optional[list] = None,
+        prev_segments: Optional[list[Any]] = None,
     ) -> DreamSegment:
         stage = sleep_state.stage
         stage_value = stage.value
