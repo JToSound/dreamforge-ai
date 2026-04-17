@@ -62,6 +62,8 @@ def patched_api(monkeypatch):
             api_main._runtime_metrics[key] = 0.0
         api_main._api_error_codes.clear()
         api_main._simulation_duration_seconds_history.clear()
+        api_main._simulation_duration_seconds_llm_history.clear()
+        api_main._simulation_duration_seconds_no_llm_history.clear()
     fake = DummyLLMClient()
     monkeypatch.setattr(api_main, "get_llm_client", lambda: fake)
     monkeypatch.setattr(api_main, "LLMClient", DummyLLMClient)
@@ -374,6 +376,52 @@ def test_metrics_and_narrative_quality_integration(patched_api):
         assert "dreamforge_simulation_requests_total" in prom.text
         assert "dreamforge_simulation_duration_seconds_p95" in prom.text
         assert "dreamforge_simulation_duration_seconds_p99" in prom.text
+
+
+def test_estimate_job_duration_uses_llm_specific_history(patched_api):
+    with api_main._metrics_lock:
+        api_main._simulation_duration_seconds_history.clear()
+        api_main._simulation_duration_seconds_llm_history.clear()
+        api_main._simulation_duration_seconds_no_llm_history.clear()
+        api_main._simulation_duration_seconds_llm_history.extend([220.0, 260.0, 340.0])
+        api_main._simulation_duration_seconds_no_llm_history.extend([8.0, 10.0, 12.0])
+        api_main._simulation_duration_seconds_history.extend(
+            [220.0, 260.0, 340.0, 8.0, 10.0, 12.0]
+        )
+
+    llm_cfg = api_main.SimulationConfig(
+        duration_hours=8.0, dt_minutes=0.5, use_llm=True
+    )
+    no_llm_cfg = api_main.SimulationConfig(
+        duration_hours=8.0, dt_minutes=0.5, use_llm=False
+    )
+    llm_est = api_main._estimate_job_duration_seconds(llm_cfg)
+    no_llm_est = api_main._estimate_job_duration_seconds(no_llm_cfg)
+
+    assert llm_est > no_llm_est
+    assert llm_est >= 240.0
+    assert no_llm_est <= 12.0
+
+
+def test_job_progress_snapshot_recalibrates_stale_eta_for_long_llm_runs(
+    patched_api, monkeypatch
+):
+    monkeypatch.setattr(api_main.time, "time", lambda: 1000.0)
+    job = {
+        "status": "running",
+        "phase": "narrative",
+        "progress_percent": 20.0,
+        "eta_seconds": 5,
+        "estimated_duration_seconds": 30.0,
+        "started_at": 700.0,
+        "last_progress_event_at": 760.0,
+        "use_llm": True,
+    }
+    progress, eta_seconds = api_main._job_progress_snapshot(job, "running")
+
+    assert progress < 20.0
+    assert eta_seconds is not None
+    assert eta_seconds > 60
 
 
 def test_metrics_auth_exempt_is_configurable(patched_api, monkeypatch):

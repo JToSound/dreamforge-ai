@@ -261,6 +261,8 @@ _runtime_metrics: Dict[str, float] = {
     "export_failures_total": 0.0,
 }
 _simulation_duration_seconds_history: deque[float] = deque(maxlen=2048)
+_simulation_duration_seconds_llm_history: deque[float] = deque(maxlen=1024)
+_simulation_duration_seconds_no_llm_history: deque[float] = deque(maxlen=1024)
 _api_error_codes: Dict[str, float] = defaultdict(float)
 _request_windows: Dict[str, deque[float]] = defaultdict(deque)
 _rate_limit_lock = threading.Lock()
@@ -515,6 +517,10 @@ def _record_simulation_completion(
             max(0, llm_fallback_segments)
         )
         _simulation_duration_seconds_history.append(duration_value)
+        if int(llm_invocations) > 0:
+            _simulation_duration_seconds_llm_history.append(duration_value)
+        else:
+            _simulation_duration_seconds_no_llm_history.append(duration_value)
 
 
 def _record_simulation_failure(error_code: str = "internal_error") -> None:
@@ -2096,18 +2102,26 @@ def _build_comparison_payload(
 
 def _estimate_job_duration_seconds(config: SimulationConfig) -> float:
     with _metrics_lock:
-        historical_avg = float(
-            _runtime_metrics.get("simulation_duration_seconds_avg", 0.0)
-        )
-    if historical_avg > 0.0:
-        return max(8.0, historical_avg)
-
+        llm_history = list(_simulation_duration_seconds_llm_history)
+        no_llm_history = list(_simulation_duration_seconds_no_llm_history)
+        global_history = list(_simulation_duration_seconds_history)
+    if bool(config.use_llm) and llm_history:
+        return max(20.0, float(np.percentile(llm_history, 75)))
+    if (not bool(config.use_llm)) and no_llm_history:
+        return max(8.0, float(np.percentile(no_llm_history, 75)))
+    if global_history:
+        p75 = float(np.percentile(global_history, 75))
+        if bool(config.use_llm):
+            return max(20.0, p75 * 1.35)
+        return max(8.0, p75 * 0.95)
     dt = max(0.1, float(config.dt_minutes))
     ticks = max(1.0, (float(config.duration_hours) * 60.0) / dt)
-    physics_seconds = max(5.0, ticks * 0.02)
-    llm_multiplier = 5.0 if bool(config.use_llm) else 1.5
-    estimate = physics_seconds * llm_multiplier
-    return max(8.0, estimate)
+    physics_seconds = max(4.0, ticks * 0.01)
+    if bool(config.use_llm):
+        # Conservative cold-start estimate to avoid severe under-reporting.
+        llm_seconds = max(90.0, ticks * 0.25)
+        return max(20.0, physics_seconds + llm_seconds + 8.0)
+    return max(8.0, physics_seconds * 1.8)
 
 
 def _emit_simulation_progress_event(event: Dict[str, Any]) -> None:
@@ -2129,25 +2143,64 @@ def _job_progress_snapshot(
     if status_norm in {"failed", "cancelled"}:
         return 100.0, None
 
+    now_ts = time.time()
+    started_at = float(job.get("started_at") or now_ts)
+    elapsed = max(0.0, now_ts - started_at)
+    estimated = float(job.get("estimated_duration_seconds") or 0.0)
     explicit_progress = job.get("progress_percent")
     explicit_eta = job.get("eta_seconds")
+    phase = str(job.get("phase") or "").lower()
+    use_llm = bool(job.get("use_llm", False))
+
     if explicit_progress is not None:
-        progress = float(explicit_progress)
+        progress = max(0.0, min(99.0, float(explicit_progress)))
         if status_norm == "cancelling":
             progress = min(99.0, max(95.0, progress))
+        if status_norm in {"running", "cancelling"}:
+            if estimated <= 0.0:
+                estimated = max(
+                    60.0,
+                    (
+                        elapsed + float(max(0, int(explicit_eta)))
+                        if explicit_eta is not None
+                        else elapsed
+                    ),
+                )
+            if progress >= 0.5:
+                projected_total = elapsed / max(progress / 100.0, 0.005)
+                risk_multiplier = (
+                    1.45
+                    if use_llm and phase in {"physics", "narrative"}
+                    else (1.25 if use_llm else 1.1)
+                )
+                estimated = max(estimated, projected_total * risk_multiplier)
+            if explicit_eta is not None:
+                estimated = max(estimated, elapsed + float(max(0, int(explicit_eta))))
+            last_event_ts = float(job.get("last_progress_event_at") or started_at)
+            stale_for = max(0.0, now_ts - last_event_ts)
+            if stale_for >= 10.0 and progress < 99.0:
+                estimated = max(
+                    estimated,
+                    elapsed + stale_for * (1.2 if use_llm else 0.6),
+                )
+
+            eta = max(0, int(round(max(0.0, estimated - elapsed))))
+            if progress >= 95.0 and eta > 15:
+                progress = min(progress, 94.5)
+            if estimated > 0.0 and progress > 0.0:
+                time_progress = min(99.0, (elapsed / estimated) * 100.0)
+                progress = min(progress, max(time_progress, progress - 8.0))
+            return round(progress, 2), eta
+
         eta = int(explicit_eta) if explicit_eta is not None else None
         return round(progress, 2), eta
 
-    estimated = float(job.get("estimated_duration_seconds") or 0.0)
     if estimated <= 0.0:
         estimated = 60.0
-    now_ts = time.time()
     if status_norm == "pending":
         eta = max(0, int(round(estimated)))
         return 0.0, eta
 
-    started_at = float(job.get("started_at") or now_ts)
-    elapsed = max(0.0, now_ts - started_at)
     progress = min(95.0, (elapsed / estimated) * 100.0)
     eta = max(0, int(round(estimated - elapsed)))
     if status_norm == "cancelling":
@@ -2178,13 +2231,25 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
                 return
             job["progress_percent"] = round(progress, 2)
             job["phase"] = phase
+            job["last_progress_event_at"] = now_ts
             if eta_seconds_raw is not None:
-                job["eta_seconds"] = max(0, int(eta_seconds_raw))
+                eta_value = max(0, int(eta_seconds_raw))
+                job["eta_seconds"] = eta_value
+                started_at = float(job.get("started_at") or now_ts)
+                elapsed = max(0.0, now_ts - started_at)
+                projected_total = elapsed + float(eta_value)
+                existing_est = float(job.get("estimated_duration_seconds") or 0.0)
+                job["estimated_duration_seconds"] = round(
+                    max(existing_est, projected_total),
+                    2,
+                )
             if eta_margin_raw is not None:
                 job["eta_margin_seconds"] = max(0, int(eta_margin_raw))
             if event.get("estimated_duration_seconds") is not None:
+                existing_est = float(job.get("estimated_duration_seconds") or 0.0)
                 job["estimated_duration_seconds"] = round(
-                    float(event["estimated_duration_seconds"]), 2
+                    max(existing_est, float(event["estimated_duration_seconds"])),
+                    2,
                 )
             if should_persist:
                 _persist_job(job_id, dict(job))
@@ -2198,6 +2263,7 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
             return
         job["status"] = "running"
         job["started_at"] = time.time()
+        job["last_progress_event_at"] = job["started_at"]
         job["phase"] = "physics"
         job["progress_percent"] = 1.0
         _persist_job(job_id, dict(job))
@@ -2922,6 +2988,9 @@ async def submit_simulation_night_async(config: SimulationConfig):
                 round(max(3.0, estimated_duration_seconds * 0.2))
             ),
             "estimated_duration_seconds": round(estimated_duration_seconds, 2),
+            "use_llm": bool(config.use_llm),
+            "duration_hours": float(config.duration_hours),
+            "dt_minutes": float(config.dt_minutes),
         }
         _persist_job(job_id, dict(_simulation_jobs[job_id]))
     task = asyncio.create_task(_run_simulation_job(job_id, config))
