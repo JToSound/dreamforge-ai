@@ -2167,11 +2167,16 @@ def _job_progress_snapshot(
                     ),
                 )
             if progress >= 0.5:
-                projected_total = elapsed / max(progress / 100.0, 0.005)
+                effective_progress = progress
+                if phase == "physics":
+                    effective_progress = max(effective_progress, 10.0)
+                elif phase == "narrative":
+                    effective_progress = max(effective_progress, 22.0)
+                projected_total = elapsed / max(effective_progress / 100.0, 0.005)
                 risk_multiplier = (
-                    1.45
+                    1.15
                     if use_llm and phase in {"physics", "narrative"}
-                    else (1.25 if use_llm else 1.1)
+                    else (1.08 if use_llm else 1.05)
                 )
                 estimated = max(estimated, projected_total * risk_multiplier)
             if explicit_eta is not None:
@@ -2181,7 +2186,7 @@ def _job_progress_snapshot(
             if stale_for >= 10.0 and progress < 99.0:
                 estimated = max(
                     estimated,
-                    elapsed + stale_for * (1.2 if use_llm else 0.6),
+                    elapsed + stale_for * (0.8 if use_llm else 0.4),
                 )
 
             eta = max(0, int(round(max(0.0, estimated - elapsed))))
@@ -2189,7 +2194,7 @@ def _job_progress_snapshot(
                 progress = min(progress, 94.5)
             if estimated > 0.0 and progress > 0.0:
                 time_progress = min(99.0, (elapsed / estimated) * 100.0)
-                progress = min(progress, max(time_progress, progress - 8.0))
+                progress = min(progress, max(time_progress, progress - 4.0))
             return round(progress, 2), eta
 
         eta = int(explicit_eta) if explicit_eta is not None else None
@@ -2237,20 +2242,22 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
                 job["eta_seconds"] = eta_value
                 started_at = float(job.get("started_at") or now_ts)
                 elapsed = max(0.0, now_ts - started_at)
-                projected_total = elapsed + float(eta_value)
+                projected_total = max(elapsed + 1.0, elapsed + float(eta_value))
                 existing_est = float(job.get("estimated_duration_seconds") or 0.0)
+                if existing_est > 0.0:
+                    projected_total = (existing_est * 0.65) + (projected_total * 0.35)
                 job["estimated_duration_seconds"] = round(
-                    max(existing_est, projected_total),
+                    projected_total,
                     2,
                 )
             if eta_margin_raw is not None:
                 job["eta_margin_seconds"] = max(0, int(eta_margin_raw))
             if event.get("estimated_duration_seconds") is not None:
+                target_est = max(1.0, float(event["estimated_duration_seconds"]))
                 existing_est = float(job.get("estimated_duration_seconds") or 0.0)
-                job["estimated_duration_seconds"] = round(
-                    max(existing_est, float(event["estimated_duration_seconds"])),
-                    2,
-                )
+                if existing_est > 0.0:
+                    target_est = (existing_est * 0.7) + (target_est * 0.3)
+                job["estimated_duration_seconds"] = round(target_est, 2)
             if should_persist:
                 _persist_job(job_id, dict(job))
                 last_persist_ts = now_ts
@@ -2656,19 +2663,46 @@ async def simulate_night(config: SimulationConfig):
             style_preset=config.style_preset,
             prompt_profile=config.prompt_profile,
         )
+        elapsed_before_narrative = max(0.0, time.perf_counter() - started_at)
+        eligible_total_est = max(1, len(llm_jobs))
+        narrative_concurrency = max(1, int(generator.config.concurrency))
+        timeout_budget_seconds = max(5.0, float(generator.config.timeout_seconds))
+        client_retry_budget = max(1, int(getattr(client.config, "retries", 1)))
+        per_segment_budget = max(
+            8.0,
+            timeout_budget_seconds
+            * (1.0 + (0.25 * float(max(0, client_retry_budget - 1)))),
+        )
+        initial_narrative_eta_seconds = max(
+            6.0,
+            (
+                (float(eligible_total_est) / float(narrative_concurrency))
+                * per_segment_budget
+            )
+            + 6.0,
+        )
+        last_narrative_progress = 20.0
         _emit_simulation_progress_event(
             {
                 "phase": "narrative",
                 "progress_percent": 20.0,
+                "eta_seconds": int(round(initial_narrative_eta_seconds)),
+                "eta_margin_seconds": int(
+                    round(max(3.0, initial_narrative_eta_seconds * 0.3))
+                ),
+                "estimated_duration_seconds": elapsed_before_narrative
+                + initial_narrative_eta_seconds,
             }
         )
 
         def _on_narrative_progress(event: Dict[str, Any]) -> None:
+            nonlocal last_narrative_progress
             completed = int(event.get("completed", 0))
             total = max(1, int(event.get("total", 1)))
             eligible_completed = int(event.get("eligible_completed", 0))
             eligible_total = int(event.get("eligible_total", 0))
             elapsed = max(0.0, float(event.get("batch_elapsed_seconds", 0.0)))
+            elapsed_total = max(0.0, time.perf_counter() - started_at)
 
             if eligible_total > 0 and eligible_completed > 0:
                 ratio = min(1.0, float(eligible_completed) / float(eligible_total))
@@ -2678,10 +2712,27 @@ async def simulate_night(config: SimulationConfig):
                 ratio = min(1.0, float(completed) / float(total))
                 avg = elapsed / float(max(1, completed))
                 remaining_units = max(0, total - completed)
-            progress_percent = 20.0 + (65.0 * ratio)
+            ratio_progress = 20.0 + (65.0 * ratio)
             eta_core = avg * float(remaining_units)
+            timeout_floor_eta = (
+                (float(remaining_units) / float(narrative_concurrency))
+                * per_segment_budget
+                * 0.55
+            )
+            eta_core = max(eta_core, timeout_floor_eta)
+            if eligible_completed <= 1 and eligible_total > 0:
+                eta_core = max(eta_core, initial_narrative_eta_seconds * 0.7)
             eta_post = 4.0
             eta_seconds = int(round(max(0.0, eta_core + eta_post)))
+            total_estimate = max(
+                elapsed_total + float(eta_seconds), elapsed_total + 1.0
+            )
+            time_progress = min(85.0, (elapsed_total / total_estimate) * 100.0)
+            progress_percent = min(
+                85.0,
+                max(last_narrative_progress, min(ratio_progress, time_progress + 6.0)),
+            )
+            last_narrative_progress = progress_percent
             eta_margin = int(round(max(2.0, eta_seconds * 0.25)))
             _emit_simulation_progress_event(
                 {
@@ -2689,6 +2740,7 @@ async def simulate_night(config: SimulationConfig):
                     "progress_percent": progress_percent,
                     "eta_seconds": eta_seconds,
                     "eta_margin_seconds": eta_margin,
+                    "estimated_duration_seconds": elapsed_total + float(eta_seconds),
                 }
             )
 
