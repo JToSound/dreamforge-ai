@@ -245,8 +245,12 @@ function App() {
       }
     };
     updateMotionPreference();
-    mediaQuery.addEventListener("change", updateMotionPreference);
-    return () => mediaQuery.removeEventListener("change", updateMotionPreference);
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", updateMotionPreference);
+      return () => mediaQuery.removeEventListener("change", updateMotionPreference);
+    }
+    mediaQuery.addListener(updateMotionPreference);
+    return () => mediaQuery.removeListener(updateMotionPreference);
   }, []);
 
   useEffect(() => {
@@ -266,6 +270,10 @@ function App() {
 
   useEffect(() => {
     const revealTargets = document.querySelectorAll<HTMLElement>("[data-reveal]");
+    if (typeof IntersectionObserver === "undefined") {
+      revealTargets.forEach((node) => node.classList.add("is-visible"));
+      return;
+    }
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
