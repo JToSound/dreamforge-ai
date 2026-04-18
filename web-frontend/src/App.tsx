@@ -26,6 +26,45 @@ interface FAQItem {
   answer: string;
 }
 
+interface CompareResponse {
+  baseline_id: string;
+  candidate_id: string;
+  delta: {
+    mean_bizarreness: number;
+    rem_fraction: number;
+    lucid_event_count: number;
+    narrative_quality_mean: number;
+    narrative_memory_grounding_mean?: number;
+    llm_fallback_rate?: number;
+  };
+  confidence?: {
+    sample_size?: number;
+  };
+  stage_minutes?: {
+    baseline?: Record<string, number>;
+    candidate?: Record<string, number>;
+  };
+  anomaly_flags?: string[];
+}
+
+interface LlmRunSummary {
+  simulation_id: string;
+  source: "llm" | "fallback";
+  llm_used: boolean;
+  llm_model?: string | null;
+  generated_at_unix: number;
+  executive_summary: string;
+  key_findings: string[];
+  risk_signals: string[];
+  recommended_actions: string[];
+  next_run_profile: {
+    duration_hours: number;
+    stress_level: number;
+    style_preset: string;
+    prompt_profile: string;
+  };
+}
+
 type VariableStyle = CSSProperties & {
   "--px"?: string;
   "--py"?: string;
@@ -33,6 +72,7 @@ type VariableStyle = CSSProperties & {
 
 const navItems = [
   { label: "Simulation", href: "#simulation" },
+  { label: "Compare", href: "#compare" },
   { label: "Architecture", href: "#architecture" },
   { label: "Outputs", href: "#outputs" },
   { label: "FAQ", href: "#faq" },
@@ -121,6 +161,32 @@ const frontendContractCompatibility = {
   resultPath: "result.segments",
 };
 
+const emotionalStateOptions = [
+  "neutral",
+  "calm",
+  "joy",
+  "curious",
+  "anxious",
+  "sadness",
+  "fear",
+  "anger",
+  "surprise",
+  "disgust",
+];
+
+const promptProfileMap: Record<PromptProfile, { label: string; description: string }> = {
+  A: {
+    label: "Analytical Core",
+    description:
+      "Balanced scientific tone with concise narrative output, ideal for metric-first review.",
+  },
+  B: {
+    label: "Narrative Rich",
+    description:
+      "More expressive storytelling with stronger scene texture while preserving structured signals.",
+  },
+};
+
 function stageColor(stage: string): string {
   return stageColors[stage] ?? "#94a3b8";
 }
@@ -173,6 +239,16 @@ function App() {
   const [useLLM, setUseLLM] = useState(true);
   const [llmSegmentsOnly, setLlmSegmentsOnly] = useState(false);
   const [visibleSegmentCount, setVisibleSegmentCount] = useState(60);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [compareBaselineId, setCompareBaselineId] = useState("");
+  const [compareCandidateId, setCompareCandidateId] = useState("");
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [compareError, setCompareError] = useState<string | null>(null);
+  const [compareResult, setCompareResult] = useState<CompareResponse | null>(null);
+  const [recentSimulationIds, setRecentSimulationIds] = useState<string[]>([]);
+  const [llmRunSummary, setLlmRunSummary] = useState<LlmRunSummary | null>(null);
+  const [llmRunSummaryLoading, setLlmRunSummaryLoading] = useState(false);
+  const [llmRunSummaryError, setLlmRunSummaryError] = useState<string | null>(null);
 
   const {
     status,
@@ -201,6 +277,18 @@ function App() {
     typeof summary.mean_bizarreness === "number" ? Math.round(summary.mean_bizarreness * 100) : null;
   const dominantEmotion =
     typeof summary.dominant_emotion === "string" ? summary.dominant_emotion : "unknown";
+  const priorDayEvents = priorEvents.split("\n").map((line) => line.trim()).filter(Boolean);
+  const durationInRange = Number.isFinite(durationHours) && durationHours >= 4 && durationHours <= 12;
+  const stressInRange = Number.isFinite(stressLevel) && stressLevel >= 0 && stressLevel <= 1;
+  const compareStageKeys = useMemo(() => {
+    if (!compareResult?.stage_minutes) {
+      return [];
+    }
+    const baseline = compareResult.stage_minutes.baseline ?? {};
+    const candidate = compareResult.stage_minutes.candidate ?? {};
+    return Array.from(new Set([...Object.keys(baseline), ...Object.keys(candidate)])).sort();
+  }, [compareResult]);
+  const activePromptProfile = promptProfileMap[promptProfile];
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -241,6 +329,51 @@ function App() {
 
   useEffect(() => {
     setVisibleSegmentCount(60);
+  }, [result?.id]);
+
+  useEffect(() => {
+    if (!result?.id) {
+      setLlmRunSummary(null);
+      setLlmRunSummaryError(null);
+      setLlmRunSummaryLoading(false);
+      return;
+    }
+    setRecentSimulationIds((current) => {
+      const next = [result.id, ...current.filter((id) => id !== result.id)];
+      return next.slice(0, 8);
+    });
+    setCompareBaselineId((current) => current || result.id);
+    let cancelled = false;
+    const loadLlmSummary = async () => {
+      setLlmRunSummaryLoading(true);
+      setLlmRunSummaryError(null);
+      try {
+        const response = await fetch(`/api/simulation/${result.id}/llm-summary`);
+        if (!response.ok) {
+          const detail = await response.text();
+          throw new Error(detail || `LLM summary failed (${response.status})`);
+        }
+        const payload = (await response.json()) as LlmRunSummary;
+        if (!cancelled) {
+          setLlmRunSummary(payload);
+        }
+      } catch (caughtError: unknown) {
+        const message =
+          caughtError instanceof Error ? caughtError.message : "Failed to load LLM post-run summary.";
+        if (!cancelled) {
+          setLlmRunSummary(null);
+          setLlmRunSummaryError(message);
+        }
+      } finally {
+        if (!cancelled) {
+          setLlmRunSummaryLoading(false);
+        }
+      }
+    };
+    void loadLlmSummary();
+    return () => {
+      cancelled = true;
+    };
   }, [result?.id]);
 
   useEffect(() => {
@@ -297,6 +430,19 @@ function App() {
   };
 
   const handleRunSimulation = () => {
+    if (!durationInRange) {
+      setFormError("Duration must be between 4.0 and 12.0 hours.");
+      return;
+    }
+    if (!stressInRange) {
+      setFormError("Stress level must be between 0.00 and 1.00.");
+      return;
+    }
+    if (priorDayEvents.length === 0) {
+      setFormError("Please add at least one prior-day event.");
+      return;
+    }
+    setFormError(null);
     const request: SimulateRequest = {
       duration_hours: durationHours,
       dt_minutes: 0.5,
@@ -305,7 +451,7 @@ function App() {
       stress_level: stressLevel,
       melatonin: false,
       cannabis: false,
-      prior_day_events: priorEvents.split("\n").map((line) => line.trim()).filter(Boolean),
+      prior_day_events: priorDayEvents,
       emotional_state: emotionalState,
       style_preset: stylePreset,
       prompt_profile: promptProfile,
@@ -313,6 +459,41 @@ function App() {
       llm_segments_only: llmSegmentsOnly,
     };
     runSimulation(request);
+  };
+
+  const handleCompareSimulations = async () => {
+    if (!compareBaselineId.trim() || !compareCandidateId.trim()) {
+      setCompareError("Please provide both baseline and candidate simulation IDs.");
+      return;
+    }
+    if (compareBaselineId.trim() === compareCandidateId.trim()) {
+      setCompareError("Baseline and candidate IDs must be different.");
+      return;
+    }
+    setCompareLoading(true);
+    setCompareError(null);
+    try {
+      const response = await fetch("/api/simulation/compare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          baseline_simulation_id: compareBaselineId.trim(),
+          candidate_simulation_id: compareCandidateId.trim(),
+        }),
+      });
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(detail || `Compare failed (${response.status})`);
+      }
+      const payload = (await response.json()) as CompareResponse;
+      setCompareResult(payload);
+    } catch (caughtError: unknown) {
+      const message = caughtError instanceof Error ? caughtError.message : "Failed to compare simulations.";
+      setCompareResult(null);
+      setCompareError(message);
+    } finally {
+      setCompareLoading(false);
+    }
   };
 
   const heroStyle = useMemo<VariableStyle>(
@@ -334,6 +515,11 @@ function App() {
           },
     [pointer, reducedMotion],
   );
+
+  const formatDeltaPercent = (value: number): string =>
+    `${value >= 0 ? "+" : ""}${Math.round(value * 10000) / 100}%`;
+
+  const formatDeltaInteger = (value: number): string => `${value >= 0 ? "+" : ""}${value}`;
 
   return (
     <div className="site-shell">
@@ -491,7 +677,7 @@ function App() {
                 <label className="field">
                   <span>Duration (hours)</span>
                   <input
-                    className="sim-input"
+                    className={`sim-input${durationInRange ? "" : " input-invalid"}`}
                     type="number"
                     min={4}
                     max={12}
@@ -499,11 +685,14 @@ function App() {
                     value={durationHours}
                     onChange={(event) => setDurationHours(Number(event.target.value))}
                   />
+                  <small className={durationInRange ? "field-hint" : "field-error"}>
+                    Recommended range: 4.0 to 12.0 hours.
+                  </small>
                 </label>
                 <label className="field">
                   <span>Stress Level</span>
                   <input
-                    className="sim-input"
+                    className={`sim-input${stressInRange ? "" : " input-invalid"}`}
                     type="number"
                     min={0}
                     max={1}
@@ -511,17 +700,26 @@ function App() {
                     value={stressLevel}
                     onChange={(event) => setStressLevel(Number(event.target.value))}
                   />
+                  <small className={stressInRange ? "field-hint" : "field-error"}>
+                    Valid range: 0.00 (low) to 1.00 (high).
+                  </small>
                 </label>
               </div>
 
               <div className="field-row two-col">
                 <label className="field">
                   <span>Emotional State</span>
-                  <input
+                  <select
                     className="sim-input"
                     value={emotionalState}
                     onChange={(event) => setEmotionalState(event.target.value)}
-                  />
+                  >
+                    {emotionalStateOptions.map((emotion) => (
+                      <option key={emotion} value={emotion}>
+                        {emotion}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <label className="field">
                   <span>Style Preset</span>
@@ -545,9 +743,10 @@ function App() {
                     value={promptProfile}
                     onChange={(event) => setPromptProfile(event.target.value as PromptProfile)}
                   >
-                    <option value="A">A</option>
-                    <option value="B">B</option>
+                    <option value="A">A — {promptProfileMap.A.label}</option>
+                    <option value="B">B — {promptProfileMap.B.label}</option>
                   </select>
+                  <small className="field-hint">{activePromptProfile.description}</small>
                 </label>
                 <div className="field checkbox-stack">
                   <label>
@@ -572,18 +771,28 @@ function App() {
               <label className="field">
                 <span>Prior Day Events (one per line)</span>
                 <textarea
-                  className="sim-input"
+                  className={`sim-input${priorDayEvents.length > 0 ? "" : " input-invalid"}`}
                   rows={5}
                   value={priorEvents}
                   onChange={(event) => setPriorEvents(event.target.value)}
                 />
+                <small className={priorDayEvents.length > 0 ? "field-hint" : "field-error"}>
+                  {priorDayEvents.length} event(s) detected. Add at least one line.
+                </small>
               </label>
 
+              {formError && <p className="status-error">{formError}</p>}
+
               <div className="control-actions">
-                <button type="button" className="btn btn-primary" onClick={handleRunSimulation}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleRunSimulation}
+                  disabled={running}
+                >
                   {running ? "Running..." : "Run Simulation"}
                 </button>
-                <button type="button" className="btn btn-secondary" onClick={cancel}>
+                <button type="button" className="btn btn-secondary" onClick={cancel} disabled={!running}>
                   Cancel
                 </button>
               </div>
@@ -679,6 +888,196 @@ function App() {
               <strong>{dominantEmotion}</strong>
             </article>
           </div>
+          <article id="compare" className="glass-panel compare-panel">
+            <div className="compare-head">
+              <h3>Compare Simulations</h3>
+              <p>Run side-by-side delta analysis using two simulation IDs.</p>
+            </div>
+            <div className="field-row two-col">
+              <label className="field">
+                <span>Baseline Simulation ID</span>
+                <input
+                  className="sim-input"
+                  list="recent-simulation-ids"
+                  value={compareBaselineId}
+                  onChange={(event) => setCompareBaselineId(event.target.value)}
+                  placeholder="e.g. sim_abc123"
+                />
+              </label>
+              <label className="field">
+                <span>Candidate Simulation ID</span>
+                <input
+                  className="sim-input"
+                  list="recent-simulation-ids"
+                  value={compareCandidateId}
+                  onChange={(event) => setCompareCandidateId(event.target.value)}
+                  placeholder="e.g. sim_xyz789"
+                />
+              </label>
+            </div>
+            <datalist id="recent-simulation-ids">
+              {recentSimulationIds.map((id) => (
+                <option key={id} value={id} />
+              ))}
+            </datalist>
+            <div className="control-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => result?.id && setCompareBaselineId(result.id)}
+                disabled={!result?.id}
+              >
+                Use latest as baseline
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => result?.id && setCompareCandidateId(result.id)}
+                disabled={!result?.id}
+              >
+                Use latest as candidate
+              </button>
+              <button type="button" className="btn btn-primary" onClick={handleCompareSimulations}>
+                {compareLoading ? "Comparing..." : "Compare"}
+              </button>
+            </div>
+            {compareError && <p className="status-error">{compareError}</p>}
+            {compareResult && (
+              <div className="compare-result">
+                <div className="result-metrics compare-metrics">
+                  <article className="glass-panel metric-card">
+                    <span>Mean Bizarreness Δ</span>
+                    <strong>{formatDeltaPercent(compareResult.delta.mean_bizarreness)}</strong>
+                  </article>
+                  <article className="glass-panel metric-card">
+                    <span>REM Fraction Δ</span>
+                    <strong>{formatDeltaPercent(compareResult.delta.rem_fraction)}</strong>
+                  </article>
+                  <article className="glass-panel metric-card">
+                    <span>Narrative Quality Δ</span>
+                    <strong>{formatDeltaPercent(compareResult.delta.narrative_quality_mean)}</strong>
+                  </article>
+                  <article className="glass-panel metric-card">
+                    <span>Lucid Event Δ</span>
+                    <strong>{formatDeltaInteger(compareResult.delta.lucid_event_count)}</strong>
+                  </article>
+                  {typeof compareResult.delta.narrative_memory_grounding_mean === "number" && (
+                    <article className="glass-panel metric-card">
+                      <span>Memory Grounding Δ</span>
+                      <strong>{formatDeltaPercent(compareResult.delta.narrative_memory_grounding_mean)}</strong>
+                    </article>
+                  )}
+                  {typeof compareResult.delta.llm_fallback_rate === "number" && (
+                    <article className="glass-panel metric-card">
+                      <span>LLM Fallback Rate Δ</span>
+                      <strong>{formatDeltaPercent(compareResult.delta.llm_fallback_rate)}</strong>
+                    </article>
+                  )}
+                </div>
+                <div className="compare-detail-grid">
+                  <article className="glass-panel compare-subcard">
+                    <span>Anomaly Flags</span>
+                    <p>
+                      {compareResult.anomaly_flags && compareResult.anomaly_flags.length > 0
+                        ? compareResult.anomaly_flags.join(", ")
+                        : "No anomaly flags."}
+                    </p>
+                  </article>
+                  <article className="glass-panel compare-subcard">
+                    <span>Sample Size</span>
+                    <p>{compareResult.confidence?.sample_size ?? "N/A"} overlapping segment(s).</p>
+                  </article>
+                </div>
+                {compareStageKeys.length > 0 && (
+                  <div className="compare-stage-table">
+                    <div className="compare-stage-row compare-stage-head">
+                      <span>Stage</span>
+                      <span>Baseline (min)</span>
+                      <span>Candidate (min)</span>
+                    </div>
+                    {compareStageKeys.map((stage) => (
+                      <div key={stage} className="compare-stage-row">
+                        <span>{stage}</span>
+                        <span>{Math.round((compareResult.stage_minutes?.baseline?.[stage] ?? 0) * 10) / 10}</span>
+                        <span>{Math.round((compareResult.stage_minutes?.candidate?.[stage] ?? 0) * 10) / 10}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </article>
+          <article className="glass-panel llm-summary-panel">
+            <div className="compare-head">
+              <h3>Post-run Intelligence Summary</h3>
+              <p>
+                Automatically generated insights after each run, with actionable next-run recommendations.
+              </p>
+            </div>
+            {llmRunSummaryLoading && <p className="status-message">Generating LLM summary...</p>}
+            {llmRunSummaryError && <p className="status-error">{llmRunSummaryError}</p>}
+            {!llmRunSummaryLoading && !llmRunSummaryError && !llmRunSummary && (
+              <p className="status-message">Run a simulation to generate the post-run summary.</p>
+            )}
+            {llmRunSummary && (
+              <div className="llm-summary-content">
+                <div className="llm-summary-meta">
+                  <span className="stage-pill llm-source-pill">
+                    {llmRunSummary.source === "llm" ? "LLM Summary" : "Fallback Summary"}
+                  </span>
+                  <span>
+                    Model: {llmRunSummary.llm_model ?? "N/A"} · LLM used in run:{" "}
+                    {llmRunSummary.llm_used ? "Yes" : "No"}
+                  </span>
+                </div>
+                <p className="summary-narrative">{llmRunSummary.executive_summary}</p>
+                <div className="compare-detail-grid">
+                  <article className="glass-panel compare-subcard">
+                    <span>Key Findings</span>
+                    <ul className="insight-list">
+                      {llmRunSummary.key_findings.map((item, index) => (
+                        <li key={`${index}-${item}`}>{item}</li>
+                      ))}
+                    </ul>
+                  </article>
+                  <article className="glass-panel compare-subcard">
+                    <span>Risk Signals</span>
+                    <ul className="insight-list">
+                      {llmRunSummary.risk_signals.map((item, index) => (
+                        <li key={`${index}-${item}`}>{item}</li>
+                      ))}
+                    </ul>
+                  </article>
+                </div>
+                <article className="glass-panel compare-subcard">
+                  <span>Recommended Actions</span>
+                  <ul className="insight-list">
+                    {llmRunSummary.recommended_actions.map((item, index) => (
+                      <li key={`${index}-${item}`}>{item}</li>
+                    ))}
+                  </ul>
+                </article>
+                <div className="result-metrics compare-metrics">
+                  <article className="glass-panel metric-card">
+                    <span>Next Duration (h)</span>
+                    <strong>{llmRunSummary.next_run_profile.duration_hours}</strong>
+                  </article>
+                  <article className="glass-panel metric-card">
+                    <span>Next Stress</span>
+                    <strong>{llmRunSummary.next_run_profile.stress_level}</strong>
+                  </article>
+                  <article className="glass-panel metric-card">
+                    <span>Next Style Preset</span>
+                    <strong>{llmRunSummary.next_run_profile.style_preset}</strong>
+                  </article>
+                  <article className="glass-panel metric-card">
+                    <span>Next Prompt Profile</span>
+                    <strong>{llmRunSummary.next_run_profile.prompt_profile}</strong>
+                  </article>
+                </div>
+              </div>
+            )}
+          </article>
           <div className="segment-list">
             {segments.length === 0 ? (
               <article className="glass-panel empty-result">No segments yet. Run a simulation first.</article>

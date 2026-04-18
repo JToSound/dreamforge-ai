@@ -4496,6 +4496,136 @@ async def get_simulation_report(sim_id: str):
     return _build_simulation_report_payload(sim_id=sim_id, sim=sim)
 
 
+@app.get("/api/simulation/{sim_id}/llm-summary", tags=["Simulation"])
+@app.get("/api/v1/simulation/{sim_id}/llm-summary", tags=["Simulation"])
+async def get_simulation_llm_summary(sim_id: str):
+    sim = await get_simulation(sim_id)
+    fallback = _build_postrun_fallback_summary(sim_id=sim_id, sim=sim)
+    summary = sim.get("summary", {})
+    segments_raw = sim.get("segments", [])
+    segments: list[dict[str, Any]] = (
+        [seg for seg in segments_raw if isinstance(seg, dict)]
+        if isinstance(segments_raw, list)
+        else []
+    )
+    ranked_segments = sorted(
+        segments,
+        key=lambda seg: float(seg.get("bizarreness_score", 0.0) or 0.0),
+        reverse=True,
+    )[:3]
+    compact_payload = {
+        "simulation_id": sim_id,
+        "llm_used": bool(sim.get("llm_used", False)),
+        "llm_model": sim.get("llm_model"),
+        "summary": {
+            "total_segments": int(summary.get("total_segments", 0) or 0),
+            "mean_bizarreness": float(summary.get("mean_bizarreness", 0.0) or 0.0),
+            "rem_fraction": float(summary.get("rem_fraction", 0.0) or 0.0),
+            "dominant_emotion": str(summary.get("dominant_emotion", "neutral")),
+            "lucid_event_count": int(summary.get("lucid_event_count", 0) or 0),
+            "narrative_quality_mean": float(
+                summary.get("narrative_quality_mean", 0.0) or 0.0
+            ),
+            "narrative_memory_grounding_mean": float(
+                summary.get("narrative_memory_grounding_mean", 0.0) or 0.0
+            ),
+            "llm_fallback_segments": int(summary.get("llm_fallback_segments", 0) or 0),
+            "llm_total_invocations": int(
+                summary.get("llm_total_invocations", summary.get("llm_calls_total", 0))
+                or 0
+            ),
+        },
+        "top_segments": [
+            {
+                "stage": str(seg.get("stage", "N2")),
+                "bizarreness_score": float(seg.get("bizarreness_score", 0.0) or 0.0),
+                "dominant_emotion": str(seg.get("dominant_emotion", "neutral")),
+                "generation_mode": str(seg.get("generation_mode", "TEMPLATE")),
+            }
+            for seg in ranked_segments
+        ],
+        "fallback_reference": fallback,
+    }
+    client = get_llm_client()
+    system_prompt = (
+        "You are DreamForge Analyst. Produce a concise post-run intelligence summary for operators.\n"
+        "Output ONLY valid JSON with keys:\n"
+        "{\n"
+        '  "executive_summary": string,\n'
+        '  "key_findings": string[],\n'
+        '  "risk_signals": string[],\n'
+        '  "recommended_actions": string[],\n'
+        '  "next_run_profile": {\n'
+        '    "duration_hours": number,\n'
+        '    "stress_level": number,\n'
+        '    "style_preset": string,\n'
+        '    "prompt_profile": string\n'
+        "  }\n"
+        "}\n"
+        "Rules: be practical, avoid fluff, cap each list at 5 items, align suggestions to metrics."
+    )
+    user_prompt = (
+        "/no_think\n\nGenerate the post-run JSON summary from this payload:\n"
+        f"{json.dumps(compact_payload, ensure_ascii=False)}"
+    )
+    raw = await client.chat(system=system_prompt, user=user_prompt)
+    parsed = _parse_llm_json_object(raw)
+    if not isinstance(parsed, dict):
+        return fallback
+
+    executive_summary = str(parsed.get("executive_summary", "")).strip()
+    if not executive_summary:
+        return fallback
+
+    next_profile_raw = parsed.get("next_run_profile")
+    next_profile: dict[str, Any] = (
+        next_profile_raw if isinstance(next_profile_raw, dict) else {}
+    )
+    response = {
+        "simulation_id": sim_id,
+        "source": "llm",
+        "llm_used": bool(sim.get("llm_used", False)),
+        "llm_model": sim.get("llm_model"),
+        "generated_at_unix": time.time(),
+        "executive_summary": executive_summary,
+        "key_findings": _normalized_string_list(
+            parsed.get("key_findings"), fallback["key_findings"]
+        ),
+        "risk_signals": _normalized_string_list(
+            parsed.get("risk_signals"), fallback["risk_signals"]
+        ),
+        "recommended_actions": _normalized_string_list(
+            parsed.get("recommended_actions"), fallback["recommended_actions"]
+        ),
+        "next_run_profile": {
+            "duration_hours": _safe_float(
+                next_profile.get("duration_hours"),
+                float(fallback["next_run_profile"]["duration_hours"]),
+                lower_bound=4.0,
+                upper_bound=12.0,
+            ),
+            "stress_level": _safe_float(
+                next_profile.get("stress_level"),
+                float(fallback["next_run_profile"]["stress_level"]),
+                lower_bound=0.0,
+                upper_bound=1.0,
+            ),
+            "style_preset": str(
+                next_profile.get(
+                    "style_preset", fallback["next_run_profile"]["style_preset"]
+                )
+            ),
+            "prompt_profile": str(
+                next_profile.get(
+                    "prompt_profile", fallback["next_run_profile"]["prompt_profile"]
+                )
+            ),
+        },
+    }
+    _audit("simulation_llm_summary_generated", simulation_id=sim_id)
+    return response
+
+
 @app.get("/api/simulation/{sim_id}/report/bundle", tags=["Simulation"])
 @app.get("/api/v1/simulation/{sim_id}/report/bundle", tags=["Simulation"])
 async def get_simulation_report_bundle(sim_id: str):
@@ -4592,6 +4722,141 @@ async def get_simulation_report_bundle(sim_id: str):
             )
         },
     )
+
+
+def _parse_llm_json_object(raw: str) -> Optional[dict[str, Any]]:
+    cleaned = _strip_thinking_tags(raw).strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+    cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+    if not cleaned:
+        return None
+    try:
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+    match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+    if not match:
+        return None
+    try:
+        parsed = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+    if isinstance(parsed, dict):
+        return parsed
+    return None
+
+
+def _normalized_string_list(value: Any, fallback: list[str]) -> list[str]:
+    if isinstance(value, list):
+        normalized = [str(item).strip() for item in value if str(item).strip()]
+        if normalized:
+            return normalized[:5]
+    return fallback
+
+
+def _safe_float(
+    value: Any,
+    fallback: float,
+    *,
+    lower_bound: Optional[float] = None,
+    upper_bound: Optional[float] = None,
+) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = fallback
+    if lower_bound is not None:
+        parsed = max(lower_bound, parsed)
+    if upper_bound is not None:
+        parsed = min(upper_bound, parsed)
+    return round(parsed, 3)
+
+
+def _build_postrun_fallback_summary(sim_id: str, sim: dict[str, Any]) -> dict[str, Any]:
+    summary = sim.get("summary", {})
+    config = sim.get("config", {})
+    rem_fraction = float(summary.get("rem_fraction", 0.0) or 0.0)
+    quality = float(summary.get("narrative_quality_mean", 0.0) or 0.0)
+    grounding = float(summary.get("narrative_memory_grounding_mean", 0.0) or 0.0)
+    fallback_segments = int(summary.get("llm_fallback_segments", 0) or 0)
+    llm_total = int(
+        summary.get("llm_total_invocations", summary.get("llm_calls_total", 0)) or 0
+    )
+    fallback_rate = (
+        (float(fallback_segments) / float(llm_total)) if llm_total > 0 else 0.0
+    )
+    key_findings = [
+        f"Mean bizarreness is {float(summary.get('mean_bizarreness', 0.0) or 0.0):.2f} with dominant emotion '{str(summary.get('dominant_emotion', 'neutral'))}'.",
+        f"REM fraction is {rem_fraction * 100:.1f}% across {int(summary.get('total_segments', 0) or 0)} segments.",
+        f"Narrative quality score is {quality:.2f}; memory grounding is {grounding:.2f}.",
+    ]
+    risk_signals: list[str] = []
+    if rem_fraction < 0.18:
+        risk_signals.append("REM share is low; narrative vividness may be constrained.")
+    if quality < 0.55:
+        risk_signals.append("Narrative quality is below target threshold (0.55).")
+    if fallback_rate > 0.35:
+        risk_signals.append(
+            "LLM fallback rate exceeds target 35%; provider reliability may be unstable."
+        )
+    if grounding < 0.10:
+        risk_signals.append(
+            "Memory grounding is weak; narratives may drift from input events."
+        )
+    if not risk_signals:
+        risk_signals.append("No major risk signal detected in current summary metrics.")
+    recommended_actions = [
+        "Keep prior-day events specific (3-6 concise lines) to improve memory grounding.",
+        "Run one control simulation with use_llm=false to establish a deterministic baseline.",
+    ]
+    if rem_fraction < 0.18:
+        recommended_actions.append(
+            "Increase duration_hours by +0.5 to +1.0 to encourage REM density."
+        )
+    if fallback_rate > 0.35:
+        recommended_actions.append(
+            "Check LLM backend health and reduce provider timeout/failure probability."
+        )
+    if quality < 0.55:
+        recommended_actions.append(
+            "Switch to Prompt Profile B for richer scene continuity, then re-compare."
+        )
+    suggested_duration = _safe_float(
+        float(config.get("duration_hours", summary.get("night_span_hours", 8.0)) or 8.0)
+        + (0.5 if rem_fraction < 0.2 else 0.0),
+        8.0,
+        lower_bound=4.0,
+        upper_bound=12.0,
+    )
+    suggested_stress = _safe_float(
+        float(config.get("stress_level", 0.5) or 0.5)
+        * (0.9 if quality < 0.55 else 1.0),
+        0.5,
+        lower_bound=0.0,
+        upper_bound=1.0,
+    )
+    return {
+        "simulation_id": sim_id,
+        "source": "fallback",
+        "llm_used": bool(sim.get("llm_used", False)),
+        "llm_model": sim.get("llm_model"),
+        "generated_at_unix": time.time(),
+        "executive_summary": (
+            f"Run {sim_id[:8]} shows REM {rem_fraction * 100:.1f}%, quality {quality:.2f}, "
+            f"grounding {grounding:.2f}, and fallback rate {fallback_rate * 100:.1f}%."
+        ),
+        "key_findings": key_findings[:5],
+        "risk_signals": risk_signals[:5],
+        "recommended_actions": recommended_actions[:5],
+        "next_run_profile": {
+            "duration_hours": suggested_duration,
+            "stress_level": suggested_stress,
+            "style_preset": str(config.get("style_preset", "scientific")),
+            "prompt_profile": str(config.get("prompt_profile", "A")),
+        },
+    }
 
 
 def _build_simulation_report_payload(
