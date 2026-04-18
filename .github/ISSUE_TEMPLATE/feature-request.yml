@@ -1,0 +1,39 @@
+name: Feature request
+description: Propose a new capability with concrete product and engineering impact.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What user or product problem should this solve.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: API/dashboard/ops changes you suggest.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches and why they are less suitable.
+    validations:
+      required: false
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact area
+      options:
+        - API contract
+        - Simulation quality
+        - Dashboard UX
+        - Runtime reliability
+        - Observability and operations
+        - Documentation
+    validations:
+      required: true

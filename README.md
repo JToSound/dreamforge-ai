@@ -136,6 +136,9 @@ For detailed equations, parameter choices, and literature references, see `RESEA
   - `GET /api/simulation/{id}/report` – generate a structured run report payload.
   - `GET /api/simulation/{id}/report/bundle` – download a product report bundle ZIP (`report.json`, `summary.json`, `segments_overview.csv`, `methodology.txt`).
   - `GET /api/llm/registry` – prompt/model registry and capability matrix.
+  - `POST /api/psg/connectors/channel-qa` – validate PSG channel-role mapping for EEG/EOG/EMG integration.
+  - `GET /api/plugins/evaluators`, `POST /api/plugins/evaluators/run` – evaluate simulation summaries through pluggable/builtin evaluators.
+  - `GET /api/artifacts/health` – artifact manifest integrity and compatibility check.
   - `GET /api/slo`, `GET /api/release-gate`, `GET /api/error-taxonomy`, `GET /metrics/prometheus` – operational readiness surfaces (`release-gate` now includes quality/fallback/grounding checks).
   - `GET /api/audit/events` – audit trail query endpoint (scope-gated when auth is enabled).
   - `GET /api/enterprise` – enterprise conversion metadata and waitlist/trial/SLA links.
@@ -177,6 +180,8 @@ environment variables. The most useful overrides are:
 - `API_ACCESS_TOKEN` or `API_TOKEN_ROLE_MAP` (role/scope auth policy)
 - `METRICS_PUBLIC` (`1`/`0`) to control unauthenticated access to `/metrics` and `/metrics/prometheus`
 - `OUTPUT_RETENTION_DAYS`, `OUTPUT_RETENTION_MAX_RUNS` for `outputs/` retention governance and metadata index trimming
+- `ASYNC_MAX_PENDING_JOBS`, `ASYNC_MAX_RUNNING_JOBS` for async queue governance
+- `DREAMFORGE_ARTIFACT_MANIFEST`, `DREAMFORGE_STATE_EVENT_LOG` for artifact/state durability paths
 - `ENTERPRISE_WAITLIST_URL`, `PRO_TRIAL_URL`, `ENTERPRISE_SLA_URL`
 
 Chart export note:
@@ -218,6 +223,26 @@ It also enforces strict typing and release reliability gates:
 - `mypy --strict core/`
 - load/soak release gate tests (`tests/performance/test_release_gates.py`)
 - `web-frontend` production build (`npm run build`)
+
+## Benchmark pack
+
+Run a fixed, reproducible benchmark profile suite and emit machine-readable results:
+
+```bash
+python scripts/benchmark_pack.py --seed 42 --output reports/benchmark_pack/latest.json
+```
+
+Optionally compare against a prior benchmark artifact:
+
+```bash
+python scripts/benchmark_pack.py --baseline reports/benchmark_pack/baseline.json
+```
+
+Generate both JSON and markdown benchmark reports in one pass:
+
+```bash
+python scripts/generate_baseline_report.py --baseline reports/benchmark_pack/baseline.json
+```
 
 ## Contributing
 
@@ -264,6 +289,8 @@ By default, frames are captured from `http://localhost:8501` and assembled into
 - `docs/EDITIONS_AND_PRICING.md`
 - `docs/INCIDENT_RUNBOOKS.md`
 - `docs/ENTERPRISE.md`
+- `docs/COMPATIBILITY_POLICY.md`
+- `docs/DEPRECATION_POLICY.md`
 
 ## Contributing
 

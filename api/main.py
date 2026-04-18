@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import csv
+import hashlib
 import io
 import json
 import logging
@@ -99,6 +100,18 @@ _METRICS_PUBLIC = os.getenv("METRICS_PUBLIC", "1").strip().lower() not in {
 }
 _OUTPUT_RETENTION_DAYS = max(0, int(os.getenv("OUTPUT_RETENTION_DAYS", "14")))
 _OUTPUT_RETENTION_MAX_RUNS = max(1, int(os.getenv("OUTPUT_RETENTION_MAX_RUNS", "200")))
+_ASYNC_MAX_PENDING_JOBS = max(1, int(os.getenv("ASYNC_MAX_PENDING_JOBS", "128")))
+_ASYNC_MAX_RUNNING_JOBS = max(1, int(os.getenv("ASYNC_MAX_RUNNING_JOBS", "8")))
+_STATE_EVENT_LOG_FILE = os.getenv(
+    "DREAMFORGE_STATE_EVENT_LOG", "state-events.jsonl"
+).strip()
+if not _STATE_EVENT_LOG_FILE:
+    _STATE_EVENT_LOG_FILE = "state-events.jsonl"
+_ARTIFACT_MANIFEST_PATH = os.getenv(
+    "DREAMFORGE_ARTIFACT_MANIFEST", "artifacts/manifest.json"
+).strip()
+if not _ARTIFACT_MANIFEST_PATH:
+    _ARTIFACT_MANIFEST_PATH = "artifacts/manifest.json"
 
 
 def _load_token_role_map() -> Dict[str, Dict[str, Any]]:
@@ -271,6 +284,10 @@ _simulation_jobs: Dict[str, Dict[str, Any]] = {}
 _simulation_job_tasks: Dict[str, asyncio.Task[Any]] = {}
 _workspaces_lock = threading.Lock()
 _workspaces: Dict[str, Dict[str, Any]] = {}
+_state_log_lock = threading.Lock()
+_artifact_health_lock = threading.Lock()
+_artifact_health_cache: Dict[str, Any] = {}
+_artifact_health_cached_at = 0.0
 _simulation_progress_callback_var: contextvars.ContextVar[
     Optional[Callable[[Dict[str, Any]], None]]
 ] = contextvars.ContextVar("simulation_progress_callback", default=None)
@@ -318,131 +335,218 @@ def _get_redis_client():
 
 def _persist_simulation(sim_id: str, payload: Dict[str, Any]) -> None:
     client = _get_redis_client()
-    if client is None:
-        return
-    try:
-        raw = json.dumps(payload, ensure_ascii=False)
-        client.set(f"{_REDIS_KEY_SIMULATION_PREFIX}{sim_id}", raw)
-        client.sadd(_REDIS_KEY_SIMULATION_INDEX, sim_id)
-    except Exception as exc:
-        logger.warning("Failed to persist simulation %s to Redis: %s", sim_id, exc)
+    if client is not None:
+        try:
+            raw = json.dumps(payload, ensure_ascii=False)
+            client.set(f"{_REDIS_KEY_SIMULATION_PREFIX}{sim_id}", raw)
+            client.sadd(_REDIS_KEY_SIMULATION_INDEX, sim_id)
+        except Exception as exc:
+            logger.warning("Failed to persist simulation %s to Redis: %s", sim_id, exc)
+    _append_state_snapshot("simulation", sim_id, payload)
 
 
 def _load_persisted_simulation(sim_id: str) -> Optional[Dict[str, Any]]:
     client = _get_redis_client()
-    if client is None:
-        return None
-    try:
-        raw = client.get(f"{_REDIS_KEY_SIMULATION_PREFIX}{sim_id}")
-        if not raw:
-            return None
-        payload = json.loads(raw)
-        return payload if isinstance(payload, dict) else None
-    except (TypeError, ValueError, json.JSONDecodeError) as exc:
-        logger.warning("Invalid persisted simulation payload for %s: %s", sim_id, exc)
-        return None
-    except Exception as exc:
-        logger.warning("Failed loading simulation %s from Redis: %s", sim_id, exc)
-        return None
+    if client is not None:
+        try:
+            raw = client.get(f"{_REDIS_KEY_SIMULATION_PREFIX}{sim_id}")
+            if raw:
+                payload = json.loads(raw)
+                if isinstance(payload, dict):
+                    return payload
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "Invalid persisted simulation payload for %s: %s", sim_id, exc
+            )
+        except Exception as exc:
+            logger.warning("Failed loading simulation %s from Redis: %s", sim_id, exc)
+    payload = _load_state_snapshot("simulation", sim_id)
+    return payload if isinstance(payload, dict) else None
 
 
 def _persist_job(job_id: str, payload: Dict[str, Any]) -> None:
     client = _get_redis_client()
-    if client is None:
-        return
-    try:
-        client.set(
-            f"{_REDIS_KEY_JOB_PREFIX}{job_id}", json.dumps(payload, ensure_ascii=False)
-        )
-    except Exception as exc:
-        logger.warning("Failed to persist job %s to Redis: %s", job_id, exc)
+    if client is not None:
+        try:
+            client.set(
+                f"{_REDIS_KEY_JOB_PREFIX}{job_id}",
+                json.dumps(payload, ensure_ascii=False),
+            )
+        except Exception as exc:
+            logger.warning("Failed to persist job %s to Redis: %s", job_id, exc)
+    _append_state_snapshot("job", job_id, payload)
 
 
 def _persist_workspace(workspace_id: str, payload: Dict[str, Any]) -> None:
     client = _get_redis_client()
-    if client is None:
-        return
-    try:
-        client.set(
-            f"{_REDIS_KEY_WORKSPACE_PREFIX}{workspace_id}",
-            json.dumps(payload, ensure_ascii=False),
-        )
-        client.sadd(_REDIS_KEY_WORKSPACE_INDEX, workspace_id)
-    except Exception as exc:
-        logger.warning("Failed to persist workspace %s to Redis: %s", workspace_id, exc)
+    if client is not None:
+        try:
+            client.set(
+                f"{_REDIS_KEY_WORKSPACE_PREFIX}{workspace_id}",
+                json.dumps(payload, ensure_ascii=False),
+            )
+            client.sadd(_REDIS_KEY_WORKSPACE_INDEX, workspace_id)
+        except Exception as exc:
+            logger.warning(
+                "Failed to persist workspace %s to Redis: %s", workspace_id, exc
+            )
+    _append_state_snapshot("workspace", workspace_id, payload)
 
 
 def _load_persisted_job(job_id: str) -> Optional[Dict[str, Any]]:
     client = _get_redis_client()
-    if client is None:
-        return None
-    try:
-        raw = client.get(f"{_REDIS_KEY_JOB_PREFIX}{job_id}")
-        if not raw:
-            return None
-        payload = json.loads(raw)
-        return payload if isinstance(payload, dict) else None
-    except (TypeError, ValueError, json.JSONDecodeError) as exc:
-        logger.warning("Invalid persisted job payload for %s: %s", job_id, exc)
-        return None
-    except Exception as exc:
-        logger.warning("Failed loading job %s from Redis: %s", job_id, exc)
-        return None
+    if client is not None:
+        try:
+            raw = client.get(f"{_REDIS_KEY_JOB_PREFIX}{job_id}")
+            if raw:
+                payload = json.loads(raw)
+                if isinstance(payload, dict):
+                    return payload
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            logger.warning("Invalid persisted job payload for %s: %s", job_id, exc)
+        except Exception as exc:
+            logger.warning("Failed loading job %s from Redis: %s", job_id, exc)
+    payload = _load_state_snapshot("job", job_id)
+    return payload if isinstance(payload, dict) else None
 
 
 def _load_persisted_workspace(workspace_id: str) -> Optional[Dict[str, Any]]:
     client = _get_redis_client()
-    if client is None:
-        return None
-    try:
-        raw = client.get(f"{_REDIS_KEY_WORKSPACE_PREFIX}{workspace_id}")
-        if not raw:
-            return None
-        payload = json.loads(raw)
-        return payload if isinstance(payload, dict) else None
-    except (TypeError, ValueError, json.JSONDecodeError) as exc:
-        logger.warning(
-            "Invalid persisted workspace payload for %s: %s", workspace_id, exc
-        )
-        return None
-    except Exception as exc:
-        logger.warning("Failed loading workspace %s from Redis: %s", workspace_id, exc)
-        return None
+    if client is not None:
+        try:
+            raw = client.get(f"{_REDIS_KEY_WORKSPACE_PREFIX}{workspace_id}")
+            if raw:
+                payload = json.loads(raw)
+                if isinstance(payload, dict):
+                    return payload
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "Invalid persisted workspace payload for %s: %s", workspace_id, exc
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed loading workspace %s from Redis: %s", workspace_id, exc
+            )
+    payload = _load_state_snapshot("workspace", workspace_id)
+    return payload if isinstance(payload, dict) else None
 
 
 def _list_persisted_sim_ids() -> List[str]:
     client = _get_redis_client()
-    if client is None:
-        return []
-    try:
-        values = client.smembers(_REDIS_KEY_SIMULATION_INDEX) or []
-        return [str(item) for item in values if str(item)]
-    except Exception as exc:
-        logger.warning("Failed listing persisted simulation IDs: %s", exc)
-        return []
+    if client is not None:
+        try:
+            values = client.smembers(_REDIS_KEY_SIMULATION_INDEX) or []
+            return [str(item) for item in values if str(item)]
+        except Exception as exc:
+            logger.warning("Failed listing persisted simulation IDs: %s", exc)
+    return _list_state_entity_ids("simulation")
 
 
 def _list_persisted_workspace_ids() -> List[str]:
     client = _get_redis_client()
-    if client is None:
-        return []
-    try:
-        values = client.smembers(_REDIS_KEY_WORKSPACE_INDEX) or []
-        return [str(item) for item in values if str(item)]
-    except Exception as exc:
-        logger.warning("Failed listing persisted workspace IDs: %s", exc)
-        return []
+    if client is not None:
+        try:
+            values = client.smembers(_REDIS_KEY_WORKSPACE_INDEX) or []
+            return [str(item) for item in values if str(item)]
+        except Exception as exc:
+            logger.warning("Failed listing persisted workspace IDs: %s", exc)
+    return _list_state_entity_ids("workspace")
 
 
 def _persist_audit_event(entry: Dict[str, Any]) -> None:
     client = _get_redis_client()
-    if client is None:
-        return
+    if client is not None:
+        try:
+            client.lpush(_REDIS_KEY_AUDIT_EVENTS, json.dumps(entry, ensure_ascii=False))
+            client.ltrim(_REDIS_KEY_AUDIT_EVENTS, 0, 1999)
+        except Exception as exc:
+            logger.warning("Failed to persist audit event: %s", exc)
+    event_id = str(uuid.uuid4())
+    _append_state_snapshot("audit", event_id, entry)
+
+
+def _state_event_log_file() -> Path:
+    return _resolve_output_root_dir() / _STATE_EVENT_LOG_FILE
+
+
+def _append_state_snapshot(
+    entity_type: str, entity_id: str, payload: Dict[str, Any]
+) -> None:
+    event = {
+        "entity_type": str(entity_type),
+        "entity_id": str(entity_id),
+        "timestamp": time.time(),
+        "payload": payload,
+    }
+    path = _state_event_log_file()
     try:
-        client.lpush(_REDIS_KEY_AUDIT_EVENTS, json.dumps(entry, ensure_ascii=False))
-        client.ltrim(_REDIS_KEY_AUDIT_EVENTS, 0, 1999)
-    except Exception as exc:
-        logger.warning("Failed to persist audit event: %s", exc)
+        with _state_log_lock:
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(event, ensure_ascii=False))
+                handle.write("\n")
+    except OSError as exc:
+        logger.warning("Failed appending state snapshot to %s: %s", path, exc)
+
+
+def _iter_state_events() -> List[Dict[str, Any]]:
+    path = _state_event_log_file()
+    if not path.exists():
+        return []
+    rows: List[Dict[str, Any]] = []
+    try:
+        with _state_log_lock:
+            lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        logger.warning("Failed reading state event log %s: %s", path, exc)
+        return []
+    for line in lines:
+        try:
+            parsed = json.loads(line)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if isinstance(parsed, dict):
+            rows.append(parsed)
+    return rows
+
+
+def _load_state_snapshot(entity_type: str, entity_id: str) -> Optional[Dict[str, Any]]:
+    entity_type_norm = str(entity_type)
+    entity_id_norm = str(entity_id)
+    latest_payload: Optional[Dict[str, Any]] = None
+    latest_ts = -1.0
+    for item in _iter_state_events():
+        if str(item.get("entity_type", "")) != entity_type_norm:
+            continue
+        if str(item.get("entity_id", "")) != entity_id_norm:
+            continue
+        payload = item.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        ts = float(item.get("timestamp", 0.0) or 0.0)
+        if ts >= latest_ts:
+            latest_payload = payload
+            latest_ts = ts
+    return latest_payload
+
+
+def _list_state_entity_ids(entity_type: str) -> List[str]:
+    entity_type_norm = str(entity_type)
+    latest_by_id: Dict[str, float] = {}
+    for item in _iter_state_events():
+        if str(item.get("entity_type", "")) != entity_type_norm:
+            continue
+        entity_id = str(item.get("entity_id", "")).strip()
+        if not entity_id:
+            continue
+        ts = float(item.get("timestamp", 0.0) or 0.0)
+        prev = latest_by_id.get(entity_id)
+        if prev is None or ts > prev:
+            latest_by_id[entity_id] = ts
+    return sorted(
+        latest_by_id.keys(),
+        key=lambda item: latest_by_id.get(item, 0.0),
+        reverse=True,
+    )
 
 
 def _load_persisted_audit_events(limit: int = 200) -> List[Dict[str, Any]]:
@@ -879,10 +983,14 @@ class AsyncSimulationJobResponse(BaseModel):
     status: str
     created_at: float
     progress_percent: float = 0.0
+    schema_version: str = "v2"
     phase: Optional[str] = None
+    progress_source: Optional[str] = None
     eta_seconds: Optional[int] = None
+    eta_source: Optional[str] = None
     eta_margin_seconds: Optional[int] = None
     estimated_duration_seconds: Optional[float] = None
+    provenance: Dict[str, Any] = Field(default_factory=dict)
     started_at: Optional[float] = None
     completed_at: Optional[float] = None
     error_code: Optional[str] = None
@@ -894,6 +1002,30 @@ class AsyncSimulationCancelResponse(BaseModel):
     job_id: str
     status: str
     message: str
+
+
+class PSGChannelQARequest(BaseModel):
+    channels: List[str] = Field(default_factory=list)
+    expected_roles: Dict[str, List[str]] = Field(
+        default_factory=lambda: {
+            "eeg": ["C3", "C4", "F3", "F4", "EEG"],
+            "eog": ["EOG-L", "EOG-R", "EOG", "LOC", "ROC"],
+            "emg": ["EMG", "CHIN"],
+        }
+    )
+
+
+class PSGChannelQAResponse(BaseModel):
+    detected_channels: List[str] = Field(default_factory=list)
+    matched_roles: Dict[str, str] = Field(default_factory=dict)
+    missing_roles: List[str] = Field(default_factory=list)
+    extras: List[str] = Field(default_factory=list)
+    pass_check: bool = False
+
+
+class EvaluatorRunRequest(BaseModel):
+    evaluator: str = Field(default="quality-v1")
+    summary: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ChartExportRequest(BaseModel):
@@ -1083,6 +1215,19 @@ async def startup_event():
             "LLM backend NOT reachable at %s: %s",
             client.config.base_url,
             health.get("error"),
+        )
+    artifact_health = _artifact_health_snapshot(force_refresh=True)
+    if artifact_health.get("pass"):
+        logger.info(
+            "Artifact manifest healthy (%s items): %s",
+            artifact_health.get("total_artifacts", 0),
+            artifact_health.get("manifest_path", ""),
+        )
+    else:
+        logger.warning(
+            "Artifact manifest check failed: missing=%s mismatched_hash=%s",
+            artifact_health.get("required_missing", []),
+            artifact_health.get("mismatched_hash", []),
         )
 
 
@@ -1681,6 +1826,151 @@ def _outputs_index_file() -> Path:
     return _resolve_output_root_dir() / "index.json"
 
 
+def _artifact_manifest_file() -> Path:
+    manifest_path = Path(_ARTIFACT_MANIFEST_PATH)
+    if manifest_path.is_absolute():
+        return manifest_path
+    return Path.cwd() / manifest_path
+
+
+def _sha256_file(path: Path) -> Optional[str]:
+    if not path.exists() or not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(65536), b""):
+                digest.update(chunk)
+    except OSError as exc:
+        logger.warning("Failed hashing artifact %s: %s", path, exc)
+        return None
+    return digest.hexdigest()
+
+
+def _build_artifact_health_snapshot() -> Dict[str, Any]:
+    checked_at = time.time()
+    manifest_path = _artifact_manifest_file()
+    if not manifest_path.exists():
+        return {
+            "manifest_loaded": False,
+            "manifest_path": str(manifest_path),
+            "schema_version": None,
+            "checked_at": checked_at,
+            "pass": False,
+            "error": "manifest_not_found",
+            "compatibility": {},
+            "artifacts": [],
+            "total_artifacts": 0,
+            "required_missing": ["manifest"],
+            "mismatched_hash": [],
+        }
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        logger.warning("Failed reading artifact manifest %s: %s", manifest_path, exc)
+        return {
+            "manifest_loaded": False,
+            "manifest_path": str(manifest_path),
+            "schema_version": None,
+            "checked_at": checked_at,
+            "pass": False,
+            "error": "manifest_parse_error",
+            "compatibility": {},
+            "artifacts": [],
+            "total_artifacts": 0,
+            "required_missing": ["manifest"],
+            "mismatched_hash": [],
+        }
+    if not isinstance(data, dict):
+        return {
+            "manifest_loaded": False,
+            "manifest_path": str(manifest_path),
+            "schema_version": None,
+            "checked_at": checked_at,
+            "pass": False,
+            "error": "manifest_invalid_shape",
+            "compatibility": {},
+            "artifacts": [],
+            "total_artifacts": 0,
+            "required_missing": ["manifest"],
+            "mismatched_hash": [],
+        }
+
+    rows: List[Dict[str, Any]] = []
+    missing_required: List[str] = []
+    mismatched_hash: List[str] = []
+    raw_artifacts = data.get("artifacts", [])
+    if not isinstance(raw_artifacts, list):
+        raw_artifacts = []
+    for item in raw_artifacts:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip() or "unnamed"
+        path_val = str(item.get("path", "")).strip()
+        required = bool(item.get("required", False))
+        expected_sha = str(item.get("sha256", "")).strip() or None
+        artifact_path = Path(path_val) if path_val else Path(name)
+        if not artifact_path.is_absolute():
+            artifact_path = Path.cwd() / artifact_path
+        exists = artifact_path.exists() and artifact_path.is_file()
+        actual_sha = _sha256_file(artifact_path) if exists else None
+        hash_match = (
+            (actual_sha == expected_sha)
+            if (exists and expected_sha is not None)
+            else None
+        )
+        if required and not exists:
+            missing_required.append(name)
+        if expected_sha and hash_match is False:
+            mismatched_hash.append(name)
+        rows.append(
+            {
+                "name": name,
+                "path": str(artifact_path),
+                "required": required,
+                "exists": exists,
+                "kind": str(item.get("kind", "unknown")),
+                "expected_sha256": expected_sha,
+                "sha256": actual_sha,
+                "hash_match": hash_match,
+            }
+        )
+
+    return {
+        "manifest_loaded": True,
+        "manifest_path": str(manifest_path),
+        "schema_version": int(data.get("schema_version", 1)),
+        "checked_at": checked_at,
+        "pass": len(missing_required) == 0 and len(mismatched_hash) == 0,
+        "error": None,
+        "compatibility": (
+            data.get("compatibility")
+            if isinstance(data.get("compatibility"), dict)
+            else {}
+        ),
+        "artifacts": rows,
+        "total_artifacts": len(rows),
+        "required_missing": missing_required,
+        "mismatched_hash": mismatched_hash,
+    }
+
+
+def _artifact_health_snapshot(force_refresh: bool = False) -> Dict[str, Any]:
+    global _artifact_health_cache, _artifact_health_cached_at
+    now_ts = time.time()
+    with _artifact_health_lock:
+        if (
+            not force_refresh
+            and _artifact_health_cache
+            and (now_ts - _artifact_health_cached_at) <= 30.0
+        ):
+            return dict(_artifact_health_cache)
+        snapshot = _build_artifact_health_snapshot()
+        _artifact_health_cache = dict(snapshot)
+        _artifact_health_cached_at = now_ts
+    return snapshot
+
+
 def _load_outputs_index() -> Dict[str, Any]:
     index_path = _outputs_index_file()
     if not index_path.exists():
@@ -1789,6 +2079,87 @@ def _strip_thinking_tags(response: str) -> str:
     if not response:
         return ""
     return re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
+
+
+def _normalize_channel_name(name: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", str(name).upper())
+
+
+def _psg_channel_qa(payload: PSGChannelQARequest) -> PSGChannelQAResponse:
+    channels = [str(item).strip() for item in payload.channels if str(item).strip()]
+    normalized_to_raw = {_normalize_channel_name(item): item for item in channels}
+    matched_roles: Dict[str, str] = {}
+    missing_roles: List[str] = []
+    used_channels: set[str] = set()
+
+    for role, aliases in payload.expected_roles.items():
+        alias_list = [str(alias).strip() for alias in aliases if str(alias).strip()]
+        match: Optional[str] = None
+        for alias in alias_list:
+            alias_norm = _normalize_channel_name(alias)
+            for channel_norm, raw_channel in normalized_to_raw.items():
+                if alias_norm and alias_norm in channel_norm:
+                    match = raw_channel
+                    break
+            if match is not None:
+                break
+        role_key = str(role).strip().lower() or str(role)
+        if match is None:
+            missing_roles.append(role_key)
+        else:
+            matched_roles[role_key] = match
+            used_channels.add(match)
+
+    extras = sorted([item for item in channels if item not in used_channels])
+    return PSGChannelQAResponse(
+        detected_channels=channels,
+        matched_roles=matched_roles,
+        missing_roles=sorted(missing_roles),
+        extras=extras,
+        pass_check=len(missing_roles) == 0,
+    )
+
+
+def _evaluate_quality_v1(summary: Dict[str, Any]) -> Dict[str, float]:
+    quality = float(summary.get("narrative_quality_mean", 0.0) or 0.0)
+    grounding = float(summary.get("narrative_memory_grounding_mean", 0.0) or 0.0)
+    llm_total = float(summary.get("llm_total_invocations", 0.0) or 0.0)
+    llm_fallback = float(summary.get("llm_fallback_segments", 0.0) or 0.0)
+    fallback_rate = (llm_fallback / llm_total) if llm_total > 0 else 0.0
+    overall = max(
+        0.0,
+        min(1.0, (quality * 0.55) + (grounding * 0.25) + ((1.0 - fallback_rate) * 0.2)),
+    )
+    return {
+        "overall": round(overall, 6),
+        "narrative_quality_mean": round(quality, 6),
+        "memory_grounding_mean": round(grounding, 6),
+        "llm_fallback_rate": round(fallback_rate, 6),
+    }
+
+
+def _evaluate_stability_v1(summary: Dict[str, Any]) -> Dict[str, float]:
+    rem_fraction = float(summary.get("rem_fraction", 0.0) or 0.0)
+    biz = float(summary.get("mean_bizarreness", 0.0) or 0.0)
+    lucid = float(summary.get("lucid_event_count", 0.0) or 0.0)
+    rem_score = max(0.0, 1.0 - min(1.0, abs(rem_fraction - 0.22) / 0.22))
+    biz_score = max(0.0, 1.0 - min(1.0, abs(biz - 0.52) / 0.52))
+    lucid_score = max(0.0, min(1.0, lucid / 12.0))
+    overall = max(
+        0.0, min(1.0, (rem_score * 0.4) + (biz_score * 0.4) + (lucid_score * 0.2))
+    )
+    return {
+        "overall": round(overall, 6),
+        "rem_score": round(rem_score, 6),
+        "bizarreness_score": round(biz_score, 6),
+        "lucidity_score": round(lucid_score, 6),
+    }
+
+
+_EVALUATOR_REGISTRY: Dict[str, Callable[[Dict[str, Any]], Dict[str, float]]] = {
+    "quality-v1": _evaluate_quality_v1,
+    "stability-v1": _evaluate_stability_v1,
+}
 
 
 async def _generate_llm_narrative(
@@ -2213,6 +2584,44 @@ def _job_progress_snapshot(
     return round(progress, 2), eta
 
 
+def _job_provenance_snapshot(
+    job: dict[str, Any], status_value: str
+) -> tuple[str, str, Dict[str, Any]]:
+    now_ts = time.time()
+    status_norm = str(status_value).lower()
+    phase = str(job.get("phase") or status_norm)
+    last_progress_event_at = job.get("last_progress_event_at")
+    event_age_seconds: Optional[float] = None
+    if last_progress_event_at is not None:
+        event_age_seconds = max(0.0, now_ts - float(last_progress_event_at))
+    progress_source = str(job.get("progress_source", "")).strip()
+    if not progress_source:
+        progress_source = (
+            "event_stream" if last_progress_event_at is not None else "time_projection"
+        )
+    eta_source = str(job.get("eta_source", "")).strip()
+    if not eta_source:
+        eta_source = (
+            "event_projection"
+            if job.get("eta_seconds") is not None
+            else "historical_projection"
+        )
+    provenance = {
+        "phase": phase,
+        "use_llm": bool(job.get("use_llm", False)),
+        "event_age_seconds": (
+            round(event_age_seconds, 3) if event_age_seconds is not None else None
+        ),
+        "has_explicit_eta": job.get("eta_seconds") is not None,
+        "estimated_duration_seconds": (
+            float(job["estimated_duration_seconds"])
+            if job.get("estimated_duration_seconds") is not None
+            else None
+        ),
+    }
+    return progress_source, eta_source, provenance
+
+
 async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
     last_persist_ts = 0.0
     last_phase = ""
@@ -2236,10 +2645,12 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
                 return
             job["progress_percent"] = round(progress, 2)
             job["phase"] = phase
+            job["progress_source"] = "event_stream"
             job["last_progress_event_at"] = now_ts
             if eta_seconds_raw is not None:
                 eta_value = max(0, int(eta_seconds_raw))
                 job["eta_seconds"] = eta_value
+                job["eta_source"] = "event_projection"
                 started_at = float(job.get("started_at") or now_ts)
                 elapsed = max(0.0, now_ts - started_at)
                 projected_total = max(elapsed + 1.0, elapsed + float(eta_value))
@@ -2258,6 +2669,8 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
                 if existing_est > 0.0:
                     target_est = (existing_est * 0.7) + (target_est * 0.3)
                 job["estimated_duration_seconds"] = round(target_est, 2)
+            elif eta_seconds_raw is None and not str(job.get("eta_source", "")).strip():
+                job["eta_source"] = "historical_projection"
             if should_persist:
                 _persist_job(job_id, dict(job))
                 last_persist_ts = now_ts
@@ -2273,6 +2686,8 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
         job["last_progress_event_at"] = job["started_at"]
         job["phase"] = "physics"
         job["progress_percent"] = 1.0
+        job["progress_source"] = "event_stream"
+        job["eta_source"] = "historical_projection"
         _persist_job(job_id, dict(job))
     token = _simulation_progress_callback_var.set(_on_progress)
     try:
@@ -2288,7 +2703,9 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
             job["result"] = payload
             job["progress_percent"] = 100.0
             job["phase"] = "complete"
+            job["progress_source"] = "terminal"
             job["eta_seconds"] = 0
+            job["eta_source"] = "terminal"
             job["eta_margin_seconds"] = 0
             _persist_job(job_id, dict(job))
     except asyncio.CancelledError:
@@ -2302,6 +2719,8 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
                 job["error_message"] = "Simulation cancelled by user."
                 job["phase"] = "cancelled"
                 job["progress_percent"] = float(job.get("progress_percent") or 0.0)
+                job["progress_source"] = "terminal"
+                job["eta_source"] = "terminal"
                 _persist_job(job_id, dict(job))
         _audit("simulation_job_cancelled", job_id=job_id)
         raise
@@ -2318,6 +2737,8 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
             job["error_message"] = str(exc)
             job["phase"] = "failed"
             job["progress_percent"] = float(job.get("progress_percent") or 0.0)
+            job["progress_source"] = "terminal"
+            job["eta_source"] = "terminal"
             _persist_job(job_id, dict(job))
     finally:
         _simulation_progress_callback_var.reset(token)
@@ -3029,18 +3450,46 @@ async def submit_simulation_night_async(config: SimulationConfig):
     job_id = str(uuid.uuid4())
     estimated_duration_seconds = _estimate_job_duration_seconds(config)
     with _jobs_lock:
+        running_jobs = sum(
+            1
+            for payload in _simulation_jobs.values()
+            if str(payload.get("status", "")) == "running"
+        )
+        pending_jobs = sum(
+            1
+            for payload in _simulation_jobs.values()
+            if str(payload.get("status", "")) == "pending"
+        )
+        queue_pressure = running_jobs >= _ASYNC_MAX_RUNNING_JOBS
+        if pending_jobs >= _ASYNC_MAX_PENDING_JOBS:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    "Async queue is full. "
+                    f"pending={pending_jobs} max_pending={_ASYNC_MAX_PENDING_JOBS}"
+                ),
+            )
         _simulation_jobs[job_id] = {
             "job_id": job_id,
             "status": "pending",
+            "schema_version": "v2",
             "created_at": time.time(),
             "phase": "queued",
             "progress_percent": 0.0,
+            "progress_source": "event_stream",
             "eta_seconds": int(round(estimated_duration_seconds)),
+            "eta_source": (
+                "queue_pressure_projection"
+                if queue_pressure
+                else "historical_projection"
+            ),
             "eta_margin_seconds": int(
                 round(max(3.0, estimated_duration_seconds * 0.2))
             ),
             "estimated_duration_seconds": round(estimated_duration_seconds, 2),
             "use_llm": bool(config.use_llm),
+            "running_jobs_at_submit": running_jobs,
+            "queue_pressure": queue_pressure,
             "duration_hours": float(config.duration_hours),
             "dt_minutes": float(config.dt_minutes),
         }
@@ -3086,13 +3535,17 @@ async def get_simulation_job(job_id: str):
         )
     status_val = str(job.get("status", "pending"))
     progress_percent, eta_seconds = _job_progress_snapshot(job, status_val)
+    progress_source, eta_source, provenance = _job_provenance_snapshot(job, status_val)
     return AsyncSimulationJobResponse(
         job_id=job_id,
         status=status_val,
         created_at=float(job.get("created_at", 0.0)),
         progress_percent=float(progress_percent),
+        schema_version=str(job.get("schema_version", "v2")),
         phase=(str(job["phase"]) if job.get("phase") is not None else None),
+        progress_source=progress_source,
         eta_seconds=eta_seconds,
+        eta_source=eta_source,
         eta_margin_seconds=(
             int(job["eta_margin_seconds"])
             if job.get("eta_margin_seconds") is not None
@@ -3103,6 +3556,7 @@ async def get_simulation_job(job_id: str):
             if job.get("estimated_duration_seconds") is not None
             else None
         ),
+        provenance=provenance,
         started_at=(
             float(job["started_at"]) if job.get("started_at") is not None else None
         ),
@@ -3167,6 +3621,8 @@ async def cancel_simulation_job(job_id: str):
             job["error_code"] = "cancelled"
             job["error_message"] = "Cancellation requested by user."
             job["eta_seconds"] = None
+            job["progress_source"] = "terminal"
+            job["eta_source"] = "terminal"
             _persist_job(job_id, dict(job))
             _audit("simulation_job_cancellation_requested", job_id=job_id)
             return AsyncSimulationCancelResponse(
@@ -3182,6 +3638,8 @@ async def cancel_simulation_job(job_id: str):
         job["error_message"] = "Simulation cancelled by user."
         job["phase"] = "cancelled"
         job["eta_seconds"] = None
+        job["progress_source"] = "terminal"
+        job["eta_source"] = "terminal"
         _persist_job(job_id, dict(job))
     _audit("simulation_job_cancelled_without_task", job_id=job_id)
     return AsyncSimulationCancelResponse(
@@ -3799,12 +4257,75 @@ async def metrics_prometheus():
     return PlainTextResponse(_prometheus_metrics_text(metrics_snapshot))
 
 
+@app.post(
+    "/api/psg/connectors/channel-qa",
+    response_model=PSGChannelQAResponse,
+    tags=["PSG"],
+)
+@app.post(
+    "/api/v1/psg/connectors/channel-qa",
+    response_model=PSGChannelQAResponse,
+    tags=["PSG"],
+)
+async def psg_channel_qa(payload: PSGChannelQARequest):
+    return _psg_channel_qa(payload)
+
+
+@app.get("/api/plugins/evaluators", tags=["System"])
+@app.get("/api/v1/plugins/evaluators", tags=["System"])
+async def list_plugin_evaluators():
+    return {
+        "count": len(_EVALUATOR_REGISTRY),
+        "items": [
+            {
+                "name": name,
+                "kind": "builtin",
+                "input": "simulation summary payload",
+                "output": "scored metric dictionary",
+            }
+            for name in sorted(_EVALUATOR_REGISTRY.keys())
+        ],
+    }
+
+
+@app.post("/api/plugins/evaluators/run", tags=["System"])
+@app.post("/api/v1/plugins/evaluators/run", tags=["System"])
+async def run_plugin_evaluator(request: EvaluatorRunRequest):
+    evaluator_name = str(request.evaluator).strip()
+    evaluator = _EVALUATOR_REGISTRY.get(evaluator_name)
+    if evaluator is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Evaluator '{evaluator_name}' not found.",
+        )
+    return {
+        "evaluator": evaluator_name,
+        "scores": evaluator(request.summary),
+    }
+
+
+@app.get("/api/artifacts/health", tags=["System"])
+@app.get("/api/v1/artifacts/health", tags=["System"])
+async def artifact_health():
+    return _artifact_health_snapshot(force_refresh=True)
+
+
 @app.get("/api/version", tags=["System"])
 @app.get("/api/v1/version", tags=["System"])
 async def api_version():
+    artifact_health_snapshot = _artifact_health_snapshot()
     return {
         "api_contract": API_CONTRACT_VERSION,
         "prompt_profile_version": PROMPT_PROFILE_VERSION,
+        "async_job_schema_version": "v2",
+        "async_limits": {
+            "max_pending_jobs": _ASYNC_MAX_PENDING_JOBS,
+            "max_running_jobs": _ASYNC_MAX_RUNNING_JOBS,
+        },
+        "artifact_manifest_pass": bool(artifact_health_snapshot.get("pass", False)),
+        "artifact_manifest_path": str(
+            artifact_health_snapshot.get("manifest_path", "")
+        ),
         "deprecated": [],
         "changelog_policy": "Document every contract-level change in CHANGELOG.md",
     }

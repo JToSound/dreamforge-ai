@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: DreamForge enterprise and SLA questions
+    url: https://github.com/JToSound/dreamforge-ai/blob/main/docs/ENTERPRISE.md
+    about: Use enterprise channels for pricing, SLA, and deployment support questions.

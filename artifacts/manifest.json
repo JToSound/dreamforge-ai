@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-04-18T14:20:00Z",
+  "compatibility": {
+    "python": ">=3.11",
+    "api_contract": "v1",
+    "async_job_schema": "v2"
+  },
+  "artifacts": [
+    {
+      "name": "api-main",
+      "kind": "code",
+      "path": "api/main.py",
+      "required": true
+    },
+    {
+      "name": "core-config",
+      "kind": "code",
+      "path": "core/config.py",
+      "required": true
+    },
+    {
+      "name": "dashboard-app",
+      "kind": "code",
+      "path": "visualization/dashboard/app.py",
+      "required": true
+    },
+    {
+      "name": "python-requirements",
+      "kind": "dependency",
+      "path": "requirements.txt",
+      "required": true
+    },
+    {
+      "name": "dashboard-requirements",
+      "kind": "dependency",
+      "path": "requirements.dashboard.txt",
+      "required": true
+    },
+    {
+      "name": "frontend-package",
+      "kind": "dependency",
+      "path": "web-frontend/package.json",
+      "required": true
+    }
+  ]
+}

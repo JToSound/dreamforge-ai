@@ -45,7 +45,11 @@ class DummyLLMClient:
 
 
 @pytest.fixture
-def patched_api(monkeypatch):
+def patched_api(monkeypatch, tmp_path):
+    monkeypatch.setenv("DREAMFORGE_OUTPUT_DIR", str(tmp_path / "outputs"))
+    monkeypatch.setattr(
+        api_main, "_STATE_EVENT_LOG_FILE", str(tmp_path / "state-events.jsonl")
+    )
     api_main._simulations.clear()
     with api_main._workspaces_lock:
         api_main._workspaces.clear()
@@ -64,6 +68,9 @@ def patched_api(monkeypatch):
         api_main._simulation_duration_seconds_history.clear()
         api_main._simulation_duration_seconds_llm_history.clear()
         api_main._simulation_duration_seconds_no_llm_history.clear()
+    with api_main._artifact_health_lock:
+        api_main._artifact_health_cache.clear()
+        api_main._artifact_health_cached_at = 0.0
     fake = DummyLLMClient()
     monkeypatch.setattr(api_main, "get_llm_client", lambda: fake)
     monkeypatch.setattr(api_main, "LLMClient", DummyLLMClient)
@@ -132,6 +139,13 @@ def test_system_and_llm_routes(patched_api):
         version = client.get("/api/version")
         assert version.status_code == 200
         assert version.json()["api_contract"] == "v1"
+        assert "artifact_manifest_pass" in version.json()
+        assert "async_job_schema_version" in version.json()
+
+        artifact_health = client.get("/api/artifacts/health")
+        assert artifact_health.status_code == 200
+        assert "manifest_loaded" in artifact_health.json()
+        assert "total_artifacts" in artifact_health.json()
 
 
 def test_chart_export_endpoint_returns_png_and_svg(patched_api):
@@ -488,6 +502,46 @@ def test_workspace_create_attach_and_list_runs(patched_api):
         assert ws_list.json()["count"] >= 1
 
 
+def test_psg_channel_qa_and_plugin_evaluator_endpoints(patched_api):
+    with TestClient(patched_api.app) as client:
+        qa = client.post(
+            "/api/psg/connectors/channel-qa",
+            json={
+                "channels": ["EEG C3-M2", "EOG-L", "Chin EMG", "ECG"],
+                "expected_roles": {
+                    "eeg": ["C3", "C4"],
+                    "eog": ["EOG-L", "EOG-R"],
+                    "emg": ["EMG", "CHIN"],
+                },
+            },
+        )
+        assert qa.status_code == 200
+        qa_body = qa.json()
+        assert qa_body["pass_check"] is True
+        assert "eeg" in qa_body["matched_roles"]
+        assert "ecg" not in qa_body["missing_roles"]
+
+        evaluator_list = client.get("/api/plugins/evaluators")
+        assert evaluator_list.status_code == 200
+        assert evaluator_list.json()["count"] >= 2
+
+        evaluator_run = client.post(
+            "/api/plugins/evaluators/run",
+            json={
+                "evaluator": "quality-v1",
+                "summary": {
+                    "narrative_quality_mean": 0.8,
+                    "narrative_memory_grounding_mean": 0.4,
+                    "llm_total_invocations": 10,
+                    "llm_fallback_segments": 1,
+                },
+            },
+        )
+        assert evaluator_run.status_code == 200
+        assert evaluator_run.json()["evaluator"] == "quality-v1"
+        assert evaluator_run.json()["scores"]["overall"] > 0.0
+
+
 def test_output_index_and_retention(patched_api, monkeypatch, tmp_path):
     output_root = tmp_path / "outputs"
     monkeypatch.setenv("DREAMFORGE_OUTPUT_DIR", str(output_root))
@@ -588,6 +642,11 @@ def test_async_simulation_job_flow(patched_api):
             body = resp.json()
             assert "progress_percent" in body
             assert "phase" in body
+            assert "schema_version" in body
+            assert body["schema_version"] == "v2"
+            assert "progress_source" in body
+            assert "eta_source" in body
+            assert "provenance" in body
             assert "eta_seconds" in body
             assert "eta_margin_seconds" in body
             assert "estimated_duration_seconds" in body
@@ -600,6 +659,21 @@ def test_async_simulation_job_flow(patched_api):
             time.sleep(0.05)
 
         assert final_status == "completed"
+
+
+def test_async_simulation_job_queue_limit_returns_429(patched_api, monkeypatch):
+    monkeypatch.setattr(api_main, "_ASYNC_MAX_PENDING_JOBS", 1)
+    with api_main._jobs_lock:
+        api_main._simulation_jobs["pending-existing"] = {
+            "job_id": "pending-existing",
+            "status": "pending",
+            "created_at": time.time(),
+        }
+
+    with TestClient(patched_api.app) as client:
+        submit = client.post("/api/simulation/night/async", json=_sim_payload())
+        assert submit.status_code == 429
+        assert "Async queue is full" in submit.json()["detail"]
 
 
 def test_async_simulation_job_can_be_cancelled(patched_api, monkeypatch):
@@ -629,6 +703,28 @@ def test_async_simulation_job_can_be_cancelled(patched_api, monkeypatch):
             time.sleep(0.05)
 
         assert final_status == "cancelled"
+
+
+def test_state_log_fallback_persists_when_redis_unavailable(patched_api, monkeypatch):
+    monkeypatch.setattr(api_main, "_get_redis_client", lambda: None)
+
+    sim_payload = {"id": "sim-fallback", "summary": {"mean_bizarreness": 0.5}}
+    api_main._persist_simulation("sim-fallback", sim_payload)
+    loaded_sim = api_main._load_persisted_simulation("sim-fallback")
+    assert loaded_sim is not None
+    assert loaded_sim["id"] == "sim-fallback"
+
+    job_payload = {"job_id": "job-fallback", "status": "pending", "created_at": 1.0}
+    api_main._persist_job("job-fallback", job_payload)
+    loaded_job = api_main._load_persisted_job("job-fallback")
+    assert loaded_job is not None
+    assert loaded_job["job_id"] == "job-fallback"
+
+    workspace_payload = {"id": "ws-fallback", "name": "Fallback WS", "run_ids": []}
+    api_main._persist_workspace("ws-fallback", workspace_payload)
+    loaded_workspace = api_main._load_persisted_workspace("ws-fallback")
+    assert loaded_workspace is not None
+    assert loaded_workspace["id"] == "ws-fallback"
 
 
 def test_enterprise_and_audit_surfaces(patched_api):

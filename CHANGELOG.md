@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Benchmark, governance, and compatibility hardening:
+  - added `scripts/benchmark_pack.py` for fixed-profile, seed-controlled benchmark output with optional baseline delta calculation,
+  - added `scripts/generate_baseline_report.py` to generate both JSON and markdown benchmark comparison artifacts,
+  - added artifact manifest and health checks (`artifacts/manifest.json`, `/api/artifacts/health`, startup validation log),
+  - added async job provenance contract fields (`schema_version`, `progress_source`, `eta_source`, `provenance`) in job status payloads,
+  - added durable state-event log fallback (`outputs/state-events.jsonl`) for simulation/job/workspace/audit persistence when Redis is unavailable,
+  - added async queue governance limits (`ASYNC_MAX_PENDING_JOBS`, `ASYNC_MAX_RUNNING_JOBS`) and 429 backpressure response when pending queue is full,
+  - added PSG connector channel QA endpoint (`/api/psg/connectors/channel-qa`) and plugin evaluator surfaces (`/api/plugins/evaluators`, `/api/plugins/evaluators/run`).
+- Collaboration and contribution governance:
+  - added GitHub issue templates (`bug-report`, `runtime-regression`, `feature-request`) and template config,
+  - added compatibility and deprecation policy docs (`docs/COMPATIBILITY_POLICY.md`, `docs/DEPRECATION_POLICY.md`),
+  - updated README with artifact health endpoint, benchmark pack usage, and policy document links.
+
 - Frontend contract convergence and build fixes:
   - fixed Vite plugin mismatch (`@vitejs/plugin-react-swc`) and corrected frontend app entry import wiring,
   - rewired `web-frontend/src/useSimulationData.ts` + `App.tsx` to active API contract and async job submit/poll/cancel flow.

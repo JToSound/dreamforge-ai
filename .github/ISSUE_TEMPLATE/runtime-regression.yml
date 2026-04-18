@@ -1,0 +1,45 @@
+name: Runtime regression
+description: Report behavior that worked before but regressed in a newer commit/version.
+title: "[Regression]: "
+labels: ["bug", "regression"]
+body:
+  - type: textarea
+    id: regression_summary
+    attributes:
+      label: Regression summary
+      description: What changed compared to previously working behavior.
+    validations:
+      required: true
+  - type: input
+    id: last_known_good
+    attributes:
+      label: Last known good commit/version
+      description: Commit SHA, tag, or release where behavior was correct.
+      placeholder: e.g. v0.0.1 or abc1234
+    validations:
+      required: true
+  - type: input
+    id: first_bad
+    attributes:
+      label: First known bad commit/version
+      description: Commit SHA, tag, or release where regression appears.
+    validations:
+      required: false
+  - type: textarea
+    id: contract_break
+    attributes:
+      label: Contract break details
+      description: Include fields/endpoints that changed unexpectedly.
+      placeholder: |
+        - Endpoint:
+        - Old response shape:
+        - New response shape:
+    validations:
+      required: true
+  - type: textarea
+    id: benchmark_delta
+    attributes:
+      label: Benchmark delta (optional)
+      description: If available, include output from scripts/benchmark_pack.py.
+    validations:
+      required: false

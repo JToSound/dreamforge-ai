@@ -1,0 +1,55 @@
+name: Bug report
+description: Report a reproducible defect in DreamForge runtime or API behavior.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting an issue. Please include a minimal reproduction and exact runtime versions.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened and why this is a bug.
+      placeholder: A concise description of the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Exact steps, command, payload, and expected vs actual behavior.
+      placeholder: |
+        1. POST /api/simulation/night/async with payload ...
+        2. Poll /api/simulation/jobs/{id}
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: request_response
+    attributes:
+      label: Request/response samples
+      description: Paste relevant request payloads and response bodies (redact secrets).
+    validations:
+      required: true
+  - type: textarea
+    id: runtime_info
+    attributes:
+      label: Runtime information
+      description: Output of Python version, dependency versions, and environment mode.
+      placeholder: |
+        - OS:
+        - Python:
+        - dreamforge-ai commit:
+        - pip freeze (relevant lines):
+        - LLM provider/base URL:
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and traceback
+      description: Include full traceback and timestamps when possible.
+    validations:
+      required: false
