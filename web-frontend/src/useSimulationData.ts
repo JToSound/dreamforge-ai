@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface SimulateRequest {
   duration_hours: number;
@@ -69,6 +69,7 @@ export function useSimulationData() {
   const abortRef = useRef<AbortController | null>(null);
   const activeJobIdRef = useRef<string | null>(null);
   const pollingRef = useRef<number | null>(null);
+  const statusRef = useRef<SimStatus>("idle");
 
   const _stopPolling = () => {
     if (pollingRef.current !== null) {
@@ -76,6 +77,28 @@ export function useSimulationData() {
       pollingRef.current = null;
     }
   };
+
+  const _cancelJobBestEffort = useCallback((jobId: string) => {
+    const url = `/api/simulation/jobs/${jobId}/cancel`;
+    const payload = "{}";
+    try {
+      if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+        const blob = new Blob([payload], { type: "application/json" });
+        navigator.sendBeacon(url, blob);
+        return;
+      }
+    } catch {
+      // Fall through to keepalive fetch.
+    }
+    void fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: payload,
+      keepalive: true,
+    }).catch(() => {
+      // Ignore network errors during unload cancellation.
+    });
+  }, []);
 
   const _pollJob = useCallback(async (jobId: string) => {
     try {
@@ -217,6 +240,31 @@ export function useSimulationData() {
       // Keep local cancellation state even if network cancellation fails.
     }
   }, []);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  useEffect(() => {
+    const handleUnload = () => {
+      const jobId = activeJobIdRef.current;
+      const isActive =
+        statusRef.current === "running" || statusRef.current === "cancelling";
+      if (!jobId || !isActive) {
+        return;
+      }
+      abortRef.current?.abort();
+      _stopPolling();
+      _cancelJobBestEffort(jobId);
+    };
+
+    window.addEventListener("beforeunload", handleUnload);
+    window.addEventListener("pagehide", handleUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleUnload);
+      window.removeEventListener("pagehide", handleUnload);
+    };
+  }, [_cancelJobBestEffort]);
 
   return {
     status,

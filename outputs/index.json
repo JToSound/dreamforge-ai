@@ -1,7 +1,898 @@
 {
   "version": 1,
-  "updated_at": 1776544222.3787863,
+  "updated_at": 1776547173.264013,
   "items": [
+    {
+      "simulation_id": "071ae019-35a3-4b69-9a25-c12bc638a5ee",
+      "created_at": 1776547173.2324188,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\071ae019-35a3-4b69-9a25-c12bc638a5ee",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7851
+    },
+    {
+      "simulation_id": "b8e2f1ac-1940-4207-80d6-a0a9664b0257",
+      "created_at": 1776547173.065063,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\b8e2f1ac-1940-4207-80d6-a0a9664b0257",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7851
+    },
+    {
+      "simulation_id": "af3e5e51-f687-42ca-8b7a-2c6165a33f83",
+      "created_at": 1776547172.891708,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\af3e5e51-f687-42ca-8b7a-2c6165a33f83",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7851
+    },
+    {
+      "simulation_id": "fa548552-2ba6-46f2-bbc8-8746e93a0c03",
+      "created_at": 1776547172.7022974,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\fa548552-2ba6-46f2-bbc8-8746e93a0c03",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7851
+    },
+    {
+      "simulation_id": "5247e655-7cc8-4e1d-8bc6-e5d73ce022f4",
+      "created_at": 1776547172.527832,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\5247e655-7cc8-4e1d-8bc6-e5d73ce022f4",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7851
+    },
+    {
+      "simulation_id": "903a3c46-9176-4f4b-b967-16ea7d929753",
+      "created_at": 1776547172.3530147,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\903a3c46-9176-4f4b-b967-16ea7d929753",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7851
+    },
+    {
+      "simulation_id": "b5beaf11-d24d-4bee-894c-2a96c8a1f3fd",
+      "created_at": 1776547172.0349739,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\b5beaf11-d24d-4bee-894c-2a96c8a1f3fd",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7851
+    },
+    {
+      "simulation_id": "8cb41a18-af86-41ba-ab84-c399cee745fa",
+      "created_at": 1776547171.5871813,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\8cb41a18-af86-41ba-ab84-c399cee745fa",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7851
+    },
+    {
+      "simulation_id": "5bc70672-f5be-4ea8-9df3-295236586b6b",
+      "created_at": 1776547171.4272735,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\5bc70672-f5be-4ea8-9df3-295236586b6b",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7851
+    },
+    {
+      "simulation_id": "c4fac528-b76e-47aa-bb19-6d1c41712c66",
+      "created_at": 1776547171.2602968,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\c4fac528-b76e-47aa-bb19-6d1c41712c66",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7851
+    },
+    {
+      "simulation_id": "824e4f81-4db2-49a3-91ca-dfcce15c7dbd",
+      "created_at": 1776547171.0568292,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\824e4f81-4db2-49a3-91ca-dfcce15c7dbd",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7852
+    },
+    {
+      "simulation_id": "b1c965e8-b826-4d7e-bfd9-d1f1ced390e8",
+      "created_at": 1776547167.260558,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\b1c965e8-b826-4d7e-bfd9-d1f1ced390e8",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.206,
+      "narrative_quality_mean": 0.7896
+    },
+    {
+      "simulation_id": "5cda79b4-1e37-4eac-8406-640fd9b6aa93",
+      "created_at": 1776547167.0906296,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\5cda79b4-1e37-4eac-8406-640fd9b6aa93",
+      "llm_used": false,
+      "segments": 960,
+      "rem_fraction": 0.227,
+      "narrative_quality_mean": 0.7774
+    },
+    {
+      "simulation_id": "7d1b763e-b79e-494c-8332-439a60d6059e",
+      "created_at": 1776547164.9226537,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\7d1b763e-b79e-494c-8332-439a60d6059e",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9877
+    },
+    {
+      "simulation_id": "233753c6-8492-4459-9d22-60ff1ecc0bdc",
+      "created_at": 1776547164.8850076,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\233753c6-8492-4459-9d22-60ff1ecc0bdc",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9789
+    },
+    {
+      "simulation_id": "89b729f9-91a0-4655-bd38-2396b7d9e518",
+      "created_at": 1776547164.8470566,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\89b729f9-91a0-4655-bd38-2396b7d9e518",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.989
+    },
+    {
+      "simulation_id": "fd6088f5-ffe5-4e22-867f-f4bb1f497dbb",
+      "created_at": 1776547164.8083339,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\fd6088f5-ffe5-4e22-867f-f4bb1f497dbb",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9509
+    },
+    {
+      "simulation_id": "d06467f1-0304-4f7e-a5dd-a335bb087427",
+      "created_at": 1776547164.7707784,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\d06467f1-0304-4f7e-a5dd-a335bb087427",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9885
+    },
+    {
+      "simulation_id": "b689ac63-41c3-441e-a3ca-683ff78ca893",
+      "created_at": 1776547164.731128,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\b689ac63-41c3-441e-a3ca-683ff78ca893",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9916
+    },
+    {
+      "simulation_id": "420e54a4-17fc-4077-a7a4-2e8d14603ade",
+      "created_at": 1776547164.6927185,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\420e54a4-17fc-4077-a7a4-2e8d14603ade",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9843
+    },
+    {
+      "simulation_id": "eb5027d4-ef91-4869-b94a-9ce495a42267",
+      "created_at": 1776547164.6541555,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\eb5027d4-ef91-4869-b94a-9ce495a42267",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9934
+    },
+    {
+      "simulation_id": "691803fb-16f2-41bd-9c4e-c8a7c1e33ab9",
+      "created_at": 1776547164.558321,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\691803fb-16f2-41bd-9c4e-c8a7c1e33ab9",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.983
+    },
+    {
+      "simulation_id": "837ed9e6-d149-4883-a2cb-10e40907b9c8",
+      "created_at": 1776547164.5190117,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\837ed9e6-d149-4883-a2cb-10e40907b9c8",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.992
+    },
+    {
+      "simulation_id": "d6bf2b97-6acd-433d-aa6b-a19ea780992f",
+      "created_at": 1776547164.4809,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\d6bf2b97-6acd-433d-aa6b-a19ea780992f",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9796
+    },
+    {
+      "simulation_id": "bfd72496-fbf0-464c-8d46-59f2cc3978e5",
+      "created_at": 1776547164.4369867,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\bfd72496-fbf0-464c-8d46-59f2cc3978e5",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9877
+    },
+    {
+      "simulation_id": "4a6fea8a-e4ec-46b4-8d46-101f16f079be",
+      "created_at": 1776547162.2624547,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\4a6fea8a-e4ec-46b4-8d46-101f16f079be",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9885
+    },
+    {
+      "simulation_id": "1bd9c2cd-6d9d-4f54-816d-21525824f2cc",
+      "created_at": 1776547162.1113636,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\1bd9c2cd-6d9d-4f54-816d-21525824f2cc",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9276
+    },
+    {
+      "simulation_id": "b3240ff7-8b03-4f3e-94d6-f535b56aa825",
+      "created_at": 1776547162.068346,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\b3240ff7-8b03-4f3e-94d6-f535b56aa825",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9562
+    },
+    {
+      "simulation_id": "9853ef96-162b-4f82-9ae1-2fc15c2df9f1",
+      "created_at": 1776547162.0282729,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\9853ef96-162b-4f82-9ae1-2fc15c2df9f1",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9587
+    },
+    {
+      "simulation_id": "b6d699a9-67aa-4578-8f41-b360eb64b4d4",
+      "created_at": 1776547161.9901469,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\b6d699a9-67aa-4578-8f41-b360eb64b4d4",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9828
+    },
+    {
+      "simulation_id": "0c702b6e-2cba-4997-a33a-b06888d2d625",
+      "created_at": 1776547161.9521005,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\0c702b6e-2cba-4997-a33a-b06888d2d625",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9891
+    },
+    {
+      "simulation_id": "906291fc-29d1-43cc-8e97-503993bd8c3f",
+      "created_at": 1776547161.9129014,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\906291fc-29d1-43cc-8e97-503993bd8c3f",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9884
+    },
+    {
+      "simulation_id": "2bbd9ff4-b576-4ecb-8549-eb9de90bb0bb",
+      "created_at": 1776547161.8681939,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\2bbd9ff4-b576-4ecb-8549-eb9de90bb0bb",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9834
+    },
+    {
+      "simulation_id": "d5bc48dc-5769-4d5d-8dfe-d81bb756b8be",
+      "created_at": 1776546498.1746826,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\d5bc48dc-5769-4d5d-8dfe-d81bb756b8be",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "4eff54dd-bf31-49d8-9ddc-3d333d468138",
+      "created_at": 1776546497.895891,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\4eff54dd-bf31-49d8-9ddc-3d333d468138",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "4e3cefe3-d9bb-4e80-aac1-41a91090949d",
+      "created_at": 1776546497.726614,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\4e3cefe3-d9bb-4e80-aac1-41a91090949d",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "e6184e43-c4e4-47b5-9fbb-9d9d1abb2c49",
+      "created_at": 1776546497.5550642,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\e6184e43-c4e4-47b5-9fbb-9d9d1abb2c49",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "92e3c69b-806f-42ed-820c-44406d440bae",
+      "created_at": 1776546497.3721569,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\92e3c69b-806f-42ed-820c-44406d440bae",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "9cd746fc-00c7-4858-a335-217c3e780c8b",
+      "created_at": 1776546497.203976,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\9cd746fc-00c7-4858-a335-217c3e780c8b",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "d6140550-8bfd-4812-a1fc-e8525554e519",
+      "created_at": 1776546496.9080505,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\d6140550-8bfd-4812-a1fc-e8525554e519",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "539cef2f-1f4c-4f36-9019-a6a19f17d7eb",
+      "created_at": 1776546496.7399004,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\539cef2f-1f4c-4f36-9019-a6a19f17d7eb",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "be18ab55-affa-4065-9bad-fe549f94572a",
+      "created_at": 1776546496.571932,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\be18ab55-affa-4065-9bad-fe549f94572a",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "80eef00a-f319-4732-817a-69408625a1b8",
+      "created_at": 1776546496.1790552,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\80eef00a-f319-4732-817a-69408625a1b8",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "dbf208a8-3e8d-4cb5-a0ef-75d39f5d44d9",
+      "created_at": 1776546495.9576542,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\dbf208a8-3e8d-4cb5-a0ef-75d39f5d44d9",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.786
+    },
+    {
+      "simulation_id": "3f5a3670-8455-4744-b0b1-affaa962f46a",
+      "created_at": 1776546492.5863278,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\3f5a3670-8455-4744-b0b1-affaa962f46a",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.206,
+      "narrative_quality_mean": 0.7905
+    },
+    {
+      "simulation_id": "ee9d3abe-9369-4d31-af44-0490bc443843",
+      "created_at": 1776546492.415827,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\ee9d3abe-9369-4d31-af44-0490bc443843",
+      "llm_used": false,
+      "segments": 960,
+      "rem_fraction": 0.227,
+      "narrative_quality_mean": 0.7781
+    },
+    {
+      "simulation_id": "280b6818-b634-4334-8b07-71821bf126d8",
+      "created_at": 1776546490.0174243,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\280b6818-b634-4334-8b07-71821bf126d8",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9888
+    },
+    {
+      "simulation_id": "74b2ae5d-76d4-489d-9d66-9ad1fc22b39a",
+      "created_at": 1776546489.9800181,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\74b2ae5d-76d4-489d-9d66-9ad1fc22b39a",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9893
+    },
+    {
+      "simulation_id": "8d1a6681-40cb-4104-bc9f-f7631006d458",
+      "created_at": 1776546489.941256,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\8d1a6681-40cb-4104-bc9f-f7631006d458",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9845
+    },
+    {
+      "simulation_id": "e079bcc0-28c3-431f-a612-cca27072d6c1",
+      "created_at": 1776546489.9021947,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\e079bcc0-28c3-431f-a612-cca27072d6c1",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9781
+    },
+    {
+      "simulation_id": "40e041a2-1303-4020-a745-698211e1caa8",
+      "created_at": 1776546489.8569603,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\40e041a2-1303-4020-a745-698211e1caa8",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9917
+    },
+    {
+      "simulation_id": "9f0503e2-3eba-4421-a1c9-e0995ade5a31",
+      "created_at": 1776546489.8178167,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\9f0503e2-3eba-4421-a1c9-e0995ade5a31",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9854
+    },
+    {
+      "simulation_id": "6ffd0d70-dba1-4d8c-b58e-fb656929554f",
+      "created_at": 1776546489.778645,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\6ffd0d70-dba1-4d8c-b58e-fb656929554f",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9216
+    },
+    {
+      "simulation_id": "67b3ee86-cb16-4e81-af38-993134fee6da",
+      "created_at": 1776546489.7267928,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\67b3ee86-cb16-4e81-af38-993134fee6da",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9732
+    },
+    {
+      "simulation_id": "c22013ec-1752-417d-b157-7a4821076cd8",
+      "created_at": 1776546489.6248524,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\c22013ec-1752-417d-b157-7a4821076cd8",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9884
+    },
+    {
+      "simulation_id": "0894761c-22c6-4f68-a4ac-08fcc384cd66",
+      "created_at": 1776546489.5858068,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\0894761c-22c6-4f68-a4ac-08fcc384cd66",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9919
+    },
+    {
+      "simulation_id": "b3bf983a-3f4b-4f7e-b712-7741bac530bc",
+      "created_at": 1776546489.5467489,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\b3bf983a-3f4b-4f7e-b712-7741bac530bc",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9838
+    },
+    {
+      "simulation_id": "a9a2d469-258a-4395-a104-f0e23a598365",
+      "created_at": 1776546489.5000942,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\a9a2d469-258a-4395-a104-f0e23a598365",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9786
+    },
+    {
+      "simulation_id": "0f3fb095-f4cc-4817-9d76-ea22fdf7b414",
+      "created_at": 1776546487.4028342,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\0f3fb095-f4cc-4817-9d76-ea22fdf7b414",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.994
+    },
+    {
+      "simulation_id": "a9e83975-f47d-466e-af26-5ffd3ab19782",
+      "created_at": 1776546487.364801,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\a9e83975-f47d-466e-af26-5ffd3ab19782",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9836
+    },
+    {
+      "simulation_id": "8dadfc28-20f4-4cb0-91c8-c2cb42d977b2",
+      "created_at": 1776546487.3277142,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\8dadfc28-20f4-4cb0-91c8-c2cb42d977b2",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9799
+    },
+    {
+      "simulation_id": "d17363f2-d87c-4c2d-b847-e827a2e5ea20",
+      "created_at": 1776546487.2822227,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\d17363f2-d87c-4c2d-b847-e827a2e5ea20",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9922
+    },
+    {
+      "simulation_id": "de77d66d-9984-433f-ba5a-008d089c9260",
+      "created_at": 1776546487.2390764,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\de77d66d-9984-433f-ba5a-008d089c9260",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9767
+    },
+    {
+      "simulation_id": "473e2f23-cea7-494b-bd16-2f9b9b17893e",
+      "created_at": 1776546487.1990073,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\473e2f23-cea7-494b-bd16-2f9b9b17893e",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9927
+    },
+    {
+      "simulation_id": "76b6bc7b-d9b2-4363-a099-cf85112a09af",
+      "created_at": 1776546487.159134,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\76b6bc7b-d9b2-4363-a099-cf85112a09af",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9836
+    },
+    {
+      "simulation_id": "a9b2bcae-bc5e-4995-b486-3adf6a9df252",
+      "created_at": 1776546487.1155055,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\a9b2bcae-bc5e-4995-b486-3adf6a9df252",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9841
+    },
+    {
+      "simulation_id": "2b962696-4d7a-417e-93af-237c2b3e6442",
+      "created_at": 1776546139.2245622,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\2b962696-4d7a-417e-93af-237c2b3e6442",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "d91c7754-ac25-4d8b-8ae1-da70ab043180",
+      "created_at": 1776546139.0576615,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\d91c7754-ac25-4d8b-8ae1-da70ab043180",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "04a6bc0b-c7df-4895-a891-5dd0c4159e6e",
+      "created_at": 1776546138.8918436,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\04a6bc0b-c7df-4895-a891-5dd0c4159e6e",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "2a1d8757-bef0-4f53-838f-4998b83d9b4a",
+      "created_at": 1776546138.7227213,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\2a1d8757-bef0-4f53-838f-4998b83d9b4a",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "07671217-3696-49c3-a5da-b9783bc0229c",
+      "created_at": 1776546138.517651,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\07671217-3696-49c3-a5da-b9783bc0229c",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "a0d13adb-22bc-4ec8-b029-f816db007ba2",
+      "created_at": 1776546138.1139584,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\a0d13adb-22bc-4ec8-b029-f816db007ba2",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "0f293ae5-0d69-4771-b4c2-6c338a0cd97a",
+      "created_at": 1776546137.7874532,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\0f293ae5-0d69-4771-b4c2-6c338a0cd97a",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "6c4dc70e-3f28-42a0-b9cf-fb9f1d0f4da8",
+      "created_at": 1776546137.6098783,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\6c4dc70e-3f28-42a0-b9cf-fb9f1d0f4da8",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "53af9f84-4172-43b8-bd81-046f457f828b",
+      "created_at": 1776546137.4486358,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\53af9f84-4172-43b8-bd81-046f457f828b",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "805e5bcb-cee4-466f-9c93-45e3c93c71d7",
+      "created_at": 1776546137.277728,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\805e5bcb-cee4-466f-9c93-45e3c93c71d7",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "c74ca79d-9203-4ee2-ae25-ffe194b22c3d",
+      "created_at": 1776546137.1085465,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\c74ca79d-9203-4ee2-ae25-ffe194b22c3d",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.229,
+      "narrative_quality_mean": 0.7857
+    },
+    {
+      "simulation_id": "f4ceb47a-2fc2-482c-9365-700db60ce20e",
+      "created_at": 1776546132.8054733,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\f4ceb47a-2fc2-482c-9365-700db60ce20e",
+      "llm_used": true,
+      "segments": 960,
+      "rem_fraction": 0.206,
+      "narrative_quality_mean": 0.7903
+    },
+    {
+      "simulation_id": "9454373d-ca70-4008-b6c8-f029884bd8f9",
+      "created_at": 1776546132.628808,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\9454373d-ca70-4008-b6c8-f029884bd8f9",
+      "llm_used": false,
+      "segments": 960,
+      "rem_fraction": 0.227,
+      "narrative_quality_mean": 0.7767
+    },
+    {
+      "simulation_id": "bdcb29ef-13e2-4c40-9889-f9496fa6fe67",
+      "created_at": 1776546130.4448397,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\bdcb29ef-13e2-4c40-9889-f9496fa6fe67",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9886
+    },
+    {
+      "simulation_id": "611e846f-9bdd-4300-81e7-b2048f3508af",
+      "created_at": 1776546130.4019427,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\611e846f-9bdd-4300-81e7-b2048f3508af",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.988
+    },
+    {
+      "simulation_id": "2f8e2878-af0c-4bb9-9f02-ba4a4ad45b15",
+      "created_at": 1776546130.3618906,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\2f8e2878-af0c-4bb9-9f02-ba4a4ad45b15",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.98
+    },
+    {
+      "simulation_id": "7e3c5c22-1b8a-42ef-b334-61ce5f45f5a0",
+      "created_at": 1776546130.320118,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\7e3c5c22-1b8a-42ef-b334-61ce5f45f5a0",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9826
+    },
+    {
+      "simulation_id": "e2d570f8-f4b9-44cb-8995-44e1cdd86a2e",
+      "created_at": 1776546130.146901,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\e2d570f8-f4b9-44cb-8995-44e1cdd86a2e",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9815
+    },
+    {
+      "simulation_id": "c6ff628d-ae8d-4c37-bda5-80c8ef996341",
+      "created_at": 1776546130.0952132,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\c6ff628d-ae8d-4c37-bda5-80c8ef996341",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9888
+    },
+    {
+      "simulation_id": "f65528d2-9eb0-42dd-896e-c89c8637a0aa",
+      "created_at": 1776546130.0526748,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\f65528d2-9eb0-42dd-896e-c89c8637a0aa",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9887
+    },
+    {
+      "simulation_id": "5832606e-c962-4aa4-9617-363105215765",
+      "created_at": 1776546130.0115817,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\5832606e-c962-4aa4-9617-363105215765",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.954
+    },
+    {
+      "simulation_id": "e0565d7e-26e3-42db-a0d7-c9ef772c1322",
+      "created_at": 1776546129.9116335,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\e0565d7e-26e3-42db-a0d7-c9ef772c1322",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9742
+    },
+    {
+      "simulation_id": "34d9ca00-d648-469a-99d7-5b3160d187de",
+      "created_at": 1776546129.8720374,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\34d9ca00-d648-469a-99d7-5b3160d187de",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9876
+    },
+    {
+      "simulation_id": "4f50ea64-8e48-4936-a8cf-02dd57a7a577",
+      "created_at": 1776546129.832966,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\4f50ea64-8e48-4936-a8cf-02dd57a7a577",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9887
+    },
+    {
+      "simulation_id": "8fbccfd8-2af3-4484-a383-8d28167019ff",
+      "created_at": 1776546129.7895534,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\8fbccfd8-2af3-4484-a383-8d28167019ff",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9834
+    },
+    {
+      "simulation_id": "29740a6b-9b4f-4bb5-ab49-1fa9b8e759ff",
+      "created_at": 1776546127.6967626,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\29740a6b-9b4f-4bb5-ab49-1fa9b8e759ff",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9679
+    },
+    {
+      "simulation_id": "6ce9185f-4a7e-4507-a7a1-adeaa55d822c",
+      "created_at": 1776546127.656707,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\6ce9185f-4a7e-4507-a7a1-adeaa55d822c",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9836
+    },
+    {
+      "simulation_id": "b882af8a-11b1-41e4-a3a9-2a1ea3df6ecd",
+      "created_at": 1776546127.61861,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\b882af8a-11b1-41e4-a3a9-2a1ea3df6ecd",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9801
+    },
+    {
+      "simulation_id": "282753b9-5c65-47a9-878a-cc704fae0f54",
+      "created_at": 1776546127.5785005,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\282753b9-5c65-47a9-878a-cc704fae0f54",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.984
+    },
+    {
+      "simulation_id": "caa32a8e-595b-4e4e-878d-9496bd44549b",
+      "created_at": 1776546127.5386388,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\caa32a8e-595b-4e4e-878d-9496bd44549b",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9546
+    },
+    {
+      "simulation_id": "aef52a2e-cff5-48cf-8cd3-42456c932ecc",
+      "created_at": 1776546127.496052,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\aef52a2e-cff5-48cf-8cd3-42456c932ecc",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9892
+    },
+    {
+      "simulation_id": "e5a1f65d-8252-48b4-9d12-16c41d1e261e",
+      "created_at": 1776546127.454993,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\e5a1f65d-8252-48b4-9d12-16c41d1e261e",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9551
+    },
+    {
+      "simulation_id": "584380fd-0396-4f4c-8f30-2d9caff2633e",
+      "created_at": 1776546127.4138467,
+      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\584380fd-0396-4f4c-8f30-2d9caff2633e",
+      "llm_used": false,
+      "segments": 12,
+      "rem_fraction": 0.0,
+      "narrative_quality_mean": 0.9538
+    },
     {
       "simulation_id": "d5fb3719-868f-47a6-87f5-0213b9d25990",
       "created_at": 1776544222.345234,
@@ -910,888 +1801,6 @@
       "segments": 960,
       "rem_fraction": 0.229,
       "narrative_quality_mean": 0.7852
-    },
-    {
-      "simulation_id": "130cef20-e642-4806-b4f3-6b44dccbf1aa",
-      "created_at": 1776541966.0072513,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\130cef20-e642-4806-b4f3-6b44dccbf1aa",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7852
-    },
-    {
-      "simulation_id": "6398fe4b-6cb0-47d9-af86-a2195684bcea",
-      "created_at": 1776541965.8351874,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\6398fe4b-6cb0-47d9-af86-a2195684bcea",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7852
-    },
-    {
-      "simulation_id": "12035950-3454-44d8-9d26-086234416ad4",
-      "created_at": 1776541965.6514988,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\12035950-3454-44d8-9d26-086234416ad4",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7852
-    },
-    {
-      "simulation_id": "7f214921-4ba8-4465-9ba5-12e5dd762920",
-      "created_at": 1776541965.4557655,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\7f214921-4ba8-4465-9ba5-12e5dd762920",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7852
-    },
-    {
-      "simulation_id": "999205ee-7254-4a99-91ce-1e3b75ef0e5c",
-      "created_at": 1776541965.039368,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\999205ee-7254-4a99-91ce-1e3b75ef0e5c",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7852
-    },
-    {
-      "simulation_id": "4d03e183-b84c-445c-8979-5b593890064d",
-      "created_at": 1776541964.8127842,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\4d03e183-b84c-445c-8979-5b593890064d",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7852
-    },
-    {
-      "simulation_id": "9a97237e-06ba-4913-ba19-3ba6f56db246",
-      "created_at": 1776541964.6459548,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\9a97237e-06ba-4913-ba19-3ba6f56db246",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7852
-    },
-    {
-      "simulation_id": "a89f87e8-87fa-4d9a-b86e-489f0530cacf",
-      "created_at": 1776541964.4820592,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\a89f87e8-87fa-4d9a-b86e-489f0530cacf",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7852
-    },
-    {
-      "simulation_id": "a748b3fc-545e-45b1-97f6-928a2d090565",
-      "created_at": 1776541964.3162777,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\a748b3fc-545e-45b1-97f6-928a2d090565",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7853
-    },
-    {
-      "simulation_id": "9b63dd30-cfc2-4aee-b12a-a8b43bb2deb7",
-      "created_at": 1776541960.5717757,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\9b63dd30-cfc2-4aee-b12a-a8b43bb2deb7",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.206,
-      "narrative_quality_mean": 0.7902
-    },
-    {
-      "simulation_id": "2e805385-494b-45ba-8921-27425fe617f8",
-      "created_at": 1776541960.391523,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\2e805385-494b-45ba-8921-27425fe617f8",
-      "llm_used": false,
-      "segments": 960,
-      "rem_fraction": 0.227,
-      "narrative_quality_mean": 0.777
-    },
-    {
-      "simulation_id": "465082b9-085f-4986-a6a8-21c94f32de2d",
-      "created_at": 1776541958.1646135,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\465082b9-085f-4986-a6a8-21c94f32de2d",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9924
-    },
-    {
-      "simulation_id": "a4976a3f-c476-48b6-a28a-c31a7ce6d985",
-      "created_at": 1776541958.117414,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\a4976a3f-c476-48b6-a28a-c31a7ce6d985",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9756
-    },
-    {
-      "simulation_id": "c020fe3b-dffa-4ac6-b6a9-8699a902373c",
-      "created_at": 1776541958.0644183,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\c020fe3b-dffa-4ac6-b6a9-8699a902373c",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9831
-    },
-    {
-      "simulation_id": "c915889a-7f59-4e1c-886d-87e4b7e42b81",
-      "created_at": 1776541958.0220287,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\c915889a-7f59-4e1c-886d-87e4b7e42b81",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9933
-    },
-    {
-      "simulation_id": "05e0ba07-4e53-44ad-b032-ac13c718f07a",
-      "created_at": 1776541957.9794953,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\05e0ba07-4e53-44ad-b032-ac13c718f07a",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9907
-    },
-    {
-      "simulation_id": "8aa662c2-1c32-46e8-a210-c8b0caa64043",
-      "created_at": 1776541957.934341,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\8aa662c2-1c32-46e8-a210-c8b0caa64043",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9214
-    },
-    {
-      "simulation_id": "30161a37-c06b-4a26-83a1-1fc30d3d4470",
-      "created_at": 1776541957.8396528,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\30161a37-c06b-4a26-83a1-1fc30d3d4470",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9839
-    },
-    {
-      "simulation_id": "941eef27-83ed-4888-bb49-739c31e4b754",
-      "created_at": 1776541957.7274384,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\941eef27-83ed-4888-bb49-739c31e4b754",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9855
-    },
-    {
-      "simulation_id": "cdac884c-4890-44a1-885f-84c70afeefd8",
-      "created_at": 1776541957.5924911,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\cdac884c-4890-44a1-885f-84c70afeefd8",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9788
-    },
-    {
-      "simulation_id": "bd991cc8-4318-4ae2-aac6-70bd7d3ee976",
-      "created_at": 1776541957.5514152,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\bd991cc8-4318-4ae2-aac6-70bd7d3ee976",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9784
-    },
-    {
-      "simulation_id": "63ef65ff-3fe4-4d7e-8f33-86760655bb99",
-      "created_at": 1776541957.5113444,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\63ef65ff-3fe4-4d7e-8f33-86760655bb99",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9888
-    },
-    {
-      "simulation_id": "8c42a2d1-54b1-4513-b4eb-bb0d4d91e6d5",
-      "created_at": 1776541957.466499,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\8c42a2d1-54b1-4513-b4eb-bb0d4d91e6d5",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9782
-    },
-    {
-      "simulation_id": "7535133a-1c97-4283-b9c8-508fdd1e182b",
-      "created_at": 1776541955.3696704,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\7535133a-1c97-4283-b9c8-508fdd1e182b",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9798
-    },
-    {
-      "simulation_id": "00095828-b49b-4757-a701-f1865bcb5315",
-      "created_at": 1776541955.331426,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\00095828-b49b-4757-a701-f1865bcb5315",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9924
-    },
-    {
-      "simulation_id": "b3e5aac2-4f75-45a8-a8d3-02128d175919",
-      "created_at": 1776541955.2922482,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\b3e5aac2-4f75-45a8-a8d3-02128d175919",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.987
-    },
-    {
-      "simulation_id": "2b5c41d4-36f8-4e90-9928-d168e78a564d",
-      "created_at": 1776541955.2544186,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\2b5c41d4-36f8-4e90-9928-d168e78a564d",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.974
-    },
-    {
-      "simulation_id": "f3e474e8-cc28-4352-959b-4ea783128e6b",
-      "created_at": 1776541955.2167814,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\f3e474e8-cc28-4352-959b-4ea783128e6b",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9837
-    },
-    {
-      "simulation_id": "d3376ec4-1d61-4ca8-96c9-b519b2670cbe",
-      "created_at": 1776541955.1774943,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\d3376ec4-1d61-4ca8-96c9-b519b2670cbe",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9839
-    },
-    {
-      "simulation_id": "05dda3a9-83fe-4be3-8b33-8e6eab51c6d8",
-      "created_at": 1776541955.1372914,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\05dda3a9-83fe-4be3-8b33-8e6eab51c6d8",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9713
-    },
-    {
-      "simulation_id": "a5e93e0f-946a-4e7c-a25f-23c7c9cc584a",
-      "created_at": 1776541955.0896776,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\a5e93e0f-946a-4e7c-a25f-23c7c9cc584a",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9386
-    },
-    {
-      "simulation_id": "83e5b262-239a-4a30-a019-219726e7fdfc",
-      "created_at": 1776538982.279679,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\83e5b262-239a-4a30-a019-219726e7fdfc",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7857
-    },
-    {
-      "simulation_id": "676fd05d-7b16-4f9e-a9d6-b37346d8b62a",
-      "created_at": 1776538981.9741855,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\676fd05d-7b16-4f9e-a9d6-b37346d8b62a",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7857
-    },
-    {
-      "simulation_id": "090d30eb-fbae-453f-9af9-a82ac0d7693d",
-      "created_at": 1776453626.5542817,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\090d30eb-fbae-453f-9af9-a82ac0d7693d",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7857
-    },
-    {
-      "simulation_id": "65b630ba-3e25-4bdb-8f8c-7ad8e78dac7f",
-      "created_at": 1776453626.3998911,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\65b630ba-3e25-4bdb-8f8c-7ad8e78dac7f",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7857
-    },
-    {
-      "simulation_id": "544ba84e-3342-4341-880f-fc19c67aa8de",
-      "created_at": 1776453626.2559948,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\544ba84e-3342-4341-880f-fc19c67aa8de",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7857
-    },
-    {
-      "simulation_id": "36bcd96d-cbba-43ae-9b88-a28e50a04a1e",
-      "created_at": 1776453626.1059136,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\36bcd96d-cbba-43ae-9b88-a28e50a04a1e",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7857
-    },
-    {
-      "simulation_id": "a34dc684-67e7-47f9-86a8-f489100e9363",
-      "created_at": 1776453625.9411535,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\a34dc684-67e7-47f9-86a8-f489100e9363",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7857
-    },
-    {
-      "simulation_id": "1b65dd82-8246-404c-9d50-04a050539133",
-      "created_at": 1776453625.798974,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\1b65dd82-8246-404c-9d50-04a050539133",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7857
-    },
-    {
-      "simulation_id": "c6a35c1d-439f-438b-b8d2-0a708cd36250",
-      "created_at": 1776453625.603647,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\c6a35c1d-439f-438b-b8d2-0a708cd36250",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7857
-    },
-    {
-      "simulation_id": "2e02952e-b5e6-4902-852a-7241fb1a722a",
-      "created_at": 1776453625.4072647,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\2e02952e-b5e6-4902-852a-7241fb1a722a",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7857
-    },
-    {
-      "simulation_id": "c4baafc7-4b30-4dcf-9d76-d411dec62d05",
-      "created_at": 1776453625.2654898,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\c4baafc7-4b30-4dcf-9d76-d411dec62d05",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7857
-    },
-    {
-      "simulation_id": "c7b84571-0949-45eb-860f-a95cf2672bfd",
-      "created_at": 1776453625.1176236,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\c7b84571-0949-45eb-860f-a95cf2672bfd",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7857
-    },
-    {
-      "simulation_id": "3ca8260c-3c20-4719-8566-30e2575b6c35",
-      "created_at": 1776453624.9745383,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\3ca8260c-3c20-4719-8566-30e2575b6c35",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7859
-    },
-    {
-      "simulation_id": "8567d8c0-4b56-42bd-bcbe-2240c203d5e9",
-      "created_at": 1776453624.7987356,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\8567d8c0-4b56-42bd-bcbe-2240c203d5e9",
-      "llm_used": false,
-      "segments": 120,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.8149
-    },
-    {
-      "simulation_id": "9db642db-db69-44d9-9a29-aba841641d33",
-      "created_at": 1776453624.7490146,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\9db642db-db69-44d9-9a29-aba841641d33",
-      "llm_used": false,
-      "segments": 120,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.7925
-    },
-    {
-      "simulation_id": "7acf57e7-4d8d-4dd0-bfea-0c6393cf0ffa",
-      "created_at": 1776453624.6958458,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\7acf57e7-4d8d-4dd0-bfea-0c6393cf0ffa",
-      "llm_used": false,
-      "segments": 360,
-      "rem_fraction": 0.117,
-      "narrative_quality_mean": 0.7996
-    },
-    {
-      "simulation_id": "3b2db82a-a11b-4436-8a56-625095153689",
-      "created_at": 1776453624.6183248,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\3b2db82a-a11b-4436-8a56-625095153689",
-      "llm_used": false,
-      "segments": 240,
-      "rem_fraction": 0.075,
-      "narrative_quality_mean": 0.789
-    },
-    {
-      "simulation_id": "ab9abe0b-f0c4-410e-aa07-1e8d936799c5",
-      "created_at": 1776453624.4726748,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\ab9abe0b-f0c4-410e-aa07-1e8d936799c5",
-      "llm_used": false,
-      "segments": 120,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.802
-    },
-    {
-      "simulation_id": "6664f45a-1d1c-43a8-8717-a8bb58dc878a",
-      "created_at": 1776453624.414412,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\6664f45a-1d1c-43a8-8717-a8bb58dc878a",
-      "llm_used": false,
-      "segments": 120,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.8014
-    },
-    {
-      "simulation_id": "8276a9c9-ef89-4296-8d8f-ba49299d303f",
-      "created_at": 1776453624.2357202,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\8276a9c9-ef89-4296-8d8f-ba49299d303f",
-      "llm_used": false,
-      "segments": 120,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.8024
-    },
-    {
-      "simulation_id": "8cd69fa3-464f-401f-a88f-503068c08283",
-      "created_at": 1776453624.1856709,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\8cd69fa3-464f-401f-a88f-503068c08283",
-      "llm_used": false,
-      "segments": 120,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.7979
-    },
-    {
-      "simulation_id": "76c7950b-4ac8-41f0-9ac0-2f437a5fce05",
-      "created_at": 1776453624.1198254,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\76c7950b-4ac8-41f0-9ac0-2f437a5fce05",
-      "llm_used": false,
-      "segments": 120,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.8021
-    },
-    {
-      "simulation_id": "f5e70991-a15a-421d-ac65-fb6a901dc6d5",
-      "created_at": 1776453624.0777733,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\f5e70991-a15a-421d-ac65-fb6a901dc6d5",
-      "llm_used": false,
-      "segments": 120,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.7987
-    },
-    {
-      "simulation_id": "0e33c2a9-5971-4a32-bf7a-a592c8dcbe6a",
-      "created_at": 1776453624.0355227,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\0e33c2a9-5971-4a32-bf7a-a592c8dcbe6a",
-      "llm_used": false,
-      "segments": 120,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.8025
-    },
-    {
-      "simulation_id": "caf79840-c7f2-4e77-ace9-446a4c2de5a6",
-      "created_at": 1776453623.972714,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\caf79840-c7f2-4e77-ace9-446a4c2de5a6",
-      "llm_used": false,
-      "segments": 180,
-      "rem_fraction": 0.078,
-      "narrative_quality_mean": 0.7924
-    },
-    {
-      "simulation_id": "2c81b353-4d41-44d1-be64-5123e149f9d8",
-      "created_at": 1776453623.906786,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\2c81b353-4d41-44d1-be64-5123e149f9d8",
-      "llm_used": false,
-      "segments": 120,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.7915
-    },
-    {
-      "simulation_id": "be68845f-cb51-42c6-ac34-499d6c8f1507",
-      "created_at": 1776453621.2155774,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\be68845f-cb51-42c6-ac34-499d6c8f1507",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.206,
-      "narrative_quality_mean": 0.7908
-    },
-    {
-      "simulation_id": "0b764f99-2d44-44f3-9d2e-997a9cfefa8e",
-      "created_at": 1776453621.0659597,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\0b764f99-2d44-44f3-9d2e-997a9cfefa8e",
-      "llm_used": false,
-      "segments": 960,
-      "rem_fraction": 0.227,
-      "narrative_quality_mean": 0.7767
-    },
-    {
-      "simulation_id": "04a346c2-5942-47ec-82ba-9c145426873b",
-      "created_at": 1776453618.8812773,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\04a346c2-5942-47ec-82ba-9c145426873b",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9844
-    },
-    {
-      "simulation_id": "0d444f8c-5a80-48b5-92ac-0de6689e0d84",
-      "created_at": 1776453618.8465824,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\0d444f8c-5a80-48b5-92ac-0de6689e0d84",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9866
-    },
-    {
-      "simulation_id": "fea22ae7-d688-4309-8bb4-ee6874b83cb7",
-      "created_at": 1776453618.8136916,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\fea22ae7-d688-4309-8bb4-ee6874b83cb7",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9887
-    },
-    {
-      "simulation_id": "4ae031b8-ca73-4a4f-832a-f6b9b90137b5",
-      "created_at": 1776453618.7802613,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\4ae031b8-ca73-4a4f-832a-f6b9b90137b5",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9506
-    },
-    {
-      "simulation_id": "a7b2297e-fb3d-4a00-839a-2c0653cc6089",
-      "created_at": 1776453618.745851,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\a7b2297e-fb3d-4a00-839a-2c0653cc6089",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9545
-    },
-    {
-      "simulation_id": "1fcff542-050f-4ff7-b5c1-936e21471158",
-      "created_at": 1776453618.7102952,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\1fcff542-050f-4ff7-b5c1-936e21471158",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9919
-    },
-    {
-      "simulation_id": "45831f9f-52a3-4194-8287-97fbc1b916b0",
-      "created_at": 1776453618.6757705,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\45831f9f-52a3-4194-8287-97fbc1b916b0",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9927
-    },
-    {
-      "simulation_id": "a87c444a-a489-474f-9851-d072e1c3053c",
-      "created_at": 1776453618.6418931,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\a87c444a-a489-474f-9851-d072e1c3053c",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9618
-    },
-    {
-      "simulation_id": "6ff01407-c518-46b3-997b-c007e5c51f67",
-      "created_at": 1776453618.606984,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\6ff01407-c518-46b3-997b-c007e5c51f67",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9868
-    },
-    {
-      "simulation_id": "d6afaf1c-3d3e-44b1-90c7-1a04cf1928a4",
-      "created_at": 1776453618.573781,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\d6afaf1c-3d3e-44b1-90c7-1a04cf1928a4",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9874
-    },
-    {
-      "simulation_id": "685f4eed-7313-4c91-8413-c8a5424d810f",
-      "created_at": 1776453618.5401926,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\685f4eed-7313-4c91-8413-c8a5424d810f",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9926
-    },
-    {
-      "simulation_id": "6cc560ef-0b79-4fff-81c8-e0b6938753dc",
-      "created_at": 1776453618.500954,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\6cc560ef-0b79-4fff-81c8-e0b6938753dc",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9722
-    },
-    {
-      "simulation_id": "b9ce6ed6-8c7c-45af-a972-e0d77aee3714",
-      "created_at": 1776453616.398693,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\b9ce6ed6-8c7c-45af-a972-e0d77aee3714",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9827
-    },
-    {
-      "simulation_id": "29537ad7-e2c2-4b28-8f6d-90bcaf278de6",
-      "created_at": 1776453616.3596473,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\29537ad7-e2c2-4b28-8f6d-90bcaf278de6",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9844
-    },
-    {
-      "simulation_id": "119ed7ae-b37c-44c7-9700-cfc18f8dde80",
-      "created_at": 1776453616.321594,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\119ed7ae-b37c-44c7-9700-cfc18f8dde80",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9602
-    },
-    {
-      "simulation_id": "276c229a-c6cb-4fc4-9dcb-1255034eb1e3",
-      "created_at": 1776453616.2880576,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\276c229a-c6cb-4fc4-9dcb-1255034eb1e3",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9742
-    },
-    {
-      "simulation_id": "f9077414-1914-4563-ae20-374d1eeaec0d",
-      "created_at": 1776453616.254805,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\f9077414-1914-4563-ae20-374d1eeaec0d",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.989
-    },
-    {
-      "simulation_id": "cba38528-3a7f-4324-9e3f-0b5efec37dac",
-      "created_at": 1776453616.221209,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\cba38528-3a7f-4324-9e3f-0b5efec37dac",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9844
-    },
-    {
-      "simulation_id": "786ae7bc-04fa-42a5-be71-db41b510d75a",
-      "created_at": 1776453616.1865325,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\786ae7bc-04fa-42a5-be71-db41b510d75a",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9653
-    },
-    {
-      "simulation_id": "f5d9ded6-ba3f-4d2d-bcc1-349ad8a618a0",
-      "created_at": 1776453616.1469007,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\f5d9ded6-ba3f-4d2d-bcc1-349ad8a618a0",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.983
-    },
-    {
-      "simulation_id": "3bded476-2bfa-4e84-802e-f970036379f4",
-      "created_at": 1776453586.232572,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\3bded476-2bfa-4e84-802e-f970036379f4",
-      "llm_used": false,
-      "segments": 120,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.7969
-    },
-    {
-      "simulation_id": "67345e8a-b9ae-4328-afca-00e5a6491c85",
-      "created_at": 1776449458.90768,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\67345e8a-b9ae-4328-afca-00e5a6491c85",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7851
-    },
-    {
-      "simulation_id": "af9d82f2-f8a5-48a4-bfc5-a7e5b7cbc47f",
-      "created_at": 1776449458.7175457,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\af9d82f2-f8a5-48a4-bfc5-a7e5b7cbc47f",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7851
-    },
-    {
-      "simulation_id": "4f2d8895-b4c8-485b-8355-086616805bac",
-      "created_at": 1776449458.5149348,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\4f2d8895-b4c8-485b-8355-086616805bac",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7851
-    },
-    {
-      "simulation_id": "d0a9c63c-c191-4f0e-8015-dc84aaefdfe0",
-      "created_at": 1776449458.3185897,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\d0a9c63c-c191-4f0e-8015-dc84aaefdfe0",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7851
-    },
-    {
-      "simulation_id": "fcfc0881-e59e-456d-aea4-b9e3f69b935c",
-      "created_at": 1776449455.1167831,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\fcfc0881-e59e-456d-aea4-b9e3f69b935c",
-      "llm_used": false,
-      "segments": 180,
-      "rem_fraction": 0.078,
-      "narrative_quality_mean": 0.7897
-    },
-    {
-      "simulation_id": "f93e1bea-7293-4431-ae56-c316a13be499",
-      "created_at": 1776449446.9853528,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\f93e1bea-7293-4431-ae56-c316a13be499",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9886
-    },
-    {
-      "simulation_id": "263c556f-710e-4355-ab5c-e6f924c54dba",
-      "created_at": 1776442321.4541092,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\263c556f-710e-4355-ab5c-e6f924c54dba",
-      "llm_used": true,
-      "segments": 960,
-      "rem_fraction": 0.229,
-      "narrative_quality_mean": 0.7857
-    },
-    {
-      "simulation_id": "3b82ff38-43c6-4467-afdb-f197a8cdad2b",
-      "created_at": 1776442319.7334623,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\3b82ff38-43c6-4467-afdb-f197a8cdad2b",
-      "llm_used": false,
-      "segments": 120,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.7998
-    },
-    {
-      "simulation_id": "12fa06be-3298-4874-b3cc-4beccaa39be2",
-      "created_at": 1776442319.6748326,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\12fa06be-3298-4874-b3cc-4beccaa39be2",
-      "llm_used": false,
-      "segments": 120,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.8047
-    },
-    {
-      "simulation_id": "3b0cde71-ba85-40a7-8ea9-c11fbf046d14",
-      "created_at": 1776442319.205141,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\3b0cde71-ba85-40a7-8ea9-c11fbf046d14",
-      "llm_used": false,
-      "segments": 120,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.7915
-    },
-    {
-      "simulation_id": "15fa630d-246c-4385-badf-19d0986e324c",
-      "created_at": 1776442319.160592,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\15fa630d-246c-4385-badf-19d0986e324c",
-      "llm_used": false,
-      "segments": 120,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.7974
-    },
-    {
-      "simulation_id": "3410a75a-d21b-4373-a5da-5ea0a5e4e3d1",
-      "created_at": 1776442314.1127322,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\3410a75a-d21b-4373-a5da-5ea0a5e4e3d1",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9878
-    },
-    {
-      "simulation_id": "39894392-ddb9-449c-a983-708c66e688f2",
-      "created_at": 1776442313.9633796,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\39894392-ddb9-449c-a983-708c66e688f2",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9931
-    },
-    {
-      "simulation_id": "12eb059c-7455-4a0a-b009-c95e8ed5277c",
-      "created_at": 1776442313.9238212,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\12eb059c-7455-4a0a-b009-c95e8ed5277c",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9794
-    },
-    {
-      "simulation_id": "15573019-2c68-4d4a-99a9-215c548cd759",
-      "created_at": 1776442313.794508,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\15573019-2c68-4d4a-99a9-215c548cd759",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9838
-    },
-    {
-      "simulation_id": "3120bbc0-9a80-47ab-a920-6d3186587d76",
-      "created_at": 1776442313.6080344,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\3120bbc0-9a80-47ab-a920-6d3186587d76",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9724
-    },
-    {
-      "simulation_id": "3c015377-ddfa-48bb-8206-223b15fb30ca",
-      "created_at": 1776442311.341432,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\3c015377-ddfa-48bb-8206-223b15fb30ca",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9851
-    },
-    {
-      "simulation_id": "37eb1f7b-a4f0-4cb4-b80a-194b7434c6a9",
-      "created_at": 1776442311.1889827,
-      "output_dir": "C:\\Users\\User\\Documents\\GitHub\\dreamforge-ai\\outputs\\37eb1f7b-a4f0-4cb4-b80a-194b7434c6a9",
-      "llm_used": false,
-      "segments": 12,
-      "rem_fraction": 0.0,
-      "narrative_quality_mean": 0.9642
     }
   ]
 }
