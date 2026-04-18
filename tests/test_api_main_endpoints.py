@@ -523,6 +523,36 @@ def test_job_progress_snapshot_can_reduce_eta_when_llm_throughput_is_fast(
     assert eta_seconds < 900
 
 
+def test_job_progress_snapshot_uses_inflight_metrics_for_stall_projection(
+    patched_api, monkeypatch
+):
+    monkeypatch.setattr(api_main.time, "time", lambda: 1000.0)
+    job = {
+        "status": "running",
+        "phase": "narrative",
+        "progress_percent": 20.0,
+        "eta_seconds": 60,
+        "estimated_duration_seconds": 120.0,
+        "started_at": 900.0,
+        "last_progress_event_at": 990.0,
+        "use_llm": True,
+        "llm_expected_invocations": 80,
+        "llm_completed_invocations": 0,
+        "llm_remaining_invocations": 80,
+        "llm_avg_invocation_seconds": 2.0,
+        "llm_concurrency": 4,
+        "llm_in_flight_invocations": 4,
+        "llm_in_flight_oldest_seconds": 45.0,
+        "llm_in_flight_avg_seconds": 41.0,
+        "narrative_started_at": 950.0,
+    }
+    progress, eta_seconds = api_main._job_progress_snapshot(job, "running")
+
+    assert progress > 20.0
+    assert eta_seconds is not None
+    assert eta_seconds > 500
+
+
 def test_estimate_job_duration_no_llm_not_inflated_by_llm_history(patched_api):
     with api_main._metrics_lock:
         api_main._simulation_duration_seconds_history.clear()
@@ -777,6 +807,8 @@ def test_async_simulation_job_provenance_exposes_llm_plan(patched_api):
         assert provenance["llm_expected_invocations"] is not None
         assert provenance["llm_concurrency"] is not None
         assert provenance["llm_concurrency"] >= 1
+        assert "llm_timeout_seconds" in provenance
+        assert "llm_in_flight_invocations" in provenance
 
 
 def test_async_simulation_job_queue_limit_returns_429(patched_api, monkeypatch):

@@ -8,6 +8,7 @@
   - added artifact manifest and health checks (`artifacts/manifest.json`, `/api/artifacts/health`, startup validation log),
   - added async job provenance contract fields (`schema_version`, `progress_source`, `eta_source`, `provenance`) in job status payloads,
   - improved async ETA/progress accuracy with LLM-aware projection (expected LLM invocation count + observed/historical per-invocation latency + concurrency),
+  - added in-flight LLM heartbeat telemetry so async ETA/progress can be re-estimated continuously during long calls (including upward and downward ETA correction),
   - added durable state-event log fallback (`outputs/state-events.jsonl`) for simulation/job/workspace/audit persistence when Redis is unavailable,
   - added async queue governance limits (`ASYNC_MAX_PENDING_JOBS`, `ASYNC_MAX_RUNNING_JOBS`) and 429 backpressure response when pending queue is full,
   - added PSG connector channel QA endpoint (`/api/psg/connectors/channel-qa`) and plugin evaluator surfaces (`/api/plugins/evaluators`, `/api/plugins/evaluators/run`).

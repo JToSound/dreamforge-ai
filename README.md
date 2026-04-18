@@ -128,6 +128,7 @@ For detailed equations, parameter choices, and literature references, see `RESEA
   - `POST /api/simulation/night` – run a single-night simulation with configurable parameters (duration, dt, pharmacology).
   - `POST /api/simulation/night/async` – queue a simulation and poll `/api/simulation/jobs/{job_id}`.
   - Async job ETA/progress now adapts to LLM workload (`expected_invocations`, observed latency, and concurrency) instead of fixed timing only.
+  - During long LLM calls, async status now sends heartbeat-based in-flight telemetry so ETA can adjust continuously (including increases when calls are slower than expected).
   - `POST /api/simulation/jobs/{job_id}/cancel` – cancel a queued/running async simulation.
   - `POST /api/simulation/multi-night` – run multiple nights with cross-night continuity tracking (returns per-night payloads + recurring-memory continuity summary and Sankey-ready links).
   - `POST /api/simulation/counterfactual` – compare baseline vs perturbed dream runs.

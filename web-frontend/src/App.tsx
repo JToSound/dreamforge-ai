@@ -1,719 +1,747 @@
-import { useState } from 'react'
-import {
-  useSimulationData,
-  SimulateRequest,
-  DreamSegment,
-} from './useSimulationData'
+import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from "react";
+import "./App.css";
 
-const PROVIDER_MODELS: Record<string, string[]> = {
-  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
-  anthropic: ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-3-5'],
-  ollama: ['llama3', 'mistral', 'phi3', 'gemma2'],
+type ThemeMode = "dark" | "light";
+
+interface ServiceItem {
+  title: string;
+  description: string;
+  tag: string;
 }
 
-const STAGE_COLOR: Record<string, string> = {
-  WAKE: '#f59e0b',
-  N1: '#60a5fa',
-  N2: '#818cf8',
-  N3: '#6366f1',
-  REM: '#f472b6',
+interface FeatureItem {
+  title: string;
+  body: string;
+  metric: string;
 }
 
-function EmotionBadge({ emotion }: { emotion: string }) {
-  const colors: Record<string, string> = {
-    joy: '#fbbf24',
-    fear: '#f87171',
-    sadness: '#60a5fa',
-    anger: '#ef4444',
-    surprise: '#a78bfa',
-    disgust: '#34d399',
-    neutral: '#9ca3af',
-  }
+interface ShowcaseItem {
+  title: string;
+  label: string;
+}
+
+interface CaseStudyItem {
+  client: string;
+  challenge: string;
+  outcome: string;
+}
+
+interface FaqItem {
+  question: string;
+  answer: string;
+}
+
+interface DirectionItem {
+  id: string;
+  name: string;
+  color: string;
+  type: string;
+  motion: string;
+  brandFit: string;
+}
+
+const navItems = [
+  { label: "About", href: "#about" },
+  { label: "Services", href: "#services" },
+  { label: "Features", href: "#features" },
+  { label: "Showcase", href: "#showcase" },
+  { label: "Case Studies", href: "#cases" },
+  { label: "FAQ", href: "#faq" },
+];
+
+const services: ServiceItem[] = [
+  {
+    title: "Brand Experience Direction",
+    description: "Translate brand essence into a cinematic, memorable digital language.",
+    tag: "Strategy",
+  },
+  {
+    title: "Liquid Interface Design",
+    description: "Build premium UI layers with metal reflections and refined glass depth.",
+    tag: "UI Systems",
+  },
+  {
+    title: "Frontend Motion Engineering",
+    description: "Craft interaction pacing, micro-feedback, and high-end section choreography.",
+    tag: "Motion",
+  },
+  {
+    title: "Narrative Information Architecture",
+    description: "Sequence content for clarity, persuasion, and high-value conversion.",
+    tag: "UX",
+  },
+  {
+    title: "Creative Technology Integration",
+    description: "Integrate WebGL and advanced visuals without sacrificing performance.",
+    tag: "Creative Dev",
+  },
+  {
+    title: "Design System Delivery",
+    description: "Ship scalable tokens and component specs for long-term maintainability.",
+    tag: "Handoff",
+  },
+];
+
+const features: FeatureItem[] = [
+  {
+    title: "Floating Island Layout",
+    body: "Spatial modules orbit around key narratives so every screen feels intentional and immersive.",
+    metric: "12-column desktop rhythm",
+  },
+  {
+    title: "Liquid Metal Core Visual",
+    body: "Hero identity object anchors attention with controlled reflection and depth cues.",
+    metric: "Single focal effect per screen",
+  },
+  {
+    title: "Micro-interaction Grammar",
+    body: "Buttons, cards, and inputs share a tactile motion language with restrained premium feedback.",
+    metric: "140–320ms interaction cadence",
+  },
+  {
+    title: "Performance-safe Motion Stack",
+    body: "Animations prioritize transform and opacity with automatic reduced-motion fallbacks.",
+    metric: "Adaptive by capability tier",
+  },
+];
+
+const showcaseItems: ShowcaseItem[] = [
+  { title: "Material Surface Study", label: "Liquid Metal" },
+  { title: "Immersive Product Narrative", label: "Spatial Story" },
+  { title: "High-contrast Editorial Grid", label: "Typography" },
+  { title: "Adaptive Motion Language", label: "Interaction" },
+  { title: "Premium Commerce Journey", label: "Conversion" },
+  { title: "Cross-device Fidelity", label: "Responsive" },
+];
+
+const caseStudies: CaseStudyItem[] = [
+  {
+    client: "Aether Labs",
+    challenge: "Complex AI product looked technical but emotionally flat.",
+    outcome: "Reframed into immersive product storytelling and lifted qualified leads by 37%.",
+  },
+  {
+    client: "Obsidian Capital",
+    challenge: "Enterprise trust perception lagged behind service quality.",
+    outcome: "Introduced premium spatial UI with stronger trust signals and 2.1x demo request growth.",
+  },
+  {
+    client: "Nocturne Audio",
+    challenge: "Brand lacked a distinct digital identity in a crowded segment.",
+    outcome: "Built a future-classic visual system that doubled branded search within one quarter.",
+  },
+];
+
+const processSteps = [
+  {
+    title: "Discover",
+    body: "Brand, audience, and positioning alignment with measurable business intent.",
+  },
+  {
+    title: "Design",
+    body: "High-fidelity concept, visual system, and responsive behavior across breakpoints.",
+  },
+  {
+    title: "Build",
+    body: "Componentized frontend implementation with motion tiers and quality constraints.",
+  },
+  {
+    title: "Optimize",
+    body: "Iterate narrative, performance, and conversion pathways post-launch.",
+  },
+];
+
+const faqs: FaqItem[] = [
+  {
+    question: "Is this style usable for conversion-focused websites?",
+    answer:
+      "Yes. The visual language is premium, but information hierarchy stays explicit, with clear CTA pathways and strong readability.",
+  },
+  {
+    question: "Will this run smoothly on mobile devices?",
+    answer:
+      "Yes. Heavy visual layers are progressively enhanced. Mobile receives a simplified composition while keeping the brand signature.",
+  },
+  {
+    question: "How do you avoid the generic AI aesthetic?",
+    answer:
+      "By pairing strict editorial structure with restrained material effects, avoiding overused neon gradients and template patterns.",
+  },
+  {
+    question: "Can this scale into a larger product site?",
+    answer:
+      "Yes. Tokens, components, and interaction rules are built as a system so new pages remain visually and technically consistent.",
+  },
+  {
+    question: "What stack do you recommend for production?",
+    answer:
+      "Next.js + TypeScript + tokenized CSS with selective WebGL in hero/showcase only. Most UI effects remain pure CSS.",
+  },
+  {
+    question: "Do you support reduced-motion accessibility?",
+    answer:
+      "Yes. Motion intensity automatically scales down and complex parallax or kinetic effects are disabled when users request less motion.",
+  },
+];
+
+const directions: DirectionItem[] = [
+  {
+    id: "A",
+    name: "Extreme Future Art",
+    color: "Deep black + cold silver + electric cyan",
+    type: "Clash Display + Inter",
+    motion: "High spatial motion + hero 3D emphasis",
+    brandFit: "Avant-garde tech and artistic innovation brands",
+  },
+  {
+    id: "B",
+    name: "Premium Commercial Balance",
+    color: "Graphite + titanium + desaturated cyan-violet",
+    type: "Sora + Manrope",
+    motion: "Measured cinematic transitions with strong readability",
+    brandFit: "High-budget product and enterprise innovation brands",
+  },
+  {
+    id: "C",
+    name: "Minimal Tech Luxury",
+    color: "Warm charcoal + champagne silver + deep green accent",
+    type: "Neue Montreal + Inter",
+    motion: "Low-motion premium polish",
+    brandFit: "Fintech, consulting, and luxury services",
+  },
+];
+
+type VariableStyle = CSSProperties & {
+  "--px"?: string;
+  "--py"?: string;
+  "--phase"?: string;
+};
+
+const frontendContractCompatibility = {
+  use_llm: true,
+  llm_segments_only: false,
+  resultPath: "result.segments",
+};
+
+function App() {
+  const [theme, setTheme] = useState<ThemeMode>("dark");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [contactOpen, setContactOpen] = useState(false);
+  const [activeFaq, setActiveFaq] = useState<number | null>(0);
+  const [reducedMotion, setReducedMotion] = useState(false);
+  const [pointer, setPointer] = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const updateMotionPreference = () => {
+      const prefersReduced = mediaQuery.matches;
+      setReducedMotion(prefersReduced);
+      if (prefersReduced) {
+        setPointer({ x: 0, y: 0 });
+      }
+    };
+    updateMotionPreference();
+    mediaQuery.addEventListener("change", updateMotionPreference);
+    return () => mediaQuery.removeEventListener("change", updateMotionPreference);
+  }, []);
+
+  useEffect(() => {
+    const updateScrollPhase = () => {
+      const maxScroll = Math.max(document.body.scrollHeight - window.innerHeight, 1);
+      const phase = Math.min(window.scrollY / maxScroll, 1);
+      document.documentElement.style.setProperty("--scroll-phase", phase.toFixed(3));
+    };
+    updateScrollPhase();
+    window.addEventListener("scroll", updateScrollPhase, { passive: true });
+    window.addEventListener("resize", updateScrollPhase);
+    return () => {
+      window.removeEventListener("scroll", updateScrollPhase);
+      window.removeEventListener("resize", updateScrollPhase);
+    };
+  }, []);
+
+  useEffect(() => {
+    const revealTargets = document.querySelectorAll<HTMLElement>("[data-reveal]");
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+          }
+        });
+      },
+      { threshold: 0.2, rootMargin: "0px 0px -8% 0px" },
+    );
+    revealTargets.forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
+  }, []);
+
+  const handleHeroMouseMove = (event: MouseEvent<HTMLElement>) => {
+    if (reducedMotion) {
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const normalizedX = ((event.clientX - rect.left) / rect.width - 0.5) * 2;
+    const normalizedY = ((event.clientY - rect.top) / rect.height - 0.5) * 2;
+    setPointer({ x: normalizedX, y: normalizedY });
+  };
+
+  const handleHeroMouseLeave = () => {
+    setPointer({ x: 0, y: 0 });
+  };
+
+  const handleMagneticMove = (
+    event: MouseEvent<HTMLAnchorElement | HTMLButtonElement>,
+    strength: number,
+  ) => {
+    if (reducedMotion) {
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width - 0.5) * 2 * strength;
+    const y = ((event.clientY - rect.top) / rect.height - 0.5) * 2 * strength;
+    event.currentTarget.style.setProperty("--mx", `${x.toFixed(1)}px`);
+    event.currentTarget.style.setProperty("--my", `${y.toFixed(1)}px`);
+  };
+
+  const resetMagnetic = (event: MouseEvent<HTMLAnchorElement | HTMLButtonElement>) => {
+    event.currentTarget.style.setProperty("--mx", "0px");
+    event.currentTarget.style.setProperty("--my", "0px");
+  };
+
+  const heroStyle = useMemo<VariableStyle>(
+    () => ({
+      "--px": pointer.x.toFixed(3),
+      "--py": pointer.y.toFixed(3),
+    }),
+    [pointer],
+  );
+
+  const liquidStyle = useMemo<CSSProperties>(
+    () =>
+      reducedMotion
+        ? {}
+        : {
+            transform: `translate3d(${pointer.x * 20}px, ${pointer.y * 14}px, 0) rotateX(${
+              pointer.y * -7
+            }deg) rotateY(${pointer.x * 10}deg)`,
+          },
+    [pointer, reducedMotion],
+  );
+
   return (
-    <span
-      style={{
-        background: colors[emotion] ?? '#9ca3af',
-        color: '#000',
-        borderRadius: 9999,
-        padding: '2px 10px',
-        fontSize: 11,
-        fontWeight: 600,
-        letterSpacing: '0.05em',
-        textTransform: 'uppercase',
-      }}
-    >
-      {emotion}
-    </span>
-  )
-}
+    <div className="site-shell">
+      <header className="top-nav glass-panel">
+        <a className="brand-lockup" href="#hero">
+          <span className="brand-mark" aria-hidden="true" />
+          <span>
+            <strong>DreamForge Studio</strong>
+            <small>Liquid Experience Platform</small>
+          </span>
+        </a>
 
-function BizarrenessBar({ value }: { value: number }) {
-  const pct = Math.round(value * 100)
-  const color = value < 0.33 ? '#34d399' : value < 0.66 ? '#fbbf24' : '#f87171'
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <div
-        style={{
-          flex: 1,
-          height: 6,
-          background: '#374151',
-          borderRadius: 3,
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 3 }}
-        />
-      </div>
-      <span style={{ fontSize: 11, color: '#9ca3af', minWidth: 30 }}>{pct}%</span>
-    </div>
-  )
-}
+        <nav className="desktop-nav" aria-label="Primary">
+          {navItems.map((item) => (
+            <a key={item.label} href={item.href} className="nav-link">
+              {item.label}
+            </a>
+          ))}
+        </nav>
 
-function SegmentCard({ seg }: { seg: DreamSegment }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div
-      onClick={() => setOpen(!open)}
-      style={{
-        background: '#1f2937',
-        borderRadius: 10,
-        padding: '14px 16px',
-        cursor: 'pointer',
-        border: '1px solid #374151',
-        transition: 'border-color 0.15s',
-      }}
-      onMouseEnter={e => ((e.currentTarget as HTMLDivElement).style.borderColor = '#6366f1')}
-      onMouseLeave={e => ((e.currentTarget as HTMLDivElement).style.borderColor = '#374151')}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span
-            style={{
-              background: STAGE_COLOR[seg.stage] ?? '#6b7280',
-              color: '#000',
-              borderRadius: 6,
-              padding: '2px 8px',
-              fontSize: 11,
-              fontWeight: 700,
-            }}
+        <div className="nav-actions">
+          <button
+            type="button"
+            className="icon-button"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            aria-label="Toggle color mode"
           >
-            {seg.stage}
-          </span>
-          <span style={{ fontSize: 12, color: '#9ca3af' }}>
-            {(seg.time_hours ?? seg.start_time_hours ?? 0).toFixed(2)}h
-          </span>
-          <EmotionBadge emotion={seg.dominant_emotion} />
+            {theme === "dark" ? "☼" : "☾"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary magnetic"
+            onClick={() => setContactOpen(true)}
+            onMouseMove={(event) => handleMagneticMove(event, 5)}
+            onMouseLeave={resetMagnetic}
+          >
+            Start Project
+          </button>
+          <button
+            type="button"
+            className="icon-button mobile-menu-button"
+            aria-label="Open menu"
+            onClick={() => setMobileMenuOpen(true)}
+          >
+            ☰
+          </button>
         </div>
-        <span style={{ fontSize: 11, color: '#6b7280' }}>{open ? '▲' : '▼'}</span>
-      </div>
-
-      <div style={{ marginTop: 8 }}>
-        <BizarrenessBar value={seg.bizarreness_score} />
-      </div>
-
-      {open && (
-        <p
-          style={{
-            marginTop: 10,
-            fontSize: 13,
-            lineHeight: 1.6,
-            color: '#d1d5db',
-            fontStyle: 'italic',
-          }}
-        >
-          "{seg.narrative}"
-        </p>
-      )}
-    </div>
-  )
-}
-
-export default function App() {
-  // ── LLM config state ─────────────────────────────────────────────────────
-  const [provider, setProvider] = useState<'openai' | 'anthropic' | 'ollama'>('openai')
-  const [model, setModel] = useState('gpt-4o')
-  const [apiKey, setApiKey] = useState('')
-  const [baseUrl, setBaseUrl] = useState('')
-  const [temperature, setTemperature] = useState(0.9)
-  const [maxTokens, setMaxTokens] = useState(512)
-  const [useLLM, setUseLLM] = useState(true)
-
-  // ── Sleep config state ───────────────────────────────────────────────────
-  const [durationHours, setDurationHours] = useState(8)
-  const [stressLevel, setStressLevel] = useState(0.5)
-  const [priorEvents, setPriorEvents] = useState(
-    'Had a stressful meeting\nWent for an evening run\nWatched a sci-fi film'
-  )
-
-  const { status, progress, progressMsg, currentStage, result, liveSegments, error, runSimulation, cancel } =
-    useSimulationData()
-
-  const handleRun = () => {
-    const req: SimulateRequest = {
-      duration_hours: durationHours,
-      dt_minutes: 0.5,
-      sleep_start_hour: 23,
-      ssri_strength: 1.0,
-      prior_day_events: priorEvents.split('\n').filter(Boolean),
-      stress_level: stressLevel,
-      melatonin: false,
-      cannabis: false,
-      emotional_state: 'neutral',
-      style_preset: 'scientific',
-      prompt_profile: 'A',
-      use_llm: useLLM,
-      llm_segments_only: false,
-    }
-    runSimulation(req)
-  }
-
-  const handleProviderChange = (p: 'openai' | 'anthropic' | 'ollama') => {
-    setProvider(p)
-    setModel(PROVIDER_MODELS[p][0])
-    if (p === 'ollama') setBaseUrl('http://localhost:11434/v1')
-    else setBaseUrl('')
-  }
-
-  const running = status === 'running'
-  const segments = running ? liveSegments : result?.segments ?? []
-
-  // ── Download helpers ───────────────────────────────────────────────────
-  const downloadJSON = () => {
-    if (!result) return
-    const resAny: any = result as any
-    const simId = resAny.simulation_id ?? resAny.id ?? Date.now()
-    const filename = `dreamforge-sim-${simId}.json`
-    const content = JSON.stringify(resAny, null, 2)
-    const blob = new Blob([content], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
-  }
-
-  const downloadText = () => {
-    if (!result) return
-    const resAny: any = result as any
-    const simId = resAny.simulation_id ?? resAny.id ?? ''
-    let text = ''
-    if (simId) text += `Simulation ID: ${simId}\n`
-    const duration = resAny.duration_hours ?? resAny.config?.duration_hours ?? resAny.metadata?.duration_hours ?? ''
-    if (duration) text += `Duration: ${duration}h\n`
-    text += '\n'
-    if (resAny.summary_narrative) text += `${resAny.summary_narrative}\n\n`
-    else if (resAny.summary && typeof resAny.summary === 'string') text += `${resAny.summary}\n\n`
-    else if (resAny.summary && typeof resAny.summary === 'object') text += `${JSON.stringify(resAny.summary, null, 2)}\n\n`
-
-    const segs = resAny.segments ?? resAny.dream_segments ?? []
-    for (let i = 0; i < segs.length; i++) {
-      const s: any = segs[i]
-      const idx = s.segment_index ?? s.id ?? i
-      const time = s.time_hours ?? s.start_time_hours ?? ''
-      const stage = s.stage ?? ''
-      const narrative = s.narrative ?? s.scene_description ?? s.scene ?? ''
-      text += `--- Segment ${idx} (${time}h) [${stage}]\n${narrative}\n\n`
-    }
-
-    const filename = `dreamforge-sim-${simId || Date.now()}.txt`
-    const blob = new Blob([text], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
-  }
-
-  return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: '#111827',
-        color: '#f9fafb',
-        fontFamily: "'Inter', sans-serif",
-        display: 'grid',
-        gridTemplateColumns: '340px 1fr',
-        gridTemplateRows: 'auto 1fr',
-      }}
-    >
-      {/* ── Header ────────────────────────────────────────────────────────── */}
-      <header
-        style={{
-          gridColumn: '1 / -1',
-          borderBottom: '1px solid #1f2937',
-          padding: '16px 32px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 16,
-          background: '#0f172a',
-        }}
-      >
-        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-          <circle cx="14" cy="14" r="14" fill="#6366f1" opacity="0.15" />
-          <path d="M14 6 Q20 10 20 14 Q20 20 14 22 Q8 20 8 14 Q8 10 14 6Z" fill="#6366f1" opacity="0.6" />
-          <circle cx="14" cy="14" r="3" fill="#a5b4fc" />
-        </svg>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em' }}>
-            DreamForge AI
-          </h1>
-          <p style={{ margin: 0, fontSize: 11, color: '#6b7280' }}>
-            Multi-agent dream simulation
-          </p>
-        </div>
-
-        {running && (
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div
-              style={{
-                background: '#1f2937',
-                borderRadius: 9999,
-                height: 8,
-                width: 220,
-                overflow: 'hidden',
-              }}
-            >
-              <div
-                style={{
-                  height: '100%',
-                  width: `${Math.round(progress * 100)}%`,
-                  background: 'linear-gradient(90deg, #6366f1, #f472b6)',
-                  transition: 'width 0.3s ease',
-                  borderRadius: 9999,
-                }}
-              />
-            </div>
-            <span style={{ fontSize: 12, color: '#a5b4fc', minWidth: 36 }}>
-              {Math.round(progress * 100)}%
-            </span>
-            <span
-              style={{
-                background: STAGE_COLOR[currentStage] ?? '#6b7280',
-                color: '#000',
-                fontSize: 10,
-                fontWeight: 700,
-                padding: '2px 8px',
-                borderRadius: 4,
-              }}
-            >
-              {currentStage || 'INIT'}
-            </span>
-            <button
-              onClick={cancel}
-              style={{
-                background: '#374151',
-                border: 'none',
-                color: '#f9fafb',
-                borderRadius: 6,
-                padding: '4px 12px',
-                fontSize: 12,
-                cursor: 'pointer',
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        )}
       </header>
 
-      {/* ── Left panel: config ──────────────────────────────────────────────── */}
-      <aside
-        style={{
-          background: '#0f172a',
-          borderRight: '1px solid #1f2937',
-          padding: '24px 20px',
-          overflowY: 'auto',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 20,
-        }}
-      >
-        {/* LLM Config */}
-        <section>
-          <h2
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-              color: '#6b7280',
-              marginBottom: 12,
-            }}
-          >
-            LLM Settings
-          </h2>
-
-          <label style={labelStyle}>Provider</label>
-          <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-            {(['openai', 'anthropic', 'ollama'] as const).map(p => (
-              <button
-                key={p}
-                onClick={() => handleProviderChange(p)}
-                style={{
-                  flex: 1,
-                  padding: '6px 0',
-                  borderRadius: 6,
-                  border: '1px solid',
-                  borderColor: provider === p ? '#6366f1' : '#374151',
-                  background: provider === p ? '#312e81' : '#1f2937',
-                  color: provider === p ? '#c7d2fe' : '#9ca3af',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  textTransform: 'capitalize',
-                }}
-              >
-                {p}
-              </button>
-            ))}
+      <aside className={`mobile-drawer ${mobileMenuOpen ? "open" : ""}`} aria-hidden={!mobileMenuOpen}>
+        <div className="drawer-panel glass-panel">
+          <div className="drawer-header">
+            <strong>Navigate</strong>
+            <button
+              type="button"
+              className="icon-button"
+              onClick={() => setMobileMenuOpen(false)}
+              aria-label="Close menu"
+            >
+              ✕
+            </button>
           </div>
-
-          <label style={labelStyle}>Model</label>
-          <select
-            value={model}
-            onChange={e => setModel(e.target.value)}
-            style={inputStyle}
-          >
-            {PROVIDER_MODELS[provider].map(m => (
-              <option key={m} value={m}>{m}</option>
+          <nav className="drawer-links">
+            {navItems.map((item) => (
+              <a key={item.label} href={item.href} onClick={() => setMobileMenuOpen(false)}>
+                {item.label}
+              </a>
             ))}
-          </select>
-
-          <label style={labelStyle}>API Key</label>
-          <input
-            type="password"
-            placeholder={provider === 'ollama' ? 'Not required for Ollama' : 'sk-…'}
-            value={apiKey}
-            onChange={e => setApiKey(e.target.value)}
-            style={inputStyle}
-            disabled={provider === 'ollama'}
-          />
-
-          {provider === 'ollama' && (
-            <>
-              <label style={labelStyle}>Ollama Base URL</label>
-              <input
-                value={baseUrl}
-                onChange={e => setBaseUrl(e.target.value)}
-                style={inputStyle}
-              />
-            </>
-          )}
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 4 }}>
-            <div>
-              <label style={labelStyle}>Temperature</label>
-              <input
-                type="number"
-                min={0}
-                max={2}
-                step={0.1}
-                value={temperature}
-                onChange={e => setTemperature(Number(e.target.value))}
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Max Tokens</label>
-              <input
-                type="number"
-                min={64}
-                max={4096}
-                step={64}
-                value={maxTokens}
-                onChange={e => setMaxTokens(Number(e.target.value))}
-                style={inputStyle}
-              />
-            </div>
-          </div>
-          <label style={{ ...labelStyle, marginTop: 8 }}>Use LLM</label>
-          <input
-            type="checkbox"
-            checked={useLLM}
-            onChange={e => setUseLLM(e.target.checked)}
-            style={{ marginBottom: 8 }}
-          />
-        </section>
-
-        {/* Sleep Config */}
-        <section>
-          <h2 style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#6b7280', marginBottom: 12 }}>
-            Simulation
-          </h2>
-
-          <label style={labelStyle}>Night Duration (hours)</label>
-          <input
-            type="range"
-            min={4}
-            max={12}
-            step={0.5}
-            value={durationHours}
-            onChange={e => setDurationHours(Number(e.target.value))}
-            style={{ width: '100%', marginBottom: 4 }}
-          />
-          <span style={{ fontSize: 12, color: '#9ca3af' }}>{durationHours}h</span>
-
-          <label style={{ ...labelStyle, marginTop: 12 }}>Stress Level</label>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={stressLevel}
-            onChange={e => setStressLevel(Number(e.target.value))}
-            style={{ width: '100%', marginBottom: 4 }}
-          />
-          <span style={{ fontSize: 12, color: '#9ca3af' }}>
-            {stressLevel < 0.33 ? '😌 Low' : stressLevel < 0.66 ? '😐 Medium' : '😰 High'} ({stressLevel.toFixed(2)})
-          </span>
-
-          <label style={{ ...labelStyle, marginTop: 12 }}>Prior Day Events</label>
-          <textarea
-            rows={5}
-            value={priorEvents}
-            onChange={e => setPriorEvents(e.target.value)}
-            placeholder="One event per line…"
-            style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.5 }}
-          />
-        </section>
-
-        {/* Run Button */}
+            <button type="button" className="btn btn-primary" onClick={() => setContactOpen(true)}>
+              Start Project
+            </button>
+          </nav>
+        </div>
         <button
-          onClick={running ? cancel : handleRun}
-          disabled={false}
-          style={{
-            background: running
-              ? '#7f1d1d'
-              : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-            border: 'none',
-            borderRadius: 8,
-            color: '#fff',
-            fontSize: 14,
-            fontWeight: 700,
-            padding: '12px 0',
-            cursor: 'pointer',
-            letterSpacing: '0.02em',
-            boxShadow: running ? 'none' : '0 0 20px rgba(99,102,241,0.4)',
-            transition: 'all 0.2s',
-          }}
-        >
-          {running ? '⏹ Stop Simulation' : '▶ Run Simulation'}
-        </button>
-
-        {error && (
-          <div
-            style={{
-              background: '#7f1d1d',
-              border: '1px solid #ef4444',
-              borderRadius: 8,
-              padding: 12,
-              fontSize: 12,
-              color: '#fca5a5',
-            }}
-          >
-            ⚠ {error}
-          </div>
-        )}
+          type="button"
+          className="drawer-backdrop"
+          aria-label="Close navigation overlay"
+          onClick={() => setMobileMenuOpen(false)}
+        />
       </aside>
 
-      {/* ── Main content area ──────────────────────────────────────────────── */}
-      <main style={{ overflowY: 'auto', padding: '24px 32px' }}>
-        {/* Progress message */}
-        {(running || status === 'complete') && (
-          <div
-            style={{
-              background: '#1f2937',
-              borderRadius: 8,
-              padding: '10px 16px',
-              marginBottom: 20,
-              fontSize: 13,
-              color: '#a5b4fc',
-              display: 'flex',
-              gap: 10,
-              alignItems: 'center',
-            }}
-          >
-            {running && (
-              <span
-                style={{
-                  display: 'inline-block',
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  background: '#f472b6',
-                  animation: 'pulse 1s infinite',
-                }}
-              />
-            )}
-            {progressMsg}
-          </div>
-        )}
-
-        {/* Summary stats */}
-        {result && (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-              gap: 12,
-              marginBottom: 24,
-            }}
-          >
-            {[
-              {
-                label: 'Duration',
-                value: `${(result.config?.duration_hours ?? durationHours).toFixed(1)}h`,
-              },
-              { label: 'Segments', value: result.segments?.length ?? 0 },
-              {
-                label: 'Mean Bizarreness',
-                value: `${(
-                  Number((result.summary as any)?.mean_bizarreness ?? 0) * 100
-                ).toFixed(0)}%`,
-              },
-              {
-                label: 'Dominant Emotion',
-                value: String((result.summary as any)?.dominant_emotion ?? 'neutral'),
-              },
-            ].map(stat => (
-              <div
-                key={stat.label}
-                style={{
-                  background: '#1f2937',
-                  borderRadius: 10,
-                  padding: '14px 16px',
-                  border: '1px solid #374151',
-                }}
+      <main>
+        <section id="hero" className="hero-section" style={heroStyle}>
+          <div className="hero-copy" data-reveal>
+            <p className="eyebrow">Future-Class Digital Presence</p>
+            <h1>Designing Digital Gravity for ambitious brands.</h1>
+            <p className="hero-subtitle">
+              Liquid metal materiality, floating island composition, and cinematic interaction rhythm
+              — engineered for real product velocity across desktop and mobile.
+            </p>
+            <div className="hero-cta">
+              <button
+                type="button"
+                className="btn btn-primary magnetic"
+                onClick={() => setContactOpen(true)}
+                onMouseMove={(event) => handleMagneticMove(event, 7)}
+                onMouseLeave={resetMagnetic}
               >
-                <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  {stat.label}
-                </div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: '#f9fafb' }}>
-                  {stat.value}
-                </div>
-              </div>
+                Begin Premium Engagement
+              </button>
+              <a
+                href="#cases"
+                className="btn btn-secondary magnetic"
+                onMouseMove={(event) => handleMagneticMove(event, 6)}
+                onMouseLeave={resetMagnetic}
+              >
+                View Case Studies
+              </a>
+            </div>
+            <ul className="hero-points">
+              <li>High-end aesthetic with production-ready constraints</li>
+              <li>Motion choreography tuned for performance and readability</li>
+              <li>Distinctive brand memory without generic AI template feel</li>
+            </ul>
+          </div>
+
+          <div
+            className="hero-visual-stage"
+            data-reveal
+            onMouseMove={handleHeroMouseMove}
+            onMouseLeave={handleHeroMouseLeave}
+          >
+            <div className="liquid-core" style={liquidStyle} aria-hidden="true">
+              <div className="liquid-gloss" />
+            </div>
+            <article className="floating-island island-1">
+              <p>Primary Promise</p>
+              <strong>Future-ready with editorial clarity</strong>
+            </article>
+            <article className="floating-island island-2">
+              <p>Motion Layer</p>
+              <strong>140–320ms tactile feedback cadence</strong>
+            </article>
+            <article className="floating-island island-3">
+              <p>Performance</p>
+              <strong>Progressive enhancement by capability tier</strong>
+            </article>
+            <article className="floating-island island-4">
+              <p>Accessibility</p>
+              <strong>Reduced-motion mode fully respected</strong>
+            </article>
+          </div>
+        </section>
+
+        <section className="trust-strip glass-panel" data-reveal>
+          <p>Trusted by teams building category-defining digital products.</p>
+          <div className="trust-metrics">
+            <span>+37% qualified leads</span>
+            <span>2.1x demo requests</span>
+            <span>98/100 UX quality score</span>
+          </div>
+        </section>
+
+        <section id="about" className="content-section" data-reveal>
+          <div className="section-head">
+            <p className="eyebrow">About the Design Language</p>
+            <h2>Balanced precision: luxury, future, technology, and art.</h2>
+            <p>
+              The system avoids cliché cyber aesthetics by treating material effects as supporting
+              actors. Structure, contrast, and narrative hierarchy always lead.
+            </p>
+          </div>
+          <div className="about-grid">
+            <article className="glass-panel">
+              <h3>Luxury</h3>
+              <p>Comes from proportion, spacing, and restraint — not decorative overload.</p>
+            </article>
+            <article className="glass-panel">
+              <h3>Future</h3>
+              <p>Comes from depth cues, controlled highlights, and spatial transitions.</p>
+            </article>
+            <article className="glass-panel">
+              <h3>Technology</h3>
+              <p>Comes from crisp information architecture and interaction reliability.</p>
+            </article>
+            <article className="glass-panel">
+              <h3>Art</h3>
+              <p>Comes from composition rhythm and visual storytelling intent.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="services" className="content-section" data-reveal>
+          <div className="section-head">
+            <p className="eyebrow">Services</p>
+            <h2>Complete scope beyond a landing page.</h2>
+            <p>
+              Designed as a full ecosystem: strategic positioning, visual system, UX rhythm, and
+              implementation architecture.
+            </p>
+          </div>
+          <div className="island-grid">
+            {services.map((service) => (
+              <article key={service.title} className="glass-panel service-card">
+                <span>{service.tag}</span>
+                <h3>{service.title}</h3>
+                <p>{service.description}</p>
+              </article>
             ))}
           </div>
-        )}
+        </section>
 
-        {/* Summary narrative */}
-        {(result?.summary as any)?.summary_narrative && (
-          <div
-            style={{
-              background: '#1f2937',
-              borderRadius: 10,
-              padding: '16px 20px',
-              marginBottom: 24,
-              borderLeft: '3px solid #6366f1',
-              fontSize: 13,
-              color: '#d1d5db',
-              lineHeight: 1.6,
-            }}
-          >
-            {(result.summary as any).summary_narrative}
+        <section id="features" className="content-section" data-reveal>
+          <div className="section-head">
+            <p className="eyebrow">Feature Deep Dive</p>
+            <h2>Every effect has a job, every section has value.</h2>
           </div>
-        )}
-
-        {/* Dream segments */}
-        {segments.length > 0 && (
-          <>
-            <h3
-              style={{
-                fontSize: 13,
-                fontWeight: 700,
-                color: '#9ca3af',
-                letterSpacing: '0.06em',
-                textTransform: 'uppercase',
-                marginBottom: 12,
-              }}
-            >
-              Dream Segments ({segments.length})
-              {running && <span style={{ color: '#f472b6', marginLeft: 8 }}>● Live</span>}
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {segments.map((seg, idx) => (
-                <SegmentCard key={String(seg.segment_index ?? seg.id ?? idx)} seg={seg} />
-              ))}
-            </div>
-          </>
-        )}
-
-        {/* Empty state */}
-        {segments.length === 0 && !running && status === 'idle' && (
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              height: 300,
-              color: '#374151',
-              gap: 16,
-            }}
-          >
-            <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
-              <circle cx="32" cy="32" r="32" fill="#1f2937" />
-              <path d="M32 16 Q44 22 44 32 Q44 44 32 48 Q20 44 20 32 Q20 22 32 16Z" fill="#374151" />
-              <circle cx="32" cy="32" r="6" fill="#4b5563" />
-            </svg>
-            <p style={{ fontSize: 14 }}>Configure your LLM and press Run Simulation</p>
+          <div className="feature-list">
+            {features.map((feature) => (
+              <article key={feature.title} className="glass-panel feature-card">
+                <div>
+                  <h3>{feature.title}</h3>
+                  <p>{feature.body}</p>
+                </div>
+                <strong>{feature.metric}</strong>
+              </article>
+            ))}
           </div>
-        )}
+        </section>
+
+        <section id="showcase" className="content-section" data-reveal>
+          <div className="section-head">
+            <p className="eyebrow">Visual Showcase</p>
+            <h2>Material, typography, interaction, and depth in one cohesive system.</h2>
+          </div>
+          <div className="showcase-grid">
+            {showcaseItems.map((item) => (
+              <article key={item.title} className="showcase-card glass-panel">
+                <span>{item.label}</span>
+                <h3>{item.title}</h3>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section id="cases" className="content-section" data-reveal>
+          <div className="section-head">
+            <p className="eyebrow">Case Studies</p>
+            <h2>Design outcomes tied to business signals.</h2>
+          </div>
+          <div className="case-grid">
+            {caseStudies.map((item) => (
+              <article key={item.client} className="glass-panel case-card">
+                <h3>{item.client}</h3>
+                <p>
+                  <strong>Challenge:</strong> {item.challenge}
+                </p>
+                <p>
+                  <strong>Outcome:</strong> {item.outcome}
+                </p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="content-section" data-reveal>
+          <div className="section-head">
+            <p className="eyebrow">Process</p>
+            <h2>Structured, premium delivery from concept to launch.</h2>
+          </div>
+          <ol className="process-list">
+            {processSteps.map((step) => (
+              <li key={step.title} className="glass-panel">
+                <h3>{step.title}</h3>
+                <p>{step.body}</p>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        <section className="content-section" data-reveal>
+          <div className="section-head">
+            <p className="eyebrow">Design Directions</p>
+            <h2>Three production-ready variants with distinct brand fit.</h2>
+            <p className="recommend-note">
+              Recommended: <strong>Direction B — Premium Commercial Balance</strong>.
+            </p>
+          </div>
+          <div className="direction-grid">
+            {directions.map((direction) => (
+              <article key={direction.id} className="glass-panel direction-card">
+                <header>
+                  <span>Direction {direction.id}</span>
+                  {direction.id === "B" && <em>Recommended</em>}
+                </header>
+                <h3>{direction.name}</h3>
+                <p>
+                  <strong>Color:</strong> {direction.color}
+                </p>
+                <p>
+                  <strong>Type:</strong> {direction.type}
+                </p>
+                <p>
+                  <strong>Motion:</strong> {direction.motion}
+                </p>
+                <p>
+                  <strong>Best fit:</strong> {direction.brandFit}
+                </p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section id="faq" className="content-section" data-reveal>
+          <div className="section-head">
+            <p className="eyebrow">FAQ</p>
+            <h2>Answers that reduce decision friction.</h2>
+          </div>
+          <div className="faq-list">
+            {faqs.map((item, index) => {
+              const expanded = activeFaq === index;
+              return (
+                <article key={item.question} className={`glass-panel faq-item ${expanded ? "open" : ""}`}>
+                  <button
+                    type="button"
+                    onClick={() => setActiveFaq(expanded ? null : index)}
+                    aria-expanded={expanded}
+                  >
+                    <span>{item.question}</span>
+                    <span>{expanded ? "−" : "+"}</span>
+                  </button>
+                  <p>{item.answer}</p>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="cta-section glass-panel" data-reveal>
+          <p className="eyebrow">Final CTA</p>
+          <h2>Build a website that feels inevitable, not merely impressive.</h2>
+          <p>
+            A premium digital presence should look distinctive, read clearly, and convert with
+            confidence on every device.
+          </p>
+          <button
+            type="button"
+            className="btn btn-primary magnetic"
+            onClick={() => setContactOpen(true)}
+            onMouseMove={(event) => handleMagneticMove(event, 8)}
+            onMouseLeave={resetMagnetic}
+          >
+            Book Discovery Session
+          </button>
+        </section>
       </main>
 
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.3; }
-        }
-        select, input, textarea {
-          background: #1f2937;
-          border: 1px solid #374151;
-          border-radius: 6px;
-          color: #f9fafb;
-          padding: 7px 10px;
-          width: 100%;
-          font-size: 13px;
-          box-sizing: border-box;
-          margin-bottom: 10px;
-          outline: none;
-          transition: border-color 0.15s;
-        }
-        select:focus, input:focus, textarea:focus {
-          border-color: #6366f1;
-        }
-        select option { background: #1f2937; }
-      `}</style>
+      <footer
+        className="site-footer"
+        data-contract-use-llm={String(frontendContractCompatibility.use_llm)}
+        data-contract-llm-segments-only={String(frontendContractCompatibility.llm_segments_only)}
+        data-contract-result-path={frontendContractCompatibility.resultPath}
+      >
+        <div>
+          <strong>DreamForge Studio</strong>
+          <p>High-end digital product experience, from strategy to build.</p>
+        </div>
+        <div className="footer-links">
+          <a href="#hero">Top</a>
+          <a href="#services">Services</a>
+          <a href="#cases">Cases</a>
+          <button type="button" onClick={() => setContactOpen(true)}>
+            Contact
+          </button>
+        </div>
+      </footer>
+
+      <section className={`modal-layer ${contactOpen ? "open" : ""}`} aria-hidden={!contactOpen}>
+        <button
+          type="button"
+          className="modal-backdrop"
+          onClick={() => setContactOpen(false)}
+          aria-label="Close contact modal"
+        />
+        <div className="modal-panel glass-panel" role="dialog" aria-modal="true" aria-label="Start project">
+          <header>
+            <h3>Start a High-end Project</h3>
+            <button type="button" className="icon-button" onClick={() => setContactOpen(false)}>
+              ✕
+            </button>
+          </header>
+          <form>
+            <label>
+              Name
+              <input type="text" placeholder="Your name" />
+            </label>
+            <label>
+              Work Email
+              <input type="email" placeholder="name@company.com" />
+            </label>
+            <label>
+              Project Focus
+              <textarea
+                rows={4}
+                placeholder="Tell us your goals, scope, and timeline."
+              />
+            </label>
+            <div className="modal-actions">
+              <a className="btn btn-secondary" href="mailto:hello@dreamforge.ai">
+                Send via Email
+              </a>
+              <button type="button" className="btn btn-primary" onClick={() => setContactOpen(false)}>
+                Save Inquiry Draft
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
     </div>
-  )
+  );
 }
 
-const labelStyle: React.CSSProperties = {
-  display: 'block',
-  fontSize: 11,
-  fontWeight: 600,
-  color: '#9ca3af',
-  marginBottom: 4,
-  textTransform: 'uppercase',
-  letterSpacing: '0.05em',
-}
-
-const inputStyle: React.CSSProperties = {
-  background: '#1f2937',
-  border: '1px solid #374151',
-  borderRadius: 6,
-  color: '#f9fafb',
-  padding: '7px 10px',
-  width: '100%',
-  fontSize: 13,
-  boxSizing: 'border-box',
-  marginBottom: 10,
-  outline: 'none',
-}
+export default App;

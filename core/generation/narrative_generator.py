@@ -115,20 +115,83 @@ class NarrativeGenerator:
         completed = 0
         eligible_completed = 0
         llm_elapsed_seconds = 0.0
+        active_llm_started: dict[int, float] = {}
         timeout_streak = 0
         circuit_open = False
         progress_lock = asyncio.Lock()
+
+        def _progress_payload(*, heartbeat: bool) -> dict[str, Any]:
+            now_ts = loop.time()
+            llm_avg_seconds = (
+                llm_elapsed_seconds / float(eligible_completed)
+                if eligible_completed > 0
+                else None
+            )
+            in_flight_ages = [
+                max(0.0, now_ts - started_ts)
+                for started_ts in active_llm_started.values()
+            ]
+            in_flight_count = len(in_flight_ages)
+            in_flight_oldest = max(in_flight_ages) if in_flight_ages else 0.0
+            in_flight_avg = (
+                sum(in_flight_ages) / float(in_flight_count)
+                if in_flight_count > 0
+                else 0.0
+            )
+            return {
+                "completed": completed,
+                "total": total,
+                "eligible_completed": eligible_completed,
+                "eligible_total": eligible_total,
+                "llm_completed_invocations": eligible_completed,
+                "llm_total_invocations": eligible_total,
+                "llm_remaining_invocations": max(
+                    0, eligible_total - eligible_completed
+                ),
+                "llm_elapsed_seconds": round(llm_elapsed_seconds, 3),
+                "llm_avg_invocation_seconds": (
+                    round(llm_avg_seconds, 3) if llm_avg_seconds is not None else None
+                ),
+                "llm_in_flight_invocations": in_flight_count,
+                "llm_in_flight_oldest_seconds": round(in_flight_oldest, 3),
+                "llm_in_flight_avg_seconds": round(in_flight_avg, 3),
+                "heartbeat": bool(heartbeat),
+                "batch_elapsed_seconds": max(0.0, now_ts - batch_started),
+            }
+
+        async def _emit_progress_locked(*, heartbeat: bool) -> None:
+            if progress_callback is None:
+                return
+            progress_callback(_progress_payload(heartbeat=heartbeat))
+
+        async def _heartbeat_loop() -> None:
+            while True:
+                await asyncio.sleep(1.0)
+                async with progress_lock:
+                    if completed >= total:
+                        break
+                    await _emit_progress_locked(heartbeat=True)
 
         async def _work(index: int, seg: dict[str, Any], prior_summary: str) -> None:
             nonlocal completed, eligible_completed, llm_elapsed_seconds, timeout_streak, circuit_open
             async with semaphore:
                 eligible = self._llm_should_be_invoked(seg)
-                if circuit_open and eligible:
-                    self._apply_preemptive_fallback(segment=seg, index=index)
-                else:
-                    await self._generate_segment(
-                        seg, index=index, prior_summary=prior_summary
-                    )
+                llm_call_started = False
+                if eligible and not circuit_open:
+                    async with progress_lock:
+                        active_llm_started[index] = loop.time()
+                        llm_call_started = True
+                try:
+                    if circuit_open and eligible:
+                        self._apply_preemptive_fallback(segment=seg, index=index)
+                    else:
+                        await self._generate_segment(
+                            seg, index=index, prior_summary=prior_summary
+                        )
+                finally:
+                    if llm_call_started:
+                        async with progress_lock:
+                            active_llm_started.pop(index, None)
 
                 async with progress_lock:
                     completed += 1
@@ -157,55 +220,40 @@ class NarrativeGenerator:
                             "LLM timeout circuit opened after %d consecutive timeouts.",
                             timeout_streak,
                         )
-                    if progress_callback:
-                        llm_avg_seconds = (
-                            llm_elapsed_seconds / float(eligible_completed)
-                            if eligible_completed > 0
-                            else None
-                        )
-                        progress_callback(
-                            {
-                                "completed": completed,
-                                "total": total,
-                                "eligible_completed": eligible_completed,
-                                "eligible_total": eligible_total,
-                                "llm_completed_invocations": eligible_completed,
-                                "llm_total_invocations": eligible_total,
-                                "llm_remaining_invocations": max(
-                                    0, eligible_total - eligible_completed
-                                ),
-                                "llm_elapsed_seconds": round(llm_elapsed_seconds, 3),
-                                "llm_avg_invocation_seconds": (
-                                    round(llm_avg_seconds, 3)
-                                    if llm_avg_seconds is not None
-                                    else None
-                                ),
-                                "batch_elapsed_seconds": max(
-                                    0.0, loop.time() - batch_started
-                                ),
-                            }
-                        )
+                    await _emit_progress_locked(heartbeat=False)
 
-        for start in range(0, len(segments), self.config.concurrency):
-            chunk = segments[start : start + self.config.concurrency]
-            prior_summaries: list[str] = []
-            for offset, _seg in enumerate(chunk):
-                idx = start + offset
-                if idx == 0:
-                    prior_summaries.append("")
-                else:
-                    prev = str(segments[idx - 1].get("narrative", ""))
-                    prior_summaries.append(self._truncate_words(prev, max_words=30))
-            await asyncio.gather(
-                *[
-                    _work(
-                        start + i,
-                        seg,
-                        prior_summaries[i] if i < len(prior_summaries) else "",
-                    )
-                    for i, seg in enumerate(chunk)
-                ]
-            )
+        heartbeat_task: asyncio.Task[None] | None = None
+        if progress_callback is not None:
+            heartbeat_task = asyncio.create_task(_heartbeat_loop())
+
+        try:
+            for start in range(0, len(segments), self.config.concurrency):
+                chunk = segments[start : start + self.config.concurrency]
+                prior_summaries: list[str] = []
+                for offset, _seg in enumerate(chunk):
+                    idx = start + offset
+                    if idx == 0:
+                        prior_summaries.append("")
+                    else:
+                        prev = str(segments[idx - 1].get("narrative", ""))
+                        prior_summaries.append(self._truncate_words(prev, max_words=30))
+                await asyncio.gather(
+                    *[
+                        _work(
+                            start + i,
+                            seg,
+                            prior_summaries[i] if i < len(prior_summaries) else "",
+                        )
+                        for i, seg in enumerate(chunk)
+                    ]
+                )
+        finally:
+            if heartbeat_task is not None:
+                heartbeat_task.cancel()
+                try:
+                    await heartbeat_task
+                except asyncio.CancelledError:
+                    pass
 
     async def _generate_segment(
         self, segment: dict[str, Any], *, index: int, prior_summary: str

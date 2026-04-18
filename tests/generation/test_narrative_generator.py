@@ -37,6 +37,14 @@ class _VerboseLLM:
         return " ".join(["surreal"] * 180)
 
 
+class _SlowLLM:
+    async def chat(self, system: str, user: str) -> str:
+        await asyncio.sleep(1.2)
+        if "Scene description generator" in system:
+            return "A corridor stretching into soft shadow."
+        return "I walk through repeating hallways while distant voices trail behind me."
+
+
 class _DirtyOutputLLM:
     async def chat(self, system: str, user: str) -> str:
         if "Scene description generator" in system:
@@ -313,3 +321,29 @@ async def test_timeout_circuit_shortcuts_subsequent_segments() -> None:
     assert all(bool(s.get("_llm_fallback")) for s in segs)
     assert segs[0]["_llm_latency_ms"] is not None
     assert segs[1]["_llm_latency_ms"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_generate_batch_progress_callback_emits_heartbeat_and_inflight_metrics() -> (
+    None
+):
+    seg = {
+        "stage": "REM",
+        "dominant_emotion": "neutral",
+        "bizarreness_score": 0.7,
+        "lucidity_probability": 0.2,
+        "active_memory_ids": [],
+        "start_time_hours": 1.0,
+        "narrative": "",
+    }
+    events: list[dict[str, object]] = []
+    gen = NarrativeGenerator(
+        llm_client=_SlowLLM(),
+        config=NarrativeGeneratorConfig(
+            llm_enabled=True, concurrency=1, timeout_seconds=5.0
+        ),
+    )
+    await gen.generate_batch([seg], progress_callback=events.append)
+    assert events
+    assert any(bool(e.get("heartbeat")) for e in events)
+    assert any(int(e.get("llm_in_flight_invocations", 0)) > 0 for e in events)

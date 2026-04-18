@@ -2637,6 +2637,9 @@ def _job_progress_snapshot(
             llm_avg_seconds = 0.0
             llm_concurrency = 1
             llm_timeout_seconds = 20.0
+            llm_in_flight = 0
+            llm_in_flight_oldest_seconds = 0.0
+            llm_in_flight_avg_seconds = 0.0
             narrative_started_at = float(job.get("narrative_started_at") or started_at)
             if use_llm:
                 try:
@@ -2677,6 +2680,24 @@ def _job_progress_snapshot(
                     )
                 except (TypeError, ValueError):
                     llm_timeout_seconds = 20.0
+                try:
+                    llm_in_flight = max(
+                        0, int(job.get("llm_in_flight_invocations") or 0)
+                    )
+                except (TypeError, ValueError):
+                    llm_in_flight = 0
+                try:
+                    llm_in_flight_oldest_seconds = max(
+                        0.0, float(job.get("llm_in_flight_oldest_seconds") or 0.0)
+                    )
+                except (TypeError, ValueError):
+                    llm_in_flight_oldest_seconds = 0.0
+                try:
+                    llm_in_flight_avg_seconds = max(
+                        0.0, float(job.get("llm_in_flight_avg_seconds") or 0.0)
+                    )
+                except (TypeError, ValueError):
+                    llm_in_flight_avg_seconds = 0.0
                 if llm_avg_seconds <= 0.0:
                     llm_avg_seconds = _estimate_llm_invocation_seconds(
                         llm_timeout_seconds
@@ -2704,9 +2725,17 @@ def _job_progress_snapshot(
                     observed_avg = max(observed_avg, narrative_elapsed * 0.9)
                 elif llm_completed > 0 and stale_for > 0.0:
                     observed_avg = max(observed_avg, stale_for * 0.8)
-                in_flight = max(0, min(llm_concurrency, llm_remaining))
-                in_flight_elapsed = (
-                    narrative_elapsed if llm_completed <= 0 else stale_for
+                if llm_in_flight_oldest_seconds > 0.0:
+                    observed_avg = max(observed_avg, llm_in_flight_oldest_seconds * 0.9)
+                if llm_in_flight_avg_seconds > 0.0:
+                    observed_avg = max(observed_avg, llm_in_flight_avg_seconds * 0.85)
+                in_flight = llm_in_flight
+                if in_flight <= 0:
+                    in_flight = max(0, min(llm_concurrency, llm_remaining))
+                in_flight_elapsed = max(
+                    llm_in_flight_avg_seconds,
+                    llm_in_flight_oldest_seconds,
+                    narrative_elapsed if llm_completed <= 0 else stale_for,
                 )
                 partial_ratio = (
                     min(0.98, in_flight_elapsed / max(0.5, observed_avg))
@@ -2841,6 +2870,21 @@ def _job_provenance_snapshot(
             if job.get("llm_timeout_seconds") is not None
             else None
         ),
+        "llm_in_flight_invocations": (
+            int(job["llm_in_flight_invocations"])
+            if job.get("llm_in_flight_invocations") is not None
+            else None
+        ),
+        "llm_in_flight_oldest_seconds": (
+            float(job["llm_in_flight_oldest_seconds"])
+            if job.get("llm_in_flight_oldest_seconds") is not None
+            else None
+        ),
+        "llm_in_flight_avg_seconds": (
+            float(job["llm_in_flight_avg_seconds"])
+            if job.get("llm_in_flight_avg_seconds") is not None
+            else None
+        ),
     }
     return progress_source, eta_source, provenance
 
@@ -2919,6 +2963,18 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
             if event.get("llm_timeout_seconds") is not None:
                 job["llm_timeout_seconds"] = max(
                     5.0, float(event.get("llm_timeout_seconds"))
+                )
+            if event.get("llm_in_flight_invocations") is not None:
+                job["llm_in_flight_invocations"] = max(
+                    0, int(event.get("llm_in_flight_invocations"))
+                )
+            if event.get("llm_in_flight_oldest_seconds") is not None:
+                job["llm_in_flight_oldest_seconds"] = max(
+                    0.0, float(event.get("llm_in_flight_oldest_seconds"))
+                )
+            if event.get("llm_in_flight_avg_seconds") is not None:
+                job["llm_in_flight_avg_seconds"] = max(
+                    0.0, float(event.get("llm_in_flight_avg_seconds"))
                 )
             if should_persist:
                 _persist_job(job_id, dict(job))
@@ -3374,8 +3430,6 @@ async def simulate_night(config: SimulationConfig):
 
         def _on_narrative_progress(event: Dict[str, Any]) -> None:
             nonlocal last_narrative_progress
-            completed = int(event.get("completed", 0))
-            total = max(1, int(event.get("total", 1)))
             eligible_completed = int(event.get("eligible_completed", 0))
             eligible_total = int(event.get("eligible_total", 0))
             elapsed = max(0.0, float(event.get("batch_elapsed_seconds", 0.0)))
@@ -3395,6 +3449,13 @@ async def simulate_night(config: SimulationConfig):
                     )
                 ),
             )
+            llm_in_flight = max(0, int(event.get("llm_in_flight_invocations", 0)))
+            llm_in_flight_oldest_seconds = max(
+                0.0, float(event.get("llm_in_flight_oldest_seconds", 0.0))
+            )
+            llm_in_flight_avg_seconds = max(
+                0.0, float(event.get("llm_in_flight_avg_seconds", 0.0))
+            )
             observed_avg_seconds_raw = event.get("llm_avg_invocation_seconds")
             observed_avg_seconds = (
                 max(0.0, float(observed_avg_seconds_raw))
@@ -3404,27 +3465,45 @@ async def simulate_night(config: SimulationConfig):
             if observed_avg_seconds <= 0.0 and llm_completed > 0:
                 observed_avg_seconds = elapsed / float(max(1, llm_completed))
 
-            if llm_total > 0:
-                ratio = min(1.0, float(llm_completed) / float(llm_total))
-            else:
-                ratio = min(1.0, float(completed) / float(max(1, total)))
-
             blended_avg_seconds = historical_llm_avg_seconds
             if observed_avg_seconds > 0.0:
                 sample_weight = 0.8 if llm_completed >= 3 else 0.6
                 blended_avg_seconds = (sample_weight * observed_avg_seconds) + (
                     (1.0 - sample_weight) * historical_llm_avg_seconds
                 )
+            if llm_in_flight_oldest_seconds > 0.0:
+                blended_avg_seconds = max(
+                    blended_avg_seconds, llm_in_flight_oldest_seconds * 0.9
+                )
+            if llm_in_flight_avg_seconds > 0.0:
+                blended_avg_seconds = max(
+                    blended_avg_seconds, llm_in_flight_avg_seconds * 0.85
+                )
 
-            ratio_progress = 20.0 + (65.0 * ratio)
+            effective_in_flight = max(0, min(narrative_concurrency, llm_in_flight))
+            in_flight_elapsed = max(
+                llm_in_flight_avg_seconds,
+                llm_in_flight_oldest_seconds,
+            )
+            in_flight_ratio = (
+                min(0.98, in_flight_elapsed / max(0.5, blended_avg_seconds))
+                if effective_in_flight > 0
+                else 0.0
+            )
+            effective_completed = float(llm_completed) + (
+                float(effective_in_flight) * in_flight_ratio
+            )
+            effective_completed = min(float(llm_total), max(0.0, effective_completed))
+            effective_remaining = max(0.0, float(llm_total) - effective_completed)
+            ratio_progress = 20.0 + (
+                65.0 * (effective_completed / float(max(1, llm_total)))
+            )
             eta_core = (
-                float(llm_remaining)
-                * blended_avg_seconds
-                / float(narrative_concurrency)
+                effective_remaining * blended_avg_seconds / float(narrative_concurrency)
             )
             if llm_completed <= 0 and llm_total > 0:
                 cold_start_floor = (
-                    float(llm_remaining)
+                    max(float(llm_remaining), effective_remaining)
                     / float(narrative_concurrency)
                     * max(1.5, timeout_budget_seconds * 0.35)
                 )
@@ -3455,6 +3534,9 @@ async def simulate_night(config: SimulationConfig):
                     "llm_avg_invocation_seconds": round(blended_avg_seconds, 3),
                     "llm_concurrency": narrative_concurrency,
                     "llm_timeout_seconds": timeout_budget_seconds,
+                    "llm_in_flight_invocations": effective_in_flight,
+                    "llm_in_flight_oldest_seconds": llm_in_flight_oldest_seconds,
+                    "llm_in_flight_avg_seconds": llm_in_flight_avg_seconds,
                     "estimated_duration_seconds": elapsed_total + float(eta_seconds),
                 }
             )
