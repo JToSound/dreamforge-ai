@@ -70,6 +70,7 @@ def _load_settings() -> dict[str, Any]:
 @dataclass
 class NarrativeGeneratorConfig:
     llm_enabled: bool = True
+    llm_segments_only: bool = False
     nrem_bizarreness_gate: float = 0.55
     rem_min_words: int = 40
     concurrency: int = 5
@@ -81,6 +82,7 @@ class NarrativeGeneratorConfig:
         settings = _load_settings()
         return cls(
             llm_enabled=bool(settings.get("llm_enabled", True)),
+            llm_segments_only=bool(settings.get("llm_segments_only", False)),
             rem_min_words=int(settings.get("narrative_min_words_rem", 40)),
         )
 
@@ -94,12 +96,18 @@ class NarrativeGenerator:
         config: NarrativeGeneratorConfig | None = None,
         style_preset: str = "scientific",
         prompt_profile: str = "A",
+        llm_segments_only: bool | None = None,
     ) -> None:
         self.llm_client = llm_client
         self.memory_labeler = memory_labeler or (lambda node_id: str(node_id))
         self.config = config or NarrativeGeneratorConfig.from_settings()
         self.style_preset = str(style_preset or "scientific").strip().lower()
         self.prompt_profile = str(prompt_profile or "A").strip().upper()
+        self.llm_segments_only = (
+            bool(self.config.llm_segments_only)
+            if llm_segments_only is None
+            else bool(llm_segments_only)
+        )
 
     async def generate_batch(
         self,
@@ -370,6 +378,8 @@ class NarrativeGenerator:
         if not bool(self.config.llm_enabled):
             return False
         stage = str(segment.get("stage", "N2"))
+        if self.llm_segments_only:
+            return stage == "REM"
         bizarreness = float(segment.get("bizarreness_score", 0.0))
         return stage == "REM" or (
             stage in {"N1", "N2", "N3"}

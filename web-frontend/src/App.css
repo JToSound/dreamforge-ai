@@ -12,6 +12,7 @@
   --accent-secondary: #a78bfa;
   --outline: rgba(220, 230, 255, 0.2);
   --shadow: 0 24px 72px rgba(1, 4, 11, 0.5);
+  --input-bg: rgba(255, 255, 255, 0.08);
   --radius-lg: 28px;
   --radius-md: 18px;
   --radius-sm: 12px;
@@ -30,6 +31,7 @@
   --accent-secondary: #6f58cf;
   --outline: rgba(16, 24, 42, 0.15);
   --shadow: 0 24px 56px rgba(10, 19, 44, 0.1);
+  --input-bg: rgba(255, 255, 255, 0.92);
 }
 
 *,
@@ -773,10 +775,26 @@ main {
   width: 100%;
   border-radius: var(--radius-sm);
   border: 1px solid var(--outline);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--input-bg);
   color: var(--text-0);
   font: inherit;
   padding: 10px 12px;
+}
+
+html[data-theme="dark"] select.sim-input,
+html:not([data-theme]) select.sim-input {
+  color-scheme: dark;
+  background-color: rgba(12, 18, 28, 0.95);
+}
+
+html[data-theme="light"] select.sim-input {
+  color-scheme: light;
+  background-color: rgba(255, 255, 255, 0.95);
+}
+
+select.sim-input option {
+  color: CanvasText;
+  background-color: Canvas;
 }
 
 .sim-input:focus {

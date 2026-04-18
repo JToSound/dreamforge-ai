@@ -1,0 +1,25 @@
+time_hours,node_id,node_label,activation
+0.0,event::design_discussion,design discussion,0.4924
+0.0,mem::childhood_home,childhood_home,0.4576
+0.0,mem::school_corridor,school_corridor,0.4466
+0.0,mem::being_chased,being_chased,0.4281
+0.0,mem::being_late,being_late,0.428
+0.0,event::code_review,code review,0.425
+0.0,mem::joy,joy,0.3565
+0.0,mem::falling,falling,0.3307
+0.0,mem::dread,dread,0.2824
+0.0,mem::teeth_loosening,teeth_loosening,0.2391
+0.0,mem::cold_water,cold_water,0.2378
+0.0,mem::bright_light,bright_light,0.2378
+0.833333,event::code_review,code review,0.3837
+0.833333,mem::joy,joy,0.3598
+0.833333,mem::bright_light,bright_light,0.3182
+0.833333,mem::flying,flying,0.3047
+0.833333,mem::familiar_face,familiar_face,0.298
+0.833333,event::design_discussion,design discussion,0.283
+0.833333,mem::wonder,wonder,0.2802
+0.833333,mem::childhood_home,childhood_home,0.2673
+0.833333,mem::school_corridor,school_corridor,0.2625
+0.833333,mem::being_chased,being_chased,0.2541
+0.833333,mem::being_late,being_late,0.2541
+0.833333,mem::falling,falling,0.21

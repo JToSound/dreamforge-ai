@@ -3273,8 +3273,9 @@ async def simulate_night(config: SimulationConfig):
     1. Two-process sleep model (Borbély) determines stage trajectory
     2. ODE-based neurochemistry computed per segment
     3. Bizarreness + lucidity scores derived from neurochemical state
-    4. If `use_llm=True`: LLM generates vivid first-person narrative per REM segment
-       (or all segments if `llm_segments_only=False`)
+    4. If `use_llm=True`: LLM generates vivid first-person narrative:
+       - `llm_segments_only=True` => REM segments only
+       - `llm_segments_only=False` => REM + high-bizarreness NREM segments
     5. Results persisted in memory and returned as structured JSON
 
     **Tip:** Set `use_llm=false` for a fast (< 1 s) template-only run to verify
@@ -3342,6 +3343,8 @@ async def simulate_night(config: SimulationConfig):
 
         def _llm_eligible(seg: dict[str, Any]) -> bool:
             stage_val = str(seg.get("stage") or "N2")
+            if bool(config.llm_segments_only):
+                return stage_val == "REM"
             biz_val = float(seg.get("bizarreness_score") or 0.0)
             return stage_val == "REM" or (
                 stage_val in {"N1", "N2", "N3"} and biz_val >= 0.55
@@ -3388,6 +3391,7 @@ async def simulate_night(config: SimulationConfig):
             memory_labeler=lambda node_id: label_map.get(str(node_id), str(node_id)),
             style_preset=config.style_preset,
             prompt_profile=config.prompt_profile,
+            llm_segments_only=bool(config.llm_segments_only),
         )
         elapsed_before_narrative = max(0.0, time.perf_counter() - started_at)
         eligible_total_est = max(1, len(llm_jobs))
@@ -3665,6 +3669,7 @@ async def simulate_night(config: SimulationConfig):
         },
         "style_preset": config.style_preset,
         "prompt_profile": config.prompt_profile,
+        "llm_segments_only": bool(config.llm_segments_only),
         **quality_summary,
     }
 

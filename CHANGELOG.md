@@ -20,6 +20,13 @@
 - Frontend contract convergence and build fixes:
   - fixed Vite plugin mismatch (`@vitejs/plugin-react-swc`) and corrected frontend app entry import wiring,
   - rewired `web-frontend/src/useSimulationData.ts` + `App.tsx` to active API contract and async job submit/poll/cancel flow.
+- LLM invocation policy correctness:
+  - `llm_segments_only` is now enforced end-to-end in narrative generation (`core/generation/narrative_generator.py` and `api/main.py`),
+  - when enabled, LLM generation is restricted to REM segments only,
+  - added regression tests for generator-level behavior and API-level stage restriction.
+- Frontend simulation-console readability fix:
+  - improved `select`/`option` color contrast in `web-frontend/src/App.css` so dropdown text stays readable in both dark and light themes,
+  - added explicit dark/light `color-scheme` handling for simulation-console dropdowns to fix dark-mode unreadable text on native select rendering.
 - API surface and operations hardening:
   - added compatibility adapter in `api/routes/simulation.py` to map legacy request shape onto active `SimulationConfig`,
   - release-gate latency check now uses in-process p95 (`simulation_latency_p95_pass`) with new p95/p99 runtime and Prometheus metrics,

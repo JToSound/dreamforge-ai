@@ -128,6 +128,39 @@ async def test_n3_narrative_word_count_in_range() -> None:
 
 
 @pytest.mark.asyncio
+async def test_llm_segments_only_limits_invocation_to_rem() -> None:
+    segments = [
+        {
+            "stage": "N2",
+            "dominant_emotion": "curious",
+            "bizarreness_score": 0.95,
+            "lucidity_probability": 0.1,
+            "active_memory_ids": [],
+            "start_time_hours": 1.5,
+            "narrative": "",
+        },
+        {
+            "stage": "REM",
+            "dominant_emotion": "curious",
+            "bizarreness_score": 0.7,
+            "lucidity_probability": 0.25,
+            "active_memory_ids": [],
+            "start_time_hours": 2.0,
+            "narrative": "",
+        },
+    ]
+    gen = NarrativeGenerator(
+        llm_client=_StaticLLM(),
+        config=NarrativeGeneratorConfig(llm_enabled=True, llm_segments_only=True),
+    )
+    await gen.generate_batch(segments)
+    assert segments[0].get("_llm_invoked") is False
+    assert segments[0].get("narrative", "") == ""
+    assert segments[1].get("_llm_invoked") is True
+    assert segments[1].get("narrative", "")
+
+
+@pytest.mark.asyncio
 async def test_llm_fallback_on_timeout_returns_template() -> None:
     seg = {
         "stage": "REM",

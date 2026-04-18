@@ -303,6 +303,25 @@ def test_simulation_crud_and_counterfactual(patched_api):
         assert "methodology" in compare.json()
 
 
+def test_llm_segments_only_limits_llm_generation_to_rem_stages(patched_api):
+    with TestClient(patched_api.app) as client:
+        created = client.post(
+            "/api/simulation/night",
+            json=_sim_payload(duration_hours=4.0, use_llm=True, llm_segments_only=True),
+        )
+        assert created.status_code == 201
+        data = created.json()
+        llm_segments = [
+            seg
+            for seg in data.get("segments", [])
+            if seg.get("generation_mode") in {"LLM", "LLM_FALLBACK"}
+        ]
+        assert llm_segments, "Expected at least one LLM-attempted segment."
+        assert all(
+            str(seg.get("stage")) == "REM" for seg in llm_segments
+        ), "llm_segments_only=true should restrict LLM generation to REM segments."
+
+
 def test_multi_night_simulation_endpoint(patched_api):
     with TestClient(patched_api.app) as client:
         response = client.post(
