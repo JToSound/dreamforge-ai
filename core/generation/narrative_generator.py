@@ -114,12 +114,13 @@ class NarrativeGenerator:
         eligible_total = sum(1 for seg in segments if self._llm_should_be_invoked(seg))
         completed = 0
         eligible_completed = 0
+        llm_elapsed_seconds = 0.0
         timeout_streak = 0
         circuit_open = False
         progress_lock = asyncio.Lock()
 
         async def _work(index: int, seg: dict[str, Any], prior_summary: str) -> None:
-            nonlocal completed, eligible_completed, timeout_streak, circuit_open
+            nonlocal completed, eligible_completed, llm_elapsed_seconds, timeout_streak, circuit_open
             async with semaphore:
                 eligible = self._llm_should_be_invoked(seg)
                 if circuit_open and eligible:
@@ -133,6 +134,15 @@ class NarrativeGenerator:
                     completed += 1
                     if eligible:
                         eligible_completed += 1
+                        latency_ms_raw = seg.get("_llm_latency_ms")
+                        if latency_ms_raw is not None:
+                            try:
+                                latency_seconds = max(
+                                    0.0, float(latency_ms_raw) / 1000.0
+                                )
+                            except (TypeError, ValueError):
+                                latency_seconds = 0.0
+                            llm_elapsed_seconds += latency_seconds
                     if seg.get("_llm_fallback_reason") == "timeout":
                         timeout_streak += 1
                     elif bool(seg.get("_llm_invoked")) and not bool(
@@ -148,12 +158,28 @@ class NarrativeGenerator:
                             timeout_streak,
                         )
                     if progress_callback:
+                        llm_avg_seconds = (
+                            llm_elapsed_seconds / float(eligible_completed)
+                            if eligible_completed > 0
+                            else None
+                        )
                         progress_callback(
                             {
                                 "completed": completed,
                                 "total": total,
                                 "eligible_completed": eligible_completed,
                                 "eligible_total": eligible_total,
+                                "llm_completed_invocations": eligible_completed,
+                                "llm_total_invocations": eligible_total,
+                                "llm_remaining_invocations": max(
+                                    0, eligible_total - eligible_completed
+                                ),
+                                "llm_elapsed_seconds": round(llm_elapsed_seconds, 3),
+                                "llm_avg_invocation_seconds": (
+                                    round(llm_avg_seconds, 3)
+                                    if llm_avg_seconds is not None
+                                    else None
+                                ),
                                 "batch_elapsed_seconds": max(
                                     0.0, loop.time() - batch_started
                                 ),

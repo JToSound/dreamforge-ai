@@ -68,6 +68,8 @@ def patched_api(monkeypatch, tmp_path):
         api_main._simulation_duration_seconds_history.clear()
         api_main._simulation_duration_seconds_llm_history.clear()
         api_main._simulation_duration_seconds_no_llm_history.clear()
+        api_main._llm_invocation_latency_seconds_history.clear()
+        api_main._llm_invocation_density_history.clear()
     with api_main._artifact_health_lock:
         api_main._artifact_health_cache.clear()
         api_main._artifact_health_cached_at = 0.0
@@ -438,6 +440,45 @@ def test_job_progress_snapshot_recalibrates_stale_eta_for_long_llm_runs(
     assert eta_seconds > 60
 
 
+def test_job_progress_snapshot_uses_llm_invocation_projection(patched_api, monkeypatch):
+    monkeypatch.setattr(api_main.time, "time", lambda: 1000.0)
+    job = {
+        "status": "running",
+        "phase": "narrative",
+        "progress_percent": 95.0,
+        "eta_seconds": 2,
+        "estimated_duration_seconds": 40.0,
+        "started_at": 950.0,
+        "last_progress_event_at": 999.0,
+        "use_llm": True,
+        "llm_expected_invocations": 100,
+        "llm_completed_invocations": 10,
+        "llm_remaining_invocations": 90,
+        "llm_avg_invocation_seconds": 2.0,
+        "llm_concurrency": 2,
+    }
+    progress, eta_seconds = api_main._job_progress_snapshot(job, "running")
+
+    assert progress < 95.0
+    assert eta_seconds is not None
+    assert eta_seconds >= 90
+
+
+def test_estimate_job_duration_no_llm_not_inflated_by_llm_history(patched_api):
+    with api_main._metrics_lock:
+        api_main._simulation_duration_seconds_history.clear()
+        api_main._simulation_duration_seconds_llm_history.clear()
+        api_main._simulation_duration_seconds_no_llm_history.clear()
+        api_main._simulation_duration_seconds_history.extend([250.0, 320.0, 410.0])
+
+    no_llm_cfg = api_main.SimulationConfig(
+        duration_hours=8.0, dt_minutes=0.5, use_llm=False
+    )
+    no_llm_est = api_main._estimate_job_duration_seconds(no_llm_cfg)
+
+    assert no_llm_est <= 12.0
+
+
 def test_metrics_auth_exempt_is_configurable(patched_api, monkeypatch):
     monkeypatch.setattr(api_main, "_METRICS_PUBLIC", False)
     monkeypatch.setattr(api_main, "_API_ACCESS_TOKEN", "secret-token")
@@ -659,6 +700,24 @@ def test_async_simulation_job_flow(patched_api):
             time.sleep(0.05)
 
         assert final_status == "completed"
+
+
+def test_async_simulation_job_provenance_exposes_llm_plan(patched_api):
+    with TestClient(patched_api.app) as client:
+        submit = client.post(
+            "/api/simulation/night/async",
+            json=_sim_payload(use_llm=True, duration_hours=1.0),
+        )
+        assert submit.status_code == 202
+        job_id = submit.json()["job_id"]
+
+        status_resp = client.get(f"/api/simulation/jobs/{job_id}")
+        assert status_resp.status_code == 200
+        provenance = status_resp.json()["provenance"]
+        assert provenance["use_llm"] is True
+        assert provenance["llm_expected_invocations"] is not None
+        assert provenance["llm_concurrency"] is not None
+        assert provenance["llm_concurrency"] >= 1
 
 
 def test_async_simulation_job_queue_limit_returns_429(patched_api, monkeypatch):
