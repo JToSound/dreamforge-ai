@@ -70,6 +70,7 @@ docker-compose up --build
 Then open:
 - API: http://localhost:8000/docs
 - Dashboard: http://localhost:8501
+- Frontend: http://localhost:5173
 
 > Note: first build may take a few minutes while Python dependencies are installed.
 
@@ -199,7 +200,7 @@ We provide a cache-friendly dashboard Dockerfile and compose setup. For local de
 # enable BuildKit (Linux/macOS)
 export DOCKER_BUILDKIT=1
 docker compose build --progress=plain dashboard
-docker compose up dashboard
+docker compose up dashboard frontend
 ```
 
 ### Optional observability stack (Prometheus + Grafana)

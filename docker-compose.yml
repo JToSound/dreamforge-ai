@@ -36,6 +36,20 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  frontend:
+    image: node:20-alpine
+    working_dir: /workspace/web-frontend
+    command: sh -c "npm install --include=dev && npx vite --host 0.0.0.0 --port 5173"
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_PROXY_TARGET: http://api:8000
+    volumes:
+      - .:/workspace
+      - frontend_node_modules:/workspace/web-frontend/node_modules
+    depends_on:
+      - api
+
   redis:
     image: redis:7-alpine
     ports:
@@ -70,3 +84,6 @@ services:
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
+
+volumes:
+  frontend_node_modules:

@@ -722,6 +722,256 @@ main {
   font-size: 0.88rem;
 }
 
+.simulation-layout {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 16px;
+}
+
+.control-panel,
+.telemetry-panel {
+  padding: 20px;
+}
+
+.field-row {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.field-row.two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field > span {
+  color: var(--text-2);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.sim-input {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--outline);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-0);
+  font: inherit;
+  padding: 10px 12px;
+}
+
+.sim-input:focus {
+  outline: 2px solid rgba(126, 231, 255, 0.5);
+  outline-offset: 1px;
+}
+
+.checkbox-stack {
+  align-content: end;
+  gap: 8px;
+}
+
+.checkbox-stack label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--text-1);
+  font-size: 0.9rem;
+}
+
+.control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.stage-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: #061423;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.2);
+  overflow: hidden;
+}
+
+.progress-track > div {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(126, 231, 255, 0.9), rgba(167, 139, 250, 0.9));
+  transition: width 240ms ease;
+}
+
+.status-message {
+  margin: 12px 0 8px;
+  color: var(--text-1);
+  line-height: 1.6;
+  font-size: 0.92rem;
+}
+
+.status-error {
+  margin: 8px 0;
+  color: #fda4af;
+  font-size: 0.9rem;
+}
+
+.summary-narrative {
+  margin: 12px 0 0;
+  color: var(--text-1);
+  line-height: 1.7;
+  font-size: 0.92rem;
+}
+
+.mini-segment-list {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.mini-segment {
+  border-radius: 12px;
+  border: 1px solid var(--outline);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 10px 12px;
+}
+
+.mini-segment span {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
+.mini-segment p {
+  margin: 6px 0 0;
+  color: var(--text-1);
+  line-height: 1.55;
+  font-size: 0.87rem;
+}
+
+.result-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.metric-card {
+  padding: 16px;
+}
+
+.metric-card span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-2);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.metric-card strong {
+  font-family: "Sora", sans-serif;
+  font-size: 1.02rem;
+  line-height: 1.4;
+}
+
+.segment-list {
+  display: grid;
+  gap: 10px;
+}
+
+.segment-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: center;
+}
+
+.segment-card {
+  padding: 12px;
+}
+
+.segment-header {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text-0);
+  display: grid;
+  grid-template-columns: auto auto auto 1fr;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.segment-stage {
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: #061423;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.segment-time,
+.segment-emotion {
+  color: var(--text-1);
+  font-size: 0.85rem;
+}
+
+.segment-toggle {
+  justify-self: end;
+  font-size: 1.2rem;
+  line-height: 1;
+  color: var(--text-2);
+}
+
+.segment-meter {
+  margin-top: 8px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.2);
+  overflow: hidden;
+}
+
+.segment-meter > div {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(126, 231, 255, 0.9), rgba(244, 114, 182, 0.9));
+}
+
+.segment-narrative {
+  margin: 10px 0 0;
+  color: var(--text-1);
+  line-height: 1.65;
+  font-size: 0.9rem;
+}
+
+.empty-result {
+  padding: 20px;
+  color: var(--text-1);
+}
+
 .footer-links {
   display: flex;
   align-items: center;
@@ -934,8 +1184,13 @@ main {
   .showcase-grid,
   .case-grid,
   .process-list,
-  .direction-grid {
+  .direction-grid,
+  .result-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .simulation-layout {
+    grid-template-columns: 1fr;
   }
 
   .trust-strip {
@@ -983,7 +1238,9 @@ main {
   .showcase-grid,
   .case-grid,
   .process-list,
-  .direction-grid {
+  .direction-grid,
+  .result-metrics,
+  .field-row.two-col {
     grid-template-columns: 1fr;
   }
 

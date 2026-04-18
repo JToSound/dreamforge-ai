@@ -1,220 +1,118 @@
 import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from "react";
+import {
+  useSimulationData,
+  type DreamSegment,
+  type SimulateRequest,
+} from "./useSimulationData";
 import "./App.css";
 
 type ThemeMode = "dark" | "light";
+type PromptProfile = "A" | "B";
 
-interface ServiceItem {
+interface ArchitectureCard {
   title: string;
-  description: string;
-  tag: string;
+  summary: string;
+  layer: string;
 }
 
-interface FeatureItem {
+interface FeatureCard {
   title: string;
   body: string;
   metric: string;
 }
 
-interface ShowcaseItem {
-  title: string;
-  label: string;
-}
-
-interface CaseStudyItem {
-  client: string;
-  challenge: string;
-  outcome: string;
-}
-
-interface FaqItem {
+interface FAQItem {
   question: string;
   answer: string;
 }
 
-interface DirectionItem {
-  id: string;
-  name: string;
-  color: string;
-  type: string;
-  motion: string;
-  brandFit: string;
-}
-
-const navItems = [
-  { label: "About", href: "#about" },
-  { label: "Services", href: "#services" },
-  { label: "Features", href: "#features" },
-  { label: "Showcase", href: "#showcase" },
-  { label: "Case Studies", href: "#cases" },
-  { label: "FAQ", href: "#faq" },
-];
-
-const services: ServiceItem[] = [
-  {
-    title: "Brand Experience Direction",
-    description: "Translate brand essence into a cinematic, memorable digital language.",
-    tag: "Strategy",
-  },
-  {
-    title: "Liquid Interface Design",
-    description: "Build premium UI layers with metal reflections and refined glass depth.",
-    tag: "UI Systems",
-  },
-  {
-    title: "Frontend Motion Engineering",
-    description: "Craft interaction pacing, micro-feedback, and high-end section choreography.",
-    tag: "Motion",
-  },
-  {
-    title: "Narrative Information Architecture",
-    description: "Sequence content for clarity, persuasion, and high-value conversion.",
-    tag: "UX",
-  },
-  {
-    title: "Creative Technology Integration",
-    description: "Integrate WebGL and advanced visuals without sacrificing performance.",
-    tag: "Creative Dev",
-  },
-  {
-    title: "Design System Delivery",
-    description: "Ship scalable tokens and component specs for long-term maintainability.",
-    tag: "Handoff",
-  },
-];
-
-const features: FeatureItem[] = [
-  {
-    title: "Floating Island Layout",
-    body: "Spatial modules orbit around key narratives so every screen feels intentional and immersive.",
-    metric: "12-column desktop rhythm",
-  },
-  {
-    title: "Liquid Metal Core Visual",
-    body: "Hero identity object anchors attention with controlled reflection and depth cues.",
-    metric: "Single focal effect per screen",
-  },
-  {
-    title: "Micro-interaction Grammar",
-    body: "Buttons, cards, and inputs share a tactile motion language with restrained premium feedback.",
-    metric: "140–320ms interaction cadence",
-  },
-  {
-    title: "Performance-safe Motion Stack",
-    body: "Animations prioritize transform and opacity with automatic reduced-motion fallbacks.",
-    metric: "Adaptive by capability tier",
-  },
-];
-
-const showcaseItems: ShowcaseItem[] = [
-  { title: "Material Surface Study", label: "Liquid Metal" },
-  { title: "Immersive Product Narrative", label: "Spatial Story" },
-  { title: "High-contrast Editorial Grid", label: "Typography" },
-  { title: "Adaptive Motion Language", label: "Interaction" },
-  { title: "Premium Commerce Journey", label: "Conversion" },
-  { title: "Cross-device Fidelity", label: "Responsive" },
-];
-
-const caseStudies: CaseStudyItem[] = [
-  {
-    client: "Aether Labs",
-    challenge: "Complex AI product looked technical but emotionally flat.",
-    outcome: "Reframed into immersive product storytelling and lifted qualified leads by 37%.",
-  },
-  {
-    client: "Obsidian Capital",
-    challenge: "Enterprise trust perception lagged behind service quality.",
-    outcome: "Introduced premium spatial UI with stronger trust signals and 2.1x demo request growth.",
-  },
-  {
-    client: "Nocturne Audio",
-    challenge: "Brand lacked a distinct digital identity in a crowded segment.",
-    outcome: "Built a future-classic visual system that doubled branded search within one quarter.",
-  },
-];
-
-const processSteps = [
-  {
-    title: "Discover",
-    body: "Brand, audience, and positioning alignment with measurable business intent.",
-  },
-  {
-    title: "Design",
-    body: "High-fidelity concept, visual system, and responsive behavior across breakpoints.",
-  },
-  {
-    title: "Build",
-    body: "Componentized frontend implementation with motion tiers and quality constraints.",
-  },
-  {
-    title: "Optimize",
-    body: "Iterate narrative, performance, and conversion pathways post-launch.",
-  },
-];
-
-const faqs: FaqItem[] = [
-  {
-    question: "Is this style usable for conversion-focused websites?",
-    answer:
-      "Yes. The visual language is premium, but information hierarchy stays explicit, with clear CTA pathways and strong readability.",
-  },
-  {
-    question: "Will this run smoothly on mobile devices?",
-    answer:
-      "Yes. Heavy visual layers are progressively enhanced. Mobile receives a simplified composition while keeping the brand signature.",
-  },
-  {
-    question: "How do you avoid the generic AI aesthetic?",
-    answer:
-      "By pairing strict editorial structure with restrained material effects, avoiding overused neon gradients and template patterns.",
-  },
-  {
-    question: "Can this scale into a larger product site?",
-    answer:
-      "Yes. Tokens, components, and interaction rules are built as a system so new pages remain visually and technically consistent.",
-  },
-  {
-    question: "What stack do you recommend for production?",
-    answer:
-      "Next.js + TypeScript + tokenized CSS with selective WebGL in hero/showcase only. Most UI effects remain pure CSS.",
-  },
-  {
-    question: "Do you support reduced-motion accessibility?",
-    answer:
-      "Yes. Motion intensity automatically scales down and complex parallax or kinetic effects are disabled when users request less motion.",
-  },
-];
-
-const directions: DirectionItem[] = [
-  {
-    id: "A",
-    name: "Extreme Future Art",
-    color: "Deep black + cold silver + electric cyan",
-    type: "Clash Display + Inter",
-    motion: "High spatial motion + hero 3D emphasis",
-    brandFit: "Avant-garde tech and artistic innovation brands",
-  },
-  {
-    id: "B",
-    name: "Premium Commercial Balance",
-    color: "Graphite + titanium + desaturated cyan-violet",
-    type: "Sora + Manrope",
-    motion: "Measured cinematic transitions with strong readability",
-    brandFit: "High-budget product and enterprise innovation brands",
-  },
-  {
-    id: "C",
-    name: "Minimal Tech Luxury",
-    color: "Warm charcoal + champagne silver + deep green accent",
-    type: "Neue Montreal + Inter",
-    motion: "Low-motion premium polish",
-    brandFit: "Fintech, consulting, and luxury services",
-  },
-];
-
 type VariableStyle = CSSProperties & {
   "--px"?: string;
   "--py"?: string;
-  "--phase"?: string;
+};
+
+const navItems = [
+  { label: "Simulation", href: "#simulation" },
+  { label: "Architecture", href: "#architecture" },
+  { label: "Outputs", href: "#outputs" },
+  { label: "FAQ", href: "#faq" },
+];
+
+const architectureCards: ArchitectureCard[] = [
+  {
+    title: "Borbély Sleep Cycle Engine",
+    summary: "Stages WAKE/N1/N2/N3/REM using biologically inspired two-process dynamics.",
+    layer: "core/models/sleep_cycle.py",
+  },
+  {
+    title: "Neurochemistry ODE Layer",
+    summary: "Tracks ACh/5-HT/NE/cortisol trajectories that influence bizarreness and lucidity.",
+    layer: "core/models/neurochemistry.py",
+  },
+  {
+    title: "Memory Graph Replay",
+    summary: "Activates emotionally salient memory nodes via MultiDiGraph transitions.",
+    layer: "core/models/memory_graph.py",
+  },
+  {
+    title: "Multi-agent Dream Orchestration",
+    summary: "Coordinates simulation, memory replay, and narrative synthesis in a unified pipeline.",
+    layer: "core/simulation/engine.py + core/agents/*",
+  },
+];
+
+const featureCards: FeatureCard[] = [
+  {
+    title: "Live Job Telemetry",
+    body: "Async polling surfaces job phase, progress, and cancellation state in real time.",
+    metric: "/api/simulation/jobs/{id}",
+  },
+  {
+    title: "LLM / Non-LLM Parity",
+    body: "Simulation remains functional even when external model providers are unavailable.",
+    metric: "Fail-soft generation path",
+  },
+  {
+    title: "Legacy Shape Compatibility",
+    body: "UI accepts both current and legacy response keys to avoid integration regressions.",
+    metric: "segments + summary adapters",
+  },
+  {
+    title: "Scientific + Narrative Blend",
+    body: "Quantitative neurochemistry and qualitative dream narratives are shown in one surface.",
+    metric: "Single operator console",
+  },
+];
+
+const faqItems: FAQItem[] = [
+  {
+    question: "Can I run without OpenAI/Anthropic keys?",
+    answer:
+      "Yes. Keep use_llm disabled to run fully local simulation and still generate structured outputs.",
+  },
+  {
+    question: "Why do segments appear while the run is ongoing?",
+    answer:
+      "The UI uses async job polling and appends live segments before final completion payload arrives.",
+  },
+  {
+    question: "Which endpoint does this frontend call?",
+    answer:
+      "It targets /api/simulation/night/async first, then falls back to /api/simulation/night if needed.",
+  },
+  {
+    question: "Is this page production-ready or only a mock?",
+    answer:
+      "This page is wired to the real DreamForge API contract and preserves existing response compatibility.",
+  },
+];
+
+const stageColors: Record<string, string> = {
+  WAKE: "#f59e0b",
+  N1: "#60a5fa",
+  N2: "#818cf8",
+  N3: "#6366f1",
+  REM: "#f472b6",
 };
 
 const frontendContractCompatibility = {
@@ -223,13 +121,86 @@ const frontendContractCompatibility = {
   resultPath: "result.segments",
 };
 
+function stageColor(stage: string): string {
+  return stageColors[stage] ?? "#94a3b8";
+}
+
+function SegmentCard({ segment }: { segment: DreamSegment }) {
+  const [open, setOpen] = useState(false);
+  const pct = Math.round((segment.bizarreness_score ?? 0) * 100);
+  const emotion = segment.dominant_emotion || "neutral";
+  const narrativeText =
+    (typeof segment.narrative === "string" && segment.narrative.trim()) ||
+    ((segment as unknown as { scene_description?: string }).scene_description ?? "No narrative.");
+  return (
+    <article className="segment-card glass-panel">
+      <button type="button" className="segment-header" onClick={() => setOpen(!open)}>
+        <span
+          className="segment-stage"
+          style={{ backgroundColor: stageColor(segment.stage) }}
+        >
+          {segment.stage}
+        </span>
+        <span className="segment-time">
+          {(segment.time_hours ?? segment.start_time_hours ?? 0).toFixed(2)}h
+        </span>
+        <span className="segment-emotion">{emotion}</span>
+        <span className="segment-toggle">{open ? "−" : "+"}</span>
+      </button>
+      <div className="segment-meter">
+        <div style={{ width: `${pct}%` }} />
+      </div>
+      {open && <p className="segment-narrative">{narrativeText}</p>}
+    </article>
+  );
+}
+
 function App() {
   const [theme, setTheme] = useState<ThemeMode>("dark");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [contactOpen, setContactOpen] = useState(false);
-  const [activeFaq, setActiveFaq] = useState<number | null>(0);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
+  const [activeFaq, setActiveFaq] = useState<number | null>(0);
+
+  const [durationHours, setDurationHours] = useState(8);
+  const [stressLevel, setStressLevel] = useState(0.5);
+  const [priorEvents, setPriorEvents] = useState(
+    "Late-night debugging session\nRead neuroscience paper\nWatched surreal animation",
+  );
+  const [emotionalState, setEmotionalState] = useState("neutral");
+  const [stylePreset, setStylePreset] = useState("scientific");
+  const [promptProfile, setPromptProfile] = useState<PromptProfile>("A");
+  const [useLLM, setUseLLM] = useState(true);
+  const [llmSegmentsOnly, setLlmSegmentsOnly] = useState(false);
+  const [visibleSegmentCount, setVisibleSegmentCount] = useState(60);
+
+  const {
+    status,
+    progress,
+    progressMsg,
+    currentStage,
+    result,
+    liveSegments,
+    error,
+    runSimulation,
+    cancel,
+  } = useSimulationData();
+
+  const running = status === "running" || status === "cancelling";
+  const progressPercent = Math.round(progress * 100);
+  const segments = running ? liveSegments : result?.segments ?? [];
+  const visibleSegments = segments.slice(0, visibleSegmentCount);
+  const summary = (result?.summary ?? {}) as Record<string, unknown>;
+  const summaryNarrative =
+    typeof summary.summary_narrative === "string"
+      ? summary.summary_narrative
+      : typeof summary.summary === "string"
+        ? summary.summary
+        : "";
+  const meanBizarreness =
+    typeof summary.mean_bizarreness === "number" ? Math.round(summary.mean_bizarreness * 100) : null;
+  const dominantEmotion =
+    typeof summary.dominant_emotion === "string" ? summary.dominant_emotion : "unknown";
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -267,6 +238,10 @@ function App() {
       window.removeEventListener("resize", updateScrollPhase);
     };
   }, []);
+
+  useEffect(() => {
+    setVisibleSegmentCount(60);
+  }, [result?.id]);
 
   useEffect(() => {
     const revealTargets = document.querySelectorAll<HTMLElement>("[data-reveal]");
@@ -321,6 +296,25 @@ function App() {
     event.currentTarget.style.setProperty("--my", "0px");
   };
 
+  const handleRunSimulation = () => {
+    const request: SimulateRequest = {
+      duration_hours: durationHours,
+      dt_minutes: 0.5,
+      sleep_start_hour: 23,
+      ssri_strength: 1.0,
+      stress_level: stressLevel,
+      melatonin: false,
+      cannabis: false,
+      prior_day_events: priorEvents.split("\n").map((line) => line.trim()).filter(Boolean),
+      emotional_state: emotionalState,
+      style_preset: stylePreset,
+      prompt_profile: promptProfile,
+      use_llm: useLLM,
+      llm_segments_only: llmSegmentsOnly,
+    };
+    runSimulation(request);
+  };
+
   const heroStyle = useMemo<VariableStyle>(
     () => ({
       "--px": pointer.x.toFixed(3),
@@ -347,8 +341,8 @@ function App() {
         <a className="brand-lockup" href="#hero">
           <span className="brand-mark" aria-hidden="true" />
           <span>
-            <strong>DreamForge Studio</strong>
-            <small>Liquid Experience Platform</small>
+            <strong>DreamForge AI</strong>
+            <small>Computational Dream Simulation Platform</small>
           </span>
         </a>
 
@@ -368,15 +362,6 @@ function App() {
             aria-label="Toggle color mode"
           >
             {theme === "dark" ? "☼" : "☾"}
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary magnetic"
-            onClick={() => setContactOpen(true)}
-            onMouseMove={(event) => handleMagneticMove(event, 5)}
-            onMouseLeave={resetMagnetic}
-          >
-            Start Project
           </button>
           <button
             type="button"
@@ -408,9 +393,6 @@ function App() {
                 {item.label}
               </a>
             ))}
-            <button type="button" className="btn btn-primary" onClick={() => setContactOpen(true)}>
-              Start Project
-            </button>
           </nav>
         </div>
         <button
@@ -424,35 +406,34 @@ function App() {
       <main>
         <section id="hero" className="hero-section" style={heroStyle}>
           <div className="hero-copy" data-reveal>
-            <p className="eyebrow">Future-Class Digital Presence</p>
-            <h1>Designing Digital Gravity for ambitious brands.</h1>
+            <p className="eyebrow">DreamForge Production Frontend</p>
+            <h1>Simulate neurochemical sleep narratives with a premium operator UI.</h1>
             <p className="hero-subtitle">
-              Liquid metal materiality, floating island composition, and cinematic interaction rhythm
-              — engineered for real product velocity across desktop and mobile.
+              This frontend is wired to DreamForge APIs, not static demo text. Launch simulations,
+              monitor async job phases, and inspect dream segments directly from live outputs.
             </p>
             <div className="hero-cta">
-              <button
-                type="button"
+              <a
+                href="#simulation"
                 className="btn btn-primary magnetic"
-                onClick={() => setContactOpen(true)}
                 onMouseMove={(event) => handleMagneticMove(event, 7)}
                 onMouseLeave={resetMagnetic}
               >
-                Begin Premium Engagement
-              </button>
+                Open Simulation Console
+              </a>
               <a
-                href="#cases"
+                href="#outputs"
                 className="btn btn-secondary magnetic"
                 onMouseMove={(event) => handleMagneticMove(event, 6)}
                 onMouseLeave={resetMagnetic}
               >
-                View Case Studies
+                Inspect Latest Results
               </a>
             </div>
             <ul className="hero-points">
-              <li>High-end aesthetic with production-ready constraints</li>
-              <li>Motion choreography tuned for performance and readability</li>
-              <li>Distinctive brand memory without generic AI template feel</li>
+              <li>Connected to `/api/simulation/night/async` and job polling pipeline</li>
+              <li>Preserves use_llm and llm_segments_only request contract fields</li>
+              <li>Displays result.segments and summary data in real time</li>
             </ul>
           </div>
 
@@ -466,198 +447,271 @@ function App() {
               <div className="liquid-gloss" />
             </div>
             <article className="floating-island island-1">
-              <p>Primary Promise</p>
-              <strong>Future-ready with editorial clarity</strong>
+              <p>API Mode</p>
+              <strong>{status.toUpperCase()}</strong>
             </article>
             <article className="floating-island island-2">
-              <p>Motion Layer</p>
-              <strong>140–320ms tactile feedback cadence</strong>
+              <p>Current Stage</p>
+              <strong>{currentStage || "IDLE"}</strong>
             </article>
             <article className="floating-island island-3">
-              <p>Performance</p>
-              <strong>Progressive enhancement by capability tier</strong>
+              <p>Progress</p>
+              <strong>{progressPercent}%</strong>
             </article>
             <article className="floating-island island-4">
-              <p>Accessibility</p>
-              <strong>Reduced-motion mode fully respected</strong>
+              <p>Segments</p>
+              <strong>{segments.length}</strong>
             </article>
           </div>
         </section>
 
         <section className="trust-strip glass-panel" data-reveal>
-          <p>Trusted by teams building category-defining digital products.</p>
+          <p>
+            Live DreamForge telemetry — status, stage transitions, narrative segments, and summary
+            outputs in one execution surface.
+          </p>
           <div className="trust-metrics">
-            <span>+37% qualified leads</span>
-            <span>2.1x demo requests</span>
-            <span>98/100 UX quality score</span>
+            <span>Status: {status}</span>
+            <span>Stage: {currentStage || "IDLE"}</span>
+            <span>Segments: {segments.length}</span>
           </div>
         </section>
 
-        <section id="about" className="content-section" data-reveal>
+        <section id="simulation" className="content-section" data-reveal>
           <div className="section-head">
-            <p className="eyebrow">About the Design Language</p>
-            <h2>Balanced precision: luxury, future, technology, and art.</h2>
+            <p className="eyebrow">Simulation Console</p>
+            <h2>Configure the night model and run DreamForge directly.</h2>
             <p>
-              The system avoids cliché cyber aesthetics by treating material effects as supporting
-              actors. Structure, contrast, and narrative hierarchy always lead.
+              This panel sends real requests to the simulation API. It is not placeholder content.
             </p>
           </div>
-          <div className="about-grid">
-            <article className="glass-panel">
-              <h3>Luxury</h3>
-              <p>Comes from proportion, spacing, and restraint — not decorative overload.</p>
+          <div className="simulation-layout">
+            <article className="glass-panel control-panel">
+              <div className="field-row two-col">
+                <label className="field">
+                  <span>Duration (hours)</span>
+                  <input
+                    className="sim-input"
+                    type="number"
+                    min={4}
+                    max={12}
+                    step={0.5}
+                    value={durationHours}
+                    onChange={(event) => setDurationHours(Number(event.target.value))}
+                  />
+                </label>
+                <label className="field">
+                  <span>Stress Level</span>
+                  <input
+                    className="sim-input"
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={stressLevel}
+                    onChange={(event) => setStressLevel(Number(event.target.value))}
+                  />
+                </label>
+              </div>
+
+              <div className="field-row two-col">
+                <label className="field">
+                  <span>Emotional State</span>
+                  <input
+                    className="sim-input"
+                    value={emotionalState}
+                    onChange={(event) => setEmotionalState(event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Style Preset</span>
+                  <select
+                    className="sim-input"
+                    value={stylePreset}
+                    onChange={(event) => setStylePreset(event.target.value)}
+                  >
+                    <option value="scientific">scientific</option>
+                    <option value="poetic">poetic</option>
+                    <option value="cinematic">cinematic</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="field-row two-col">
+                <label className="field">
+                  <span>Prompt Profile</span>
+                  <select
+                    className="sim-input"
+                    value={promptProfile}
+                    onChange={(event) => setPromptProfile(event.target.value as PromptProfile)}
+                  >
+                    <option value="A">A</option>
+                    <option value="B">B</option>
+                  </select>
+                </label>
+                <div className="field checkbox-stack">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={useLLM}
+                      onChange={(event) => setUseLLM(event.target.checked)}
+                    />
+                    <span>Enable use_llm</span>
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={llmSegmentsOnly}
+                      onChange={(event) => setLlmSegmentsOnly(event.target.checked)}
+                    />
+                    <span>Enable llm_segments_only</span>
+                  </label>
+                </div>
+              </div>
+
+              <label className="field">
+                <span>Prior Day Events (one per line)</span>
+                <textarea
+                  className="sim-input"
+                  rows={5}
+                  value={priorEvents}
+                  onChange={(event) => setPriorEvents(event.target.value)}
+                />
+              </label>
+
+              <div className="control-actions">
+                <button type="button" className="btn btn-primary" onClick={handleRunSimulation}>
+                  {running ? "Running..." : "Run Simulation"}
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={cancel}>
+                  Cancel
+                </button>
+              </div>
             </article>
-            <article className="glass-panel">
-              <h3>Future</h3>
-              <p>Comes from depth cues, controlled highlights, and spatial transitions.</p>
-            </article>
-            <article className="glass-panel">
-              <h3>Technology</h3>
-              <p>Comes from crisp information architecture and interaction reliability.</p>
-            </article>
-            <article className="glass-panel">
-              <h3>Art</h3>
-              <p>Comes from composition rhythm and visual storytelling intent.</p>
+
+            <article className="glass-panel telemetry-panel">
+              <div className="status-row">
+                <span className="stage-pill" style={{ backgroundColor: stageColor(currentStage) }}>
+                  {currentStage || "IDLE"}
+                </span>
+                <strong>{progressPercent}%</strong>
+              </div>
+              <div className="progress-track">
+                <div style={{ width: `${progressPercent}%` }} />
+              </div>
+              <p className="status-message">{progressMsg || "No active simulation."}</p>
+              {error && <p className="status-error">{error}</p>}
+              {summaryNarrative && <p className="summary-narrative">{summaryNarrative}</p>}
+
+              <div className="mini-segment-list">
+                {segments.slice(0, 3).map((segment, index) => (
+                  <div key={String(segment.segment_index ?? segment.id ?? index)} className="mini-segment">
+                    <span>{segment.stage}</span>
+                    <p>
+                      {(
+                        segment.narrative ||
+                        (segment as unknown as { scene_description?: string }).scene_description ||
+                        "No narrative."
+                      ).slice(0, 96)}
+                      ...
+                    </p>
+                  </div>
+                ))}
+              </div>
             </article>
           </div>
         </section>
 
-        <section id="services" className="content-section" data-reveal>
+        <section id="architecture" className="content-section" data-reveal>
           <div className="section-head">
-            <p className="eyebrow">Services</p>
-            <h2>Complete scope beyond a landing page.</h2>
-            <p>
-              Designed as a full ecosystem: strategic positioning, visual system, UX rhythm, and
-              implementation architecture.
-            </p>
+            <p className="eyebrow">Architecture</p>
+            <h2>Grounded in actual DreamForge core modules.</h2>
           </div>
           <div className="island-grid">
-            {services.map((service) => (
-              <article key={service.title} className="glass-panel service-card">
-                <span>{service.tag}</span>
-                <h3>{service.title}</h3>
-                <p>{service.description}</p>
+            {architectureCards.map((item) => (
+              <article key={item.title} className="glass-panel service-card">
+                <span>{item.layer}</span>
+                <h3>{item.title}</h3>
+                <p>{item.summary}</p>
               </article>
             ))}
           </div>
         </section>
 
-        <section id="features" className="content-section" data-reveal>
+        <section className="content-section" data-reveal>
           <div className="section-head">
-            <p className="eyebrow">Feature Deep Dive</p>
-            <h2>Every effect has a job, every section has value.</h2>
+            <p className="eyebrow">Core Capabilities</p>
+            <h2>High-fidelity interface with real simulation contracts.</h2>
           </div>
           <div className="feature-list">
-            {features.map((feature) => (
-              <article key={feature.title} className="glass-panel feature-card">
+            {featureCards.map((item) => (
+              <article key={item.title} className="glass-panel feature-card">
                 <div>
-                  <h3>{feature.title}</h3>
-                  <p>{feature.body}</p>
+                  <h3>{item.title}</h3>
+                  <p>{item.body}</p>
                 </div>
-                <strong>{feature.metric}</strong>
+                <strong>{item.metric}</strong>
               </article>
             ))}
           </div>
         </section>
 
-        <section id="showcase" className="content-section" data-reveal>
+        <section id="outputs" className="content-section" data-reveal>
           <div className="section-head">
-            <p className="eyebrow">Visual Showcase</p>
-            <h2>Material, typography, interaction, and depth in one cohesive system.</h2>
+            <p className="eyebrow">Outputs</p>
+            <h2>Inspect summary and dream segments from result payloads.</h2>
           </div>
-          <div className="showcase-grid">
-            {showcaseItems.map((item) => (
-              <article key={item.title} className="showcase-card glass-panel">
-                <span>{item.label}</span>
-                <h3>{item.title}</h3>
-              </article>
-            ))}
+          <div className="result-metrics">
+            <article className="glass-panel metric-card">
+              <span>Simulation ID</span>
+              <strong>{result?.id ?? "N/A"}</strong>
+            </article>
+            <article className="glass-panel metric-card">
+              <span>Segments</span>
+              <strong>{segments.length}</strong>
+            </article>
+            <article className="glass-panel metric-card">
+              <span>Mean Bizarreness</span>
+              <strong>{meanBizarreness === null ? "N/A" : `${meanBizarreness}%`}</strong>
+            </article>
+            <article className="glass-panel metric-card">
+              <span>Dominant Emotion</span>
+              <strong>{dominantEmotion}</strong>
+            </article>
           </div>
-        </section>
-
-        <section id="cases" className="content-section" data-reveal>
-          <div className="section-head">
-            <p className="eyebrow">Case Studies</p>
-            <h2>Design outcomes tied to business signals.</h2>
+          <div className="segment-list">
+            {segments.length === 0 ? (
+              <article className="glass-panel empty-result">No segments yet. Run a simulation first.</article>
+            ) : (
+              visibleSegments.map((segment, index) => (
+                <SegmentCard key={String(segment.segment_index ?? segment.id ?? index)} segment={segment} />
+              ))
+            )}
           </div>
-          <div className="case-grid">
-            {caseStudies.map((item) => (
-              <article key={item.client} className="glass-panel case-card">
-                <h3>{item.client}</h3>
-                <p>
-                  <strong>Challenge:</strong> {item.challenge}
-                </p>
-                <p>
-                  <strong>Outcome:</strong> {item.outcome}
-                </p>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="content-section" data-reveal>
-          <div className="section-head">
-            <p className="eyebrow">Process</p>
-            <h2>Structured, premium delivery from concept to launch.</h2>
-          </div>
-          <ol className="process-list">
-            {processSteps.map((step) => (
-              <li key={step.title} className="glass-panel">
-                <h3>{step.title}</h3>
-                <p>{step.body}</p>
-              </li>
-            ))}
-          </ol>
-        </section>
-
-        <section className="content-section" data-reveal>
-          <div className="section-head">
-            <p className="eyebrow">Design Directions</p>
-            <h2>Three production-ready variants with distinct brand fit.</h2>
-            <p className="recommend-note">
-              Recommended: <strong>Direction B — Premium Commercial Balance</strong>.
-            </p>
-          </div>
-          <div className="direction-grid">
-            {directions.map((direction) => (
-              <article key={direction.id} className="glass-panel direction-card">
-                <header>
-                  <span>Direction {direction.id}</span>
-                  {direction.id === "B" && <em>Recommended</em>}
-                </header>
-                <h3>{direction.name}</h3>
-                <p>
-                  <strong>Color:</strong> {direction.color}
-                </p>
-                <p>
-                  <strong>Type:</strong> {direction.type}
-                </p>
-                <p>
-                  <strong>Motion:</strong> {direction.motion}
-                </p>
-                <p>
-                  <strong>Best fit:</strong> {direction.brandFit}
-                </p>
-              </article>
-            ))}
-          </div>
+          {segments.length > visibleSegments.length && (
+            <div className="segment-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setVisibleSegmentCount((count) => Math.min(count + 80, segments.length))}
+              >
+                Load more segments ({visibleSegments.length}/{segments.length})
+              </button>
+            </div>
+          )}
         </section>
 
         <section id="faq" className="content-section" data-reveal>
           <div className="section-head">
             <p className="eyebrow">FAQ</p>
-            <h2>Answers that reduce decision friction.</h2>
+            <h2>Operational details for DreamForge usage.</h2>
           </div>
           <div className="faq-list">
-            {faqs.map((item, index) => {
+            {faqItems.map((item, index) => {
               const expanded = activeFaq === index;
               return (
                 <article key={item.question} className={`glass-panel faq-item ${expanded ? "open" : ""}`}>
-                  <button
-                    type="button"
-                    onClick={() => setActiveFaq(expanded ? null : index)}
-                    aria-expanded={expanded}
-                  >
+                  <button type="button" onClick={() => setActiveFaq(expanded ? null : index)}>
                     <span>{item.question}</span>
                     <span>{expanded ? "−" : "+"}</span>
                   </button>
@@ -666,24 +720,6 @@ function App() {
               );
             })}
           </div>
-        </section>
-
-        <section className="cta-section glass-panel" data-reveal>
-          <p className="eyebrow">Final CTA</p>
-          <h2>Build a website that feels inevitable, not merely impressive.</h2>
-          <p>
-            A premium digital presence should look distinctive, read clearly, and convert with
-            confidence on every device.
-          </p>
-          <button
-            type="button"
-            className="btn btn-primary magnetic"
-            onClick={() => setContactOpen(true)}
-            onMouseMove={(event) => handleMagneticMove(event, 8)}
-            onMouseLeave={resetMagnetic}
-          >
-            Book Discovery Session
-          </button>
         </section>
       </main>
 
@@ -694,60 +730,15 @@ function App() {
         data-contract-result-path={frontendContractCompatibility.resultPath}
       >
         <div>
-          <strong>DreamForge Studio</strong>
-          <p>High-end digital product experience, from strategy to build.</p>
+          <strong>DreamForge AI Frontend</strong>
+          <p>Real simulation console and narrative output surface.</p>
         </div>
         <div className="footer-links">
-          <a href="#hero">Top</a>
-          <a href="#services">Services</a>
-          <a href="#cases">Cases</a>
-          <button type="button" onClick={() => setContactOpen(true)}>
-            Contact
-          </button>
+          <a href="#simulation">Simulation</a>
+          <a href="#architecture">Architecture</a>
+          <a href="#outputs">Outputs</a>
         </div>
       </footer>
-
-      <section className={`modal-layer ${contactOpen ? "open" : ""}`} aria-hidden={!contactOpen}>
-        <button
-          type="button"
-          className="modal-backdrop"
-          onClick={() => setContactOpen(false)}
-          aria-label="Close contact modal"
-        />
-        <div className="modal-panel glass-panel" role="dialog" aria-modal="true" aria-label="Start project">
-          <header>
-            <h3>Start a High-end Project</h3>
-            <button type="button" className="icon-button" onClick={() => setContactOpen(false)}>
-              ✕
-            </button>
-          </header>
-          <form>
-            <label>
-              Name
-              <input type="text" placeholder="Your name" />
-            </label>
-            <label>
-              Work Email
-              <input type="email" placeholder="name@company.com" />
-            </label>
-            <label>
-              Project Focus
-              <textarea
-                rows={4}
-                placeholder="Tell us your goals, scope, and timeline."
-              />
-            </label>
-            <div className="modal-actions">
-              <a className="btn btn-secondary" href="mailto:hello@dreamforge.ai">
-                Send via Email
-              </a>
-              <button type="button" className="btn btn-primary" onClick={() => setContactOpen(false)}>
-                Save Inquiry Draft
-              </button>
-            </div>
-          </form>
-        </div>
-      </section>
     </div>
   );
 }
