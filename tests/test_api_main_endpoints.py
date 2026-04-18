@@ -432,10 +432,16 @@ def test_job_progress_snapshot_recalibrates_stale_eta_for_long_llm_runs(
         "started_at": 700.0,
         "last_progress_event_at": 760.0,
         "use_llm": True,
+        "llm_expected_invocations": 90,
+        "llm_completed_invocations": 0,
+        "llm_remaining_invocations": 90,
+        "llm_avg_invocation_seconds": 2.0,
+        "llm_concurrency": 3,
+        "narrative_started_at": 760.0,
     }
     progress, eta_seconds = api_main._job_progress_snapshot(job, "running")
 
-    assert progress < 20.0
+    assert progress >= 20.0
     assert eta_seconds is not None
     assert eta_seconds > 60
 
@@ -461,7 +467,60 @@ def test_job_progress_snapshot_uses_llm_invocation_projection(patched_api, monke
 
     assert progress < 95.0
     assert eta_seconds is not None
-    assert eta_seconds >= 90
+    assert eta_seconds >= 60
+
+
+def test_job_progress_snapshot_inflates_eta_when_no_llm_completions_arrive(
+    patched_api, monkeypatch
+):
+    monkeypatch.setattr(api_main.time, "time", lambda: 1000.0)
+    job = {
+        "status": "running",
+        "phase": "narrative",
+        "progress_percent": 20.0,
+        "eta_seconds": 120,
+        "estimated_duration_seconds": 120.0,
+        "started_at": 900.0,
+        "last_progress_event_at": 920.0,
+        "use_llm": True,
+        "llm_expected_invocations": 120,
+        "llm_completed_invocations": 0,
+        "llm_remaining_invocations": 120,
+        "llm_avg_invocation_seconds": 2.0,
+        "llm_concurrency": 4,
+        "narrative_started_at": 920.0,
+    }
+    progress, eta_seconds = api_main._job_progress_snapshot(job, "running")
+
+    assert progress > 20.0
+    assert eta_seconds is not None
+    assert eta_seconds > 1000
+
+
+def test_job_progress_snapshot_can_reduce_eta_when_llm_throughput_is_fast(
+    patched_api, monkeypatch
+):
+    monkeypatch.setattr(api_main.time, "time", lambda: 1000.0)
+    job = {
+        "status": "running",
+        "phase": "narrative",
+        "progress_percent": 60.0,
+        "eta_seconds": 900,
+        "estimated_duration_seconds": 1000.0,
+        "started_at": 900.0,
+        "last_progress_event_at": 998.0,
+        "use_llm": True,
+        "llm_expected_invocations": 100,
+        "llm_completed_invocations": 80,
+        "llm_remaining_invocations": 20,
+        "llm_avg_invocation_seconds": 0.7,
+        "llm_concurrency": 5,
+        "narrative_started_at": 920.0,
+    }
+    _, eta_seconds = api_main._job_progress_snapshot(job, "running")
+
+    assert eta_seconds is not None
+    assert eta_seconds < 900
 
 
 def test_estimate_job_duration_no_llm_not_inflated_by_llm_history(patched_api):

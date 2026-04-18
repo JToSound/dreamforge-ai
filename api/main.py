@@ -2636,6 +2636,8 @@ def _job_progress_snapshot(
             llm_remaining = 0
             llm_avg_seconds = 0.0
             llm_concurrency = 1
+            llm_timeout_seconds = 20.0
+            narrative_started_at = float(job.get("narrative_started_at") or started_at)
             if use_llm:
                 try:
                     llm_expected = max(0, int(job.get("llm_expected_invocations") or 0))
@@ -2669,18 +2671,76 @@ def _job_progress_snapshot(
                     llm_concurrency = max(1, int(job.get("llm_concurrency") or 1))
                 except (TypeError, ValueError):
                     llm_concurrency = 1
+                try:
+                    llm_timeout_seconds = max(
+                        5.0, float(job.get("llm_timeout_seconds") or 20.0)
+                    )
+                except (TypeError, ValueError):
+                    llm_timeout_seconds = 20.0
+                if llm_avg_seconds <= 0.0:
+                    llm_avg_seconds = _estimate_llm_invocation_seconds(
+                        llm_timeout_seconds
+                    )
 
             if (
                 use_llm
                 and phase == "narrative"
                 and llm_expected > 0
-                and llm_remaining > 0
                 and llm_avg_seconds > 0.0
             ):
+                llm_completed = min(llm_expected, max(0, llm_completed))
+                llm_remaining = max(0, llm_expected - llm_completed)
+                if job.get("llm_remaining_invocations") is not None:
+                    try:
+                        llm_remaining = min(
+                            llm_expected,
+                            max(0, int(job.get("llm_remaining_invocations") or 0)),
+                        )
+                    except (TypeError, ValueError):
+                        llm_remaining = max(0, llm_expected - llm_completed)
+                narrative_elapsed = max(0.0, now_ts - narrative_started_at)
+                observed_avg = llm_avg_seconds
+                if llm_completed <= 0 and narrative_elapsed > 0.0:
+                    observed_avg = max(observed_avg, narrative_elapsed * 0.9)
+                elif llm_completed > 0 and stale_for > 0.0:
+                    observed_avg = max(observed_avg, stale_for * 0.8)
+                in_flight = max(0, min(llm_concurrency, llm_remaining))
+                in_flight_elapsed = (
+                    narrative_elapsed if llm_completed <= 0 else stale_for
+                )
+                partial_ratio = (
+                    min(0.98, in_flight_elapsed / max(0.5, observed_avg))
+                    if in_flight > 0
+                    else 0.0
+                )
+                effective_completed = min(
+                    float(llm_expected),
+                    float(llm_completed) + (float(in_flight) * partial_ratio),
+                )
+                effective_remaining = max(
+                    0.0, float(llm_expected) - effective_completed
+                )
                 llm_eta_projection = (
-                    float(llm_remaining) * llm_avg_seconds / float(llm_concurrency)
+                    effective_remaining * observed_avg / float(max(1, llm_concurrency))
                 ) + 3.0
-                estimated = max(estimated, elapsed + llm_eta_projection)
+                projected_total = elapsed + llm_eta_projection
+                if estimated <= 0.0:
+                    estimated = projected_total
+                else:
+                    if projected_total > (estimated * 1.2):
+                        projection_weight = 0.75
+                    elif projected_total < (estimated * 0.8):
+                        projection_weight = 0.55
+                    else:
+                        projection_weight = 0.35
+                    estimated = (estimated * (1.0 - projection_weight)) + (
+                        projected_total * projection_weight
+                    )
+                estimated = max(elapsed + 1.0, estimated)
+                llm_ratio_progress = 20.0 + (
+                    65.0 * (effective_completed / float(max(1, llm_expected)))
+                )
+                progress = max(progress, min(94.5, llm_ratio_progress))
             if stale_for >= 10.0 and progress < 99.0:
                 stale_penalty = stale_for * (0.8 if use_llm else 0.4)
                 if use_llm and llm_expected > 0 and llm_remaining > 0:
@@ -2695,7 +2755,10 @@ def _job_progress_snapshot(
                 progress = min(progress, 94.5)
             if estimated > 0.0 and progress > 0.0:
                 time_progress = min(99.0, (elapsed / estimated) * 100.0)
-                progress = min(progress, max(time_progress, progress - 4.0))
+                if use_llm and phase == "narrative":
+                    progress = max(progress, min(94.5, max(20.0, time_progress)))
+                else:
+                    progress = min(progress, max(time_progress, progress - 4.0))
             return round(progress, 2), eta
 
         eta = int(explicit_eta) if explicit_eta is not None else None
@@ -2773,6 +2836,11 @@ def _job_provenance_snapshot(
             if job.get("llm_concurrency") is not None
             else None
         ),
+        "llm_timeout_seconds": (
+            float(job["llm_timeout_seconds"])
+            if job.get("llm_timeout_seconds") is not None
+            else None
+        ),
     }
     return progress_source, eta_source, provenance
 
@@ -2804,6 +2872,8 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
             job["phase"] = phase
             job["progress_source"] = progress_source_event or "event_stream"
             job["last_progress_event_at"] = now_ts
+            if phase == "narrative" and job.get("narrative_started_at") is None:
+                job["narrative_started_at"] = now_ts
             if eta_seconds_raw is not None:
                 eta_value = max(0, int(eta_seconds_raw))
                 job["eta_seconds"] = eta_value
@@ -2846,6 +2916,10 @@ async def _run_simulation_job(job_id: str, config: SimulationConfig) -> None:
                 )
             if event.get("llm_concurrency") is not None:
                 job["llm_concurrency"] = max(1, int(event.get("llm_concurrency")))
+            if event.get("llm_timeout_seconds") is not None:
+                job["llm_timeout_seconds"] = max(
+                    5.0, float(event.get("llm_timeout_seconds"))
+                )
             if should_persist:
                 _persist_job(job_id, dict(job))
                 last_persist_ts = now_ts
@@ -3292,6 +3366,7 @@ async def simulate_night(config: SimulationConfig):
                 "llm_remaining_invocations": eligible_total_est,
                 "llm_avg_invocation_seconds": round(historical_llm_avg_seconds, 3),
                 "llm_concurrency": narrative_concurrency,
+                "llm_timeout_seconds": timeout_budget_seconds,
                 "estimated_duration_seconds": elapsed_before_narrative
                 + initial_narrative_eta_seconds,
             }
@@ -3379,6 +3454,7 @@ async def simulate_night(config: SimulationConfig):
                     "llm_remaining_invocations": llm_remaining,
                     "llm_avg_invocation_seconds": round(blended_avg_seconds, 3),
                     "llm_concurrency": narrative_concurrency,
+                    "llm_timeout_seconds": timeout_budget_seconds,
                     "estimated_duration_seconds": elapsed_total + float(eta_seconds),
                 }
             )
@@ -3747,6 +3823,10 @@ async def submit_simulation_night_async(config: SimulationConfig):
                 round(llm_avg_guess, 3) if bool(config.use_llm) else None
             ),
             "llm_concurrency": llm_concurrency if bool(config.use_llm) else None,
+            "llm_timeout_seconds": (
+                llm_timeout_seconds if bool(config.use_llm) else None
+            ),
+            "narrative_started_at": None,
         }
         _persist_job(job_id, dict(_simulation_jobs[job_id]))
     task = asyncio.create_task(_run_simulation_job(job_id, config))
